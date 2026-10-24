@@ -8,7 +8,7 @@
 //   remark  { round, file, line, text, state }                               state open | sent | dismissed
 // They are kept beside the transcript (STATE_DIR/reviews/<session>.json), each with `after`: the thread item it
 // followed when the review ran, so an opened session shows them where they happened.
-import { mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, renameSync } from "node:fs";
 import { join as joinBusy } from "../busy.js";
 import { join } from "node:path";
 import { Codex, type ThreadEvent } from "@openai/codex-sdk";
@@ -42,6 +42,15 @@ function put(id: string, it: Item, bus: Bus) {
   if (old) Object.assign(old, it); else k.items.push(it);
   bus({ type: "work.item", sessionId: id, item: old ?? it });
   save(id);
+}
+
+// the review seat's own Codex threads: they are not talks, so the sidebar's GPT rows leave them out (#182)
+export function reviewThreads(): Set<string> {
+  const out = new Set<string>();
+  let names: string[] = [];
+  try { names = readdirSync(DIR).filter((n) => n.endsWith(".json")); } catch { return out; }
+  for (const n of names) { const t = load(n.slice(0, -5)).thread; if (t) out.add(t); }
+  return out;
 }
 
 // a thread's items with the session's review items in their places (after the item each one followed)
@@ -102,7 +111,7 @@ export async function review(a: { sessionId: string; cwd: string; scope: string;
   put(id, head, bus);
   const ab = new AbortController();
   busy.set(id, ab);
-  const leave = joinBusy("review", id, round);
+  const leave = joinBusy("review", id, round, root);
   void (async () => {
     const opts = {
       model: MODEL, modelReasoningEffort: "low" as const, workingDirectory: root, skipGitRepoCheck: true,

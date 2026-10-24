@@ -2,7 +2,8 @@
 // One WebSocket on 127.0.0.1:7777 (env PORT overrides, for tests). The face (and later the doors) talk to it.
 // The full wire is in sol/PROTOCOL.md. In short:
 //
-// In:  { type: "say", text, seat?, sessionId?, model?, effort?, files?, door?, fresh? }   seat: "codex" (Home) | "claude" (Work)
+// In:  { type: "say", text, seat?, sessionId?, model?, effort?, files?, door?, fresh?, cwd?, parent? }   seat: "codex" | "claude"
+//        cwd: a new GPT talk's project folder (#182): Codex works there; none = Sol's home. parent: the talk it carries on
 //        door: "notch" | "phone": a way in outside the main window; with no sessionId it continues the door's own last
 //        conversation when it spoke less than 20 min ago, else starts one (src/doors.ts); fresh: true always starts one
 //      { type: "stop", sessionId? }      this socket's turn; with sessionId (or a draft), the Life turn on it (the notch's Stop)
@@ -63,7 +64,7 @@ import { doorOpen, tailnetOk as tailnetDoor } from "./door.js";
 import { plan as goBackPlan, goBack } from "./goback.js";
 import { join as joinBusy, idle as engineIdle, busyList, busyLine, onBusy, lockSession, relockSession, Held, letGo, refusedWhileLettingGo } from "./busy.js";
 import { createServer } from "node:http";
-import { resolve, dirname, relative, join } from "node:path";
+import { resolve, dirname, relative, join, basename } from "node:path";
 import { readFileSync, realpathSync, statSync, createReadStream, unlinkSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
@@ -72,7 +73,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { Relay, relayFor } from "./relay.js";
 import { query, createSdkMcpServer, tool, type Options, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { Codex, type ModelReasoningEffort, type ThreadEvent, type UserInput } from "@openai/codex-sdk";
-import { listThreads, openThread, codexLastUsage, threadExists, threadSettings, type Seat } from "./threads.js";
+import { listThreads, openThread, codexLastUsage, threadExists, threadSettings, codexCwd, invalidateCodex, type Seat } from "./threads.js";
 import { saveFiles, attachedLines, serveFile, servePaneImage, type FileIn } from "./files.js";
 import { setBrowserProfile, browserProfileDir, addFace, removeFace, watch, openTab, closeTab, selectTab, navigateTab, resizeTab, inputTab, inspectTab, locateTab, adoptTabs, type TurnCtx } from "./browser.js";
 import { setDeskHome, addFace as addDeskFace, removeFace as removeDeskFace, adoptDesk, actDesk, deskMsg, takeDeskLines } from "./desk.js";
@@ -86,11 +87,12 @@ import { setTitle, nameConversation, namingModel } from "./titles.js";
 import { Sample } from "./sample.js";
 import { asDoor, continueDoor, doorOf, touchDoor, type Door } from "./doors.js";
 import { runBlock, stopBlock, type Finder } from "./run.js";
-import { sessionItems, sessionInfo } from "./work/sessions.js";
+import { sessionItems, sessionInfo, setWorkHome, workFolderIn, relocated } from "./work/sessions.js";
+import { reviewThreads } from "./work/review.js";
 import { servePaneAsset } from "./work/page.js";
 import { getRun, allRuns } from "./work/runs.js";
 import { renewOnBuild } from "./renew.js";
-import { addWorkFace, removeWorkFace, handleWork, setWorkChanging } from "./work/wire.js";
+import { addWorkFace, removeWorkFace, handleWork, setWorkChanging, broadcastSessions } from "./work/wire.js";
 import { addTeamFace, removeTeamFace, handleTeam, startTeam } from "./team/wire.js";
 import { relayServer, RelayHub } from "./team/relay.js";
 import { Spool } from "./team/spool.js";
@@ -100,7 +102,7 @@ import { getTeam, speakParagraph } from "./team/settings.js";
 import { guardSpeak } from "./team/control.js";
 import { Changing } from "./changing.js";
 import { addPingFace, removePingFace, seenPing, ackPing, pingFaceIs } from "./ping.js";
-import { workState, STATE_DIR } from "./work/state.js";
+import { workState, STATE_DIR, mark } from "./work/state.js";
 import { addCreatureFace, removeCreatureFace, setRole, setPresence, setDictation, sent as creatureSent, lifeTurn, type Role } from "./creature.js";
 import { watchHealth, noteRevert, type Health } from "./health.js";
 
@@ -111,7 +113,7 @@ const PORT = Number(process.env.SOL_PORT ?? process.env.PORT ?? 7777); // SOL_PO
 const STARTED = new Date().toISOString();
 const HOST = "127.0.0.1";
 
-type Say = { type: "say"; text: string; seat?: Seat; sessionId?: string; draft?: string; model?: string; effort?: string; files?: FileIn[]; door?: Door; fresh?: boolean };
+type Say = { type: "say"; text: string; seat?: Seat; sessionId?: string; draft?: string; model?: string; effort?: string; files?: FileIn[]; door?: Door; fresh?: boolean; cwd?: string; parent?: string };
 type Stop = { type: "stop"; sessionId?: string };
 type List = { type: "list" };
 type Open = { type: "open"; seat: Seat; sessionId: string; draft?: string; resume?: boolean };
@@ -129,6 +131,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const HOME = realpathSync(process.env.SOL_HOME ?? resolve(HERE, "..", "..", "home")); // SOL_HOME: the live engine runs from its own checkout but points at the synced home/
 setBrowserProfile(process.env.SOL_PROFILE ?? browserProfileDir(HOME)); // SOL_PROFILE: tests use their own
 setDeskHome(HOME);
+setWorkHome(HOME, reviewThreads);   // Work's side lists GPT talks in folders, not Sol's own chats nor the review seat's (#182)
 setArrangeHome(HOME, (m) => everyone(m));   // the arrangement (#133): its own file in the back room, told to every face
 // every edit a seat makes to Sol's face, and every mutate and undo, goes out to every window (src/changing.ts)
 const changing = new Changing(HOME, (m) => {
@@ -158,9 +161,9 @@ const short = (s: string, n = 60) => {
   const one = s.replace(/\s+/g, " ").trim();
   return one.length > n ? one.slice(0, n - 1) + "…" : one;
 };
-// Paths inside home/ read better short.
-const nice = (p: string) => {
-  const r = p.startsWith("/") ? relative(HOME, p) : p;
+// Paths inside home/ (or the folder a GPT talk works in, #182) read better short.
+const nice = (p: string, base = HOME) => {
+  const r = p.startsWith("/") ? relative(base, p) : p;
   return r.startsWith("..") ? p : r;
 };
 
@@ -171,11 +174,11 @@ type Step = { id: string; kind: Kind; text: string; done: boolean; ok?: boolean;
 const DETAIL_CAP = 4096;
 
 // A command as Marco would type it: no shell wrapper, no absolute home/ prefix.
-function niceCmd(c: string): string {
+function niceCmd(c: string, base = HOME): string {
   let t = c.replace(/\s+/g, " ").trim();
   const m = /^(?:\/\S*\/)?(?:bash|zsh|sh)\s+-lc\s+(['"]?)([\s\S]*)\1$/.exec(t);
   if (m) t = m[2];
-  return t.split(HOME + "/").join("").split(HOME).join("home");
+  return t.split(base + "/").join("").split(base).join(base === HOME ? "home" : basename(base));
 }
 // Output in the card: head and tail of anything longer than ~4 KB.
 function trimDetail(t: string): string {
@@ -184,8 +187,8 @@ function trimDetail(t: string): string {
   return one.slice(0, DETAIL_CAP - 1300) + "\n…\n" + one.slice(-1200);
 }
 // The step for a command: the short line, and the full command in the detail when the line cut it.
-function commandStep(id: string, raw: string): { step: Step; prefix: string } {
-  const cmd = niceCmd(raw);
+function commandStep(id: string, raw: string, base = HOME): { step: Step; prefix: string } {
+  const cmd = niceCmd(raw, base);
   const shown = short(cmd, 72);
   return { step: { id, kind: "command", text: `running ${shown}`, done: false }, prefix: shown === cmd ? "" : `$ ${cmd}\n` };
 }
@@ -343,6 +346,7 @@ async function nameThread(seat: Seat, sessionId: string, first: string, answer: 
   if (!t) return; // the cut first message stays
   setTitle(sessionId, t);
   await broadcastThreads();
+  broadcastSessions();   // a GPT talk in a folder is a row in Work's side (#182): it wears the name too
 }
 const settingsMsg = () => ({
   type: "settings",
@@ -385,10 +389,10 @@ function codexFor(token: string) {
 }
 
 // A Codex item as a step, or null if it has nothing worth showing. `done` is whether the item completed.
-function codexStep(item: any, done: boolean): Step | null {
+function codexStep(item: any, done: boolean, base = HOME): Step | null {
   const id = String(item.id);
   if (item.type === "command_execution") {
-    const { step, prefix } = commandStep(id, String(item.command ?? ""));
+    const { step, prefix } = commandStep(id, String(item.command ?? ""), base);
     if (!done) return step;
     return { ...step, done: true, ok: item.exit_code === 0, detail: trimDetail(prefix + String(item.aggregated_output ?? "")) };
   }
@@ -396,7 +400,7 @@ function codexStep(item: any, done: boolean): Step | null {
     const changes: { path: string; kind: string }[] = item.changes ?? [];
     const c = changes[0];
     const verb = c?.kind === "add" ? "writing" : c?.kind === "delete" ? "deleting" : "editing";
-    const text = c ? `${verb} ${nice(c.path)}${changes.length > 1 ? ` (+${changes.length - 1})` : ""}` : "editing files";
+    const text = c ? `${verb} ${nice(c.path, base)}${changes.length > 1 ? ` (+${changes.length - 1})` : ""}` : "editing files";
     return { id, kind: "write", text, done, ok: done ? item.status !== "failed" : undefined };
   }
   if (item.type === "web_search") return { id, kind: "search", text: `searching: ${short(String(item.query ?? ""), 72)}`, done };
@@ -409,14 +413,40 @@ function codexStep(item: any, done: boolean): Step | null {
   return null;
 }
 
+// ---- a GPT talk's folder (#182) ----
+// The folder says where a talk works; the switch says who does it. A new GPT talk in a project folder runs Codex there:
+// its sandbox (workspace-write, inventory.ts) writes inside that folder only, the network is off, nothing is asked. One
+// with no folder, or with Marco's home or the root as its folder, works in Sol's home as before. A talk goes on where it
+// started: the other machine's path is the same folder in this home, a folder that moved is where it went (#129, #181),
+// and a talk whose folder is gone does not run.
+const isDir = (p: string) => { try { return statSync(p).isDirectory(); } catch { return false; } };
+const realOr = (p: string) => { try { return realpathSync(p); } catch { return p; } };
+function freshFolder(cwd?: string): string {
+  if (typeof cwd !== "string" || !cwd.startsWith("/") || !isDir(cwd)) return HOME;
+  const r = realOr(cwd);
+  return r === realOr(homedir()) || r === "/" ? HOME : r;
+}
+/** where a Codex thread goes on: Sol's home for its own chats, its folder for a talk in one, null when that is gone */
+async function codexFolderOf(sessionId: string): Promise<{ folder: string | null; recorded?: string }> {
+  const rec = await codexCwd(sessionId);
+  if (!rec) return { folder: HOME };
+  const here = workFolderIn(rec, homedir(), isDir, relocated);
+  if (!here) return { folder: null, recorded: rec };
+  const r = realOr(here);
+  return { folder: r === HOME ? HOME : r, recorded: rec };
+}
+
 async function sayCodex(conn: Conn, say: Say, abort: AbortController, saved: Awaited<ReturnType<typeof saveFiles>>, turn: TurnCtx, deskLines: string, end: End) {
   const ws = conn.ws;
+  const where = say.sessionId ? await codexFolderOf(say.sessionId) : { folder: freshFolder(say.cwd) };
+  if (!where.folder) { send(ws, { type: "error", message: `its folder is gone (${where.recorded}); start a new talk to go on` }); return; }
+  const folder = where.folder, inFolder = folder !== HOME;
   const token = randomUUID();
   turns.set(token, turn);
   const opts = {
     model: say.model,
     modelReasoningEffort: codexEffort(say.effort),
-    workingDirectory: HOME,
+    workingDirectory: folder,
     skipGitRepoCheck: true,
     sandboxMode: INV.codex.sandboxMode,
     approvalPolicy: "never" as const,
@@ -425,9 +455,10 @@ async function sayCodex(conn: Conn, say: Say, abort: AbortController, saved: Awa
   const codex = codexFor(token);
   // one writer per session (busy.ts): a Work run or another Life turn on this id is refused with the reason
   let unlock: () => void;
-  try { unlock = lockSession(say.sessionId ?? say.draft ?? token, `life:${token}`); }
+  try { unlock = lockSession(say.sessionId ?? say.draft ?? token, `life:${token}`, folder); }
   catch (err) { turns.delete(token); send(ws, { type: "error", message: (err as Held).message }); return; }
-  const leave = joinBusy("life", say.sessionId ?? say.draft ?? token, "codex");
+  // the busy entry says the folder (busy.ts busyIn): a rename (#181) or a side copy's removal waits for the turn
+  let leave = joinBusy("life", say.sessionId ?? say.draft ?? token, "codex", folder);
   const thread = say.sessionId ? codex.resumeThread(say.sessionId, opts) : codex.startThread(opts);
   let sessionId = say.sessionId;
   const seen = new Map<string, string>(); // agent_message id -> text already sent
@@ -457,11 +488,22 @@ async function sayCodex(conn: Conn, say: Say, abort: AbortController, saved: Awa
     for await (const e of events as AsyncIterable<ThreadEvent>) {
       if (e.type === "thread.started") {
         sessionId = e.thread_id;
-        if (!say.sessionId) unlock = relockSession(say.draft ?? token, sessionId, `life:${token}`);
+        if (!say.sessionId) {
+          unlock = relockSession(say.draft ?? token, sessionId, `life:${token}`, folder);
+          // the busy entry moves onto the thread's id (its row shows running); joined before the draft's leaves, so the
+          // count never touches zero mid-turn (a renew waits on zero)
+          const draftLeave = leave; leave = joinBusy("life", sessionId, "codex", folder); draftLeave();
+        }
         turn.sessionId = sessionId;
         conn.sessionId = sessionId;
-        if (!say.sessionId) { adoptTabs(say.draft, sessionId); adoptDesk(say.draft, sessionId); listSoon(); }
-        send(ws, { type: "start", sessionId, seat: "codex" });
+        if (!say.sessionId) {
+          adoptTabs(say.draft, sessionId); adoptDesk(say.draft, sessionId);
+          // a talk carried on from another (the switch, #182) nests under it in the side
+          if (say.parent && /^[A-Za-z0-9_-]{8,80}$/.test(say.parent)) mark(sessionId, { parent: say.parent });
+          if (!inFolder) listSoon();
+        }
+        if (inFolder) { invalidateCodex(); broadcastSessions(); }   // the row is in its folder at once
+        send(ws, { type: "start", sessionId, seat: "codex", ...(inFolder ? { cwd: folder } : {}) });
       } else if (e.type === "item.started" || e.type === "item.updated" || e.type === "item.completed") {
         const done = e.type === "item.completed";
         if (e.item.type === "agent_message") {
@@ -469,7 +511,7 @@ async function sayCodex(conn: Conn, say: Say, abort: AbortController, saved: Awa
         } else {
           // One step when it starts, one when it completes. Codex files notices as "error" items too
           // (e.g. "resumed with another model"): a note, not part of the answer. A turn that really fails says so on turn.failed.
-          const s = codexStep(e.item, done);
+          const s = codexStep(e.item, done, folder);
           if (s && (done || !announced.has(s.id))) {
             announced.add(s.id);
             step(s);
@@ -495,6 +537,7 @@ async function sayCodex(conn: Conn, say: Say, abort: AbortController, saved: Awa
   } finally {
     turns.delete(token);
     unlock(); leave();
+    if (inFolder) { invalidateCodex(); broadcastSessions(); }   // the row's time, and it is not running any more
   }
 }
 
@@ -936,10 +979,13 @@ wss.on("connection", (ws, req) => {
       for (const m of msgs) for (const f of m.files ?? []) f.url = `http://${HOST}:${PORT}${f.url}`;
       const settings = sessionId ? await threadSettings(HOME, seat, sessionId).catch(() => ({})) : {};
       const u = seat === "codex" && sessionId ? await codexLastUsage(String(sessionId)).catch(() => null) : null;
+      // a GPT talk in a project folder says which (#182): the face shows "in <folder>" and its next say goes on there
+      const at = seat === "codex" && sessionId ? await codexFolderOf(String(sessionId)).catch(() => ({ folder: HOME })) : { folder: HOME };
+      const where = at.folder === null ? { cwd: (at as { recorded?: string }).recorded, gone: true } : at.folder !== HOME ? { cwd: at.folder } : {};
       // from here on nothing waits: the relay's events cannot slip in between the record and the replay
       const r = holder();
       if (r) msgs = r.thread(msgs);
-      send(ws, { type: "thread", seat, sessionId: sessionId ?? r?.sessionId, msgs, ...settings });
+      send(ws, { type: "thread", seat, sessionId: sessionId ?? r?.sessionId, msgs, ...settings, ...where });
       if (seat === "codex") {
         // the ring should be right the moment a conversation opens, not after its next turn
         conn.chars = msgs.reduce((n, m) => n + m.text.length, 0);
@@ -994,6 +1040,7 @@ wss.on("connection", (ws, req) => {
       if (typeof m.sessionId === "string" && /^[A-Za-z0-9_-]+$/.test(m.sessionId)) {
         setTitle(m.sessionId, String(m.title ?? ""));
         await broadcastThreads();
+        broadcastSessions();   // a GPT talk in a folder is named in Work's side too (#182)
       }
     } else if (msg.type === "voice.sample") {
       sample?.cancel();

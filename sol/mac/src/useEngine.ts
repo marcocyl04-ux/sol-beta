@@ -199,6 +199,12 @@ export function useEngine() {
     return () => { window.clearInterval(t); window.removeEventListener("pagehide", go); };
   }, [send]);
   const setSession = (id?: string) => { sessionRef.current = id; setSessionId(id); };
+  // a GPT talk's project folder (#182): where a new talk on this box works, and where an opened one works; none is
+  // Sol's home. `parent`: the talk a new one carries on from (the switch), marked when it starts
+  const [cwd, setCwdState] = useState<string | undefined>();
+  const cwdRef = useRef<string | undefined>(undefined);
+  const parentRef = useRef<string | undefined>(undefined);
+  const setCwd = (c?: string) => { cwdRef.current = c; setCwdState(c); };
   const reopened = useRef(false);
   // A voice sample ends when the engine says so and the last chunk has played.
   const sampleOver = useCallback((later = false) => {
@@ -301,7 +307,7 @@ export function useEngine() {
       if (m.type === "health") { setHealth(m.health as Health); return; }
       if (m.type === "goback.plan") { setGoBackPlan({ engine: m.engine ?? null, face: m.face ?? null, line: String(m.line ?? "") }); return; }
       if (m.type === "goback.done") { setNotice(m.ok ? "going back to the last good Sol" : "could not go back: " + String((m.lines ?? []).slice(-1)[0] ?? "")); window.clearTimeout(noticeTimer.current); noticeTimer.current = window.setTimeout(() => setNotice(""), 60_000); return; }   // Marco pressed go back (#18)
-      if (m.type === "start") { if (m.sessionId) setSession(m.sessionId); }
+      if (m.type === "start") { if (m.sessionId) setSession(m.sessionId); if (m.cwd) setCwd(m.cwd); parentRef.current = undefined; }
       else if (m.type === "delta") {
         setMsgs((prev) => {
           const last = prev[prev.length - 1];
@@ -352,6 +358,7 @@ export function useEngine() {
       else if (m.type === "thread") {
         setSeatState(m.seat); save("sol.seat", m.seat);
         setSession(m.sessionId);
+        setCwd(typeof m.cwd === "string" ? m.cwd : undefined); parentRef.current = undefined;
         // the conversation's own record says what it last ran on; the global picks are only defaults for a new one
         if (m.model) setModelPick((p) => ({ ...p, [m.seat as Seat]: m.model }));
         if (m.effort && EFFORTS.includes(m.effort)) setEffortState(m.effort as Effort);
@@ -378,12 +385,20 @@ export function useEngine() {
 
   // asked while a turn or a call runs: one word on the notice line, not silence
   const BUSY = "a turn is running: stop it first (Esc)", ON_CALL = "a call is on: hang up first";
-  const fresh = useCallback((to?: Seat) => {
-    if (busy || callState !== "off") { flash(busy ? BUSY : ON_CALL); return; }
+  const fresh = useCallback((to?: Seat, at?: { cwd?: string; parent?: string }) => {
+    if (busy || callState !== "off") { flash(busy ? BUSY : ON_CALL); return false; }
     setSession(undefined); setMsgs([]); setContext(0); setDraft(crypto.randomUUID());
+    setCwd(at?.cwd); parentRef.current = at?.parent;
     const st = settingsRef.current;
     applyDefaults(st, to ?? st?.defaults.seat ?? seatRef.current, !!to);
+    return true;
   }, [busy, callState, applyDefaults, flash]);
+  // a new talk on `to` in a project folder (#182), on a model of its own if named; `parent` when it carries one on
+  const freshIn = (to: Seat, at: { cwd?: string; parent?: string }, m?: string) => {
+    if (!fresh(to, at)) return false;
+    if (m) setModelPick((p) => { const n = { ...p, [to]: m }; save("sol.model", n); return n; });
+    return true;
+  };
 
   const pickSeat = (next: Seat) => {
     if (busy || callState !== "off" || next === seat) return;
@@ -410,6 +425,8 @@ export function useEngine() {
     send({
       type: "say", text: lead ? text + "\n\n" + lead.trim() : text, seat, sessionId: sessionRef.current,
       draft: sessionRef.current ? undefined : draft, model, effort,
+      ...(!sessionRef.current && cwdRef.current ? { cwd: cwdRef.current } : {}),
+      ...(!sessionRef.current && parentRef.current ? { parent: parentRef.current } : {}),
       files: files.length ? files.map(({ name, mime, dataBase64 }) => ({ name, mime, dataBase64 })) : undefined,
     });
     return true;
@@ -459,7 +476,7 @@ export function useEngine() {
   const desk = desks[sessionId ?? draft] ?? NO_CARDS;
   const arrange = useCallback((patch: object) => { setRefused(null); send({ type: "arrange.set", patch }); }, [send]);
   const undo = useCallback(() => { setUndoNote(null); send({ type: "arrange.undo" }); }, [send]);
-  return { msgs, busy, up, context, win, parts, threads, models, info, efforts, seat, model, effort, sessionId, draft, tabs, desk, pin, deskAct, notice, callState,
+  return { msgs, busy, up, context, win, parts, threads, models, info, efforts, seat, model, effort, sessionId, draft, cwd, freshIn, tabs, desk, pin, deskAct, notice, callState,
     settings, engineInfo, health, arrangement, arrange, refused, undoNote, undo, goBackPlan, sampling, setSettings, hearVoice, rename,
     say, stop, open, fresh, pickSeat, pickModel, pickSeatModel, pickEffort, hear, call, flash, send, subscribe, subscribeFrames, heardCb, partialCb };
 }

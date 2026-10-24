@@ -6,6 +6,8 @@
 // says the old place, and files under the new one. Scratch dirs drop out; a folder that is not here stays, marked gone,
 // but a folder whose sessions are all gone drops out too unless the stale pref is on. A folder wears its own name on the
 // disk (#181: renaming it in the side renames the folder, rename.ts), or parent/name when two listed share one.
+// A GPT talk in a folder (a Codex thread whose cwd is not Sol's home, threads.ts codexTalks, #182) files the same way,
+// beside Claude's, with seat "codex": the face tags it gpt and opens it as a talk with the GPT seat.
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -16,11 +18,15 @@ import { copyOf } from "./copies.js";
 import { heldElsewhere, type Holder } from "./holders.js";
 import { lastSaid } from "./said.js";
 import { inHome, machineOf, twinIn, type Machine } from "../home.js";
+import { codexTalks } from "../threads.js";
+import { getTitles } from "../titles.js";
 
 export type WorkSession = {
   id: string; title: string; cwd: string; project: string; worktree?: string; branch?: string; machine?: Machine;
   updatedAt: number; createdAt?: number; size?: number; tag?: string; gone?: boolean;
   held?: Holder;   // open in another live process (the Claude app, another Sol): read-only here
+  seat?: "codex";  // a GPT talk (#182); a Claude session has none
+  running?: boolean;   // a GPT talk with a turn going (busy.ts; Claude's say so through runs)
 } & Marks;
 export type Project = { path: string; name: string; count: number; added?: boolean; group?: string };   // group: the group the folder sits in
 export type { Machine };
@@ -71,19 +77,33 @@ async function all(): Promise<SDKSessionInfo[]> {
   return list;
 }
 
-export async function workSessions(): Promise<{ sessions: WorkSession[]; projects: Project[] }> {
-  return fileSessions(await all());
+// GPT talks in folders (#182): Sol's home (its own chats stay Life's) and the threads that are not talks (`skip`, the
+// review seat's) are set once by the engine
+let gptHome: string | null = null, gptSkip: () => Set<string> = () => new Set();
+export function setWorkHome(home: string, skip?: () => Set<string>) { gptHome = home; if (skip) gptSkip = skip; }
+export type GptInfo = { sessionId: string; cwd: string; summary: string; lastModified: number; fileSize?: number };
+async function gptTalks(): Promise<GptInfo[]> {
+  if (!gptHome) return [];
+  const names = getTitles();   // Sol's own name for a talk (nameThread) wins over the cut first message
+  return (await codexTalks(gptHome, gptSkip())).map((t) => ({ sessionId: t.id, cwd: t.cwd, summary: names[t.id] || t.title || "new talk", lastModified: t.updatedAt, fileSize: t.size }));
 }
 
-// the SDK's list filed by folder, with Sol's marks and groups on it (no reading of ~/.claude here: tests feed it)
-export function fileSessions(list: SDKSessionInfo[]): { sessions: WorkSession[]; projects: Project[] } {
+export async function workSessions(): Promise<{ sessions: WorkSession[]; projects: Project[] }> {
+  const [claude, gpt] = await Promise.all([all(), gptTalks().catch(() => [])]);
+  return fileSessions(claude, gpt);
+}
+
+// the SDK's list filed by folder, with Sol's marks and groups on it (no reading of ~/.claude here: tests feed it),
+// and the GPT talks beside it, filed by the same rules
+export function fileSessions(list: SDKSessionInfo[], gpt: GptInfo[] = []): { sessions: WorkSession[]; projects: Project[] } {
   const st = workState(), stale = prefs().stale;
   const hidden = new Set(st.hidden), byHand = new Set(st.folders);
   let out: WorkSession[] = [];
   const counts = new Map<string, number>();
   const here = new Set<string>();   // folders with at least one session whose folder is still there
   const at = movedTo(st.moved ?? {});
-  for (const s of list) {
+  const both: (SDKSessionInfo & { gpt?: true })[] = [...list, ...gpt.map((g) => ({ ...g, gpt: true as const }))];
+  for (const s of both) {
     if (!s.cwd) continue;
     const cwd = at(s.cwd);   // a folder that moved: the session is in its new place (its transcript still says the old one)
     const w = copyOf(cwd);
@@ -98,10 +118,13 @@ export function fileSessions(list: SDKSessionInfo[]): { sessions: WorkSession[];
       id: s.sessionId, title: s.customTitle || s.summary || s.firstPrompt || "untitled", cwd, project,
       ...(machineOf(cwd) ? { machine: machineOf(cwd) } : {}),
       ...(w ? { worktree: w.name } : {}), ...(gone ? { gone: true } : {}), ...(s.gitBranch ? { branch: s.gitBranch } : {}),
-      // the row's time is the last message, not the file: the Claude app writes bookkeeping into idle transcripts (#45)
-      updatedAt: lastSaid(transcript(s.sessionId, cwd, s.cwd), s.lastModified), createdAt: s.createdAt, size: s.fileSize, ...(s.tag ? { tag: s.tag } : {}),
+      // the row's time is the last message, not the file: the Claude app writes bookkeeping into idle transcripts (#45).
+      // A Codex rollout is only written by its talk: its time is the file's
+      updatedAt: s.gpt ? s.lastModified : lastSaid(transcript(s.sessionId, cwd, s.cwd), s.lastModified), createdAt: s.createdAt, size: s.fileSize, ...(s.tag ? { tag: s.tag } : {}),
+      ...(s.gpt ? { seat: "codex" as const } : {}),
       ...(st.marks[s.sessionId] ?? {}),
     });
+    if (s.gpt) continue;   // the holders are Claude processes
     const h = heldElsewhere(s.sessionId);
     if (h) out[out.length - 1].held = h;
   }

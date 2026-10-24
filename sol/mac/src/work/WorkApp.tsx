@@ -32,7 +32,8 @@ import { seenSession } from "../renovation";
 import { BUTTONS, MORE, button, keyIs, type ButtonCtx, type ButtonDef, type Mark as Marked, type Talk } from "../buttons";
 import { Rail } from "../buttons/Rail";
 import { pressed } from "../buttons/usage";
-import { LifeTalk } from "../LifeTalk";
+import { LifeTalk, putInChatBox } from "../LifeTalk";
+import { seatPick, folderIn } from "./seats";
 import { readOpen, type Open } from "../migrate";
 import "./work.css";
 
@@ -63,7 +64,7 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
   const [kind, setKind] = useState<Kind>(() => (solo ? "session" : readOpen(localStorage).kind));
   const chat = kind === "chat";
   const wOpen = useCallback((id: string) => { setKind("session"); w0.open(id); }, [w0.open]); // eslint-disable-line react-hooks/exhaustive-deps
-  const wFresh = useCallback((cwd?: string) => { setKind("session"); w0.fresh(cwd); }, [w0.fresh]); // eslint-disable-line react-hooks/exhaustive-deps
+  const wFresh = useCallback((cwd?: string, o?: { parent?: string }) => { setKind("session"); w0.fresh(cwd, o); }, [w0.fresh]); // eslint-disable-line react-hooks/exhaustive-deps
   const w: Work = { ...w0, open: wOpen, fresh: wFresh };
   // a code block's run cell sends for the session showing (run.ts); the engine reads it from the Work transcript (a chat sets its own)
   useEffect(() => { if (!chat) setRunner({ send: e.send, seat: "claude", sessionId: w.current ?? null, work: true }); }, [e.send, w.current, chat]);
@@ -126,8 +127,35 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
   // a chat: one from the side, or a new one (its seat picked under the box)
   const openChat = (t: Thread) => { want.current = null; setKind("chat"); setView("chat"); if (t.sessionId !== e.sessionId) e.open(t); };
   const freshChat = () => { want.current = null; setKind("chat"); setView("chat"); if (e.sessionId || e.msgs.length) e.fresh(); };
-  // a new session's picker, Codex or a GPT model picked: a new chat on that seat (sessions run on Claude Code, #141)
-  const seatChat = (s: Seat, m?: string) => { want.current = null; setKind("chat"); setView("chat"); e.pickSeatModel(s, m, !!(e.sessionId || e.msgs.length)); };
+  // The folder says where a talk works, the switch says who does it (#182; work/seats.ts). Nothing said yet: a GPT pick
+  // in a folder is a new GPT talk that runs Codex there, with no folder ("~", none) a chat in Sol's home as before (#141);
+  // a Claude pick from a GPT talk is a new session in its folder. A talk under way is carried on: a new talk on the
+  // other seat, in the same folder, nested under it, with the gist of it in its box for Marco to send (the engine reads
+  // it, work.switch). The talk itself is left as it is
+  const switchSeat = async (at: { on: Seat; id?: string | null; cwd?: string | null }, s: Seat, m?: string) => {
+    const p = seatPick(s, at);
+    if (p.kind === "same") return;
+    if (p.kind === "new") {
+      if (p.seat === "claude") { fresh(p.cwd); if (m) w.adjust({ model: m }); return; }
+      want.current = null; setKind("chat"); setView("chat");
+      if (p.cwd) e.freshIn("codex", { cwd: p.cwd }, m); else e.pickSeatModel("codex", m, !!(e.sessionId || e.msgs.length));
+      return;
+    }
+    if (p.from === "codex" && e.busy) { e.flash("a turn is running: stop it first (Esc)"); return; }
+    const r = await w.ask<{ brief?: string; cwd?: string; parent?: string; error?: string }>("work.switch", { sessionId: p.id, seat: p.from, title });
+    if (r.error || !r.brief) { e.flash(r.error ?? "this talk could not be carried over"); return; }
+    if (p.from === "claude") {
+      want.current = null;
+      if (!e.freshIn("codex", { cwd: folderIn(r.cwd), parent: r.parent }, m)) return;
+      putInChatBox(r.brief); setKind("chat"); setView("chat");
+    } else {
+      setView("chat"); w.fresh(r.cwd, { parent: r.parent }); if (m) w.adjust({ model: m });
+      setDraft({ text: r.brief, atts: [] }); requestAnimationFrame(() => box.current?.focus());
+    }
+  };
+  const seatChat = (s: Seat, m?: string) => void switchSeat({ on: "claude", cwd: w.freshCwd }, s, m);               // a new session's box
+  const sessionSwitch = (s: Seat, m?: string) => void switchSeat({ on: "claude", id: w.live, cwd: w.freshCwd }, s, m);   // a running one's
+  const chatSwitch = (s: Seat, m?: string) => void switchSeat({ on: e.seat, id: e.sessionId, cwd: e.cwd }, s, m);      // a GPT talk's
   // the talk open last comes back from sol.home.open, the one place it is kept: useWork starts on its session, useEngine
   // reopens its chat on connect. Until that chat is back (or another talk is opened) nothing is written over it
   const want = useRef<string | null>(solo ? null : (() => { const o = readOpen(localStorage); return o.kind === "chat" ? o.id : null; })());
@@ -289,7 +317,7 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cwd = w.thread?.cwd ?? (w.live ? w.sessions.find((s) => s.id === w.live)?.cwd : w.freshCwd);
-  const title = chat ? (e.sessionId ? e.threads.find((t) => t.sessionId === e.sessionId)?.title ?? "" : "new chat")
+  const title = chat ? (e.sessionId ? e.threads.find((t) => t.sessionId === e.sessionId)?.title ?? w.sessions.find((s) => s.id === e.sessionId)?.title ?? "" : e.cwd ? "new talk" : "new chat")
     : w.live ? (w.sessions.find((s) => s.id === w.live)?.title ?? w.thread?.title ?? "") : "new session";
   const branch = w.thread?.branch;
   // the thread map: asked for the open session; a split (two writers went on) shows its key in the bar
@@ -378,6 +406,7 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
         </button>}
         <div className="wtitle" data-tauri-drag-region>
           <span className="tt">{title || "untitled"}</span>
+          {chat && e.cwd && <span className="where" title={e.cwd}>{base(e.cwd)}</span>}
           {cwd && !chat && <span className="where" title={cwd}>{base(cwd)}{branch ? ` · ${branch}` : !w.live && w.copy ? " · a side copy" : ""}</span>}
         </div>
         <div className="spacer" data-tauri-drag-region />
@@ -394,7 +423,7 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
           {view === "settings" ? (
             <Site name="settings"><Settings s={e.settings} stale={false} info={e.engineInfo} up={e.up} health={e.health} goBack={e.goBackPlan} send={e.send} models={e.models} efforts={e.efforts} sampling={e.sampling} onSet={e.setSettings} onHear={e.hearVoice}
               first="work" more={(o, t) => <WorkDrawers w={w} open={o} toggle={t} flash={e.flash} />} onClose={() => setView("chat")} /></Site>
-          ) : chat ? <LifeTalk key="chat" e={e} mark={chatMark} /> : (<>
+          ) : chat ? <LifeTalk key="chat" e={e} mark={chatMark} onSwitch={chatSwitch} /> : (<>
             <Site name="talk">
             <div className="talk-wrap">
               <div className="talk" ref={talk} onContextMenu={onTalkMenu}>
@@ -412,7 +441,7 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
             </div>
             </Site>
             <Site name="composer"><Composer w={w} e={e} busy={busy} working={working} cwd={cwd} asideOn={asideOn} setAsideOn={setAsideOn} box={box}
-              onSent={() => stick.current?.glide()} onRec={setRec} d={draft} setD={setDraft} toChat={seatChat} /></Site>
+              onSent={() => stick.current?.glide()} onRec={setRec} d={draft} setD={setDraft} toChat={seatChat} switchTo={sessionSwitch} /></Site>
           </>)}
           </div>
           {beside && view === "chat" && !chat && (

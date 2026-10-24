@@ -2,7 +2,10 @@
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { renameSession, deleteSession, forkSession } from "@anthropic-ai/claude-agent-sdk";
-import { workSessions, withRuns, sessionItems, sessionInfo, invalidate, watchSessions, topicsFor, relocated } from "./sessions.js";
+import { workSessions, withRuns, sessionItems, sessionInfo, invalidate, watchSessions, topicsFor, relocated, workFolderIn } from "./sessions.js";
+import { gist, saidOf, type Said } from "./gist.js";
+import { openThread, codexCwd } from "../threads.js";
+import { statSync } from "node:fs";
 import { pickTopic } from "../titles.js";
 import { workSay, getRun, allRuns, lastInit, setChanging, workDefaults, type WorkSay } from "./runs.js";
 export { setChanging as setWorkChanging };
@@ -14,6 +17,7 @@ import { setWorkHooks, type Start } from "./tools.js";
 import { aside } from "./aside.js";
 import { watchHolders, holders } from "./holders.js";
 import { machineOf } from "../home.js";
+import { busyIn, busyList } from "../busy.js";
 import { threadView, forkHere, reconcile } from "./reconcile.js";
 import { fileHits, folderOf, tree } from "./files.js";
 import { review, stopReview, markReview, withReviews } from "./review.js";
@@ -33,7 +37,10 @@ const everyone = (m: object) => { for (const f of faces.keys()) f.send(m); };
 let pending: NodeJS.Timeout | undefined;
 async function sessionsMsg() {
   const runs = allRuns().map((r) => r.info());
-  const { sessions, projects } = withRuns(await workSessions(), runs);   // a run the list does not know yet shows at once (#111)
+  const filed = withRuns(await workSessions(), runs);   // a run the list does not know yet shows at once (#111)
+  // a GPT talk with a turn going says so on its row (#182): the busy counter has it under the thread's id
+  const talking = new Set(busyList().filter((j) => j.kind === "life").map((j) => j.id));
+  const sessions = filed.sessions.map((s) => (s.seat === "codex" && talking.has(s.id) ? { ...s, running: true } : s)), projects = filed.projects;
   const st = workState();
   return { type: "work.sessions", sessions, projects: await withMine(projects), groups: st.groups, order: st.order, runs };
 }
@@ -92,7 +99,8 @@ function startSweep() {
 }
 
 const inPath = (p: string, dir: string) => p === dir || p.startsWith(dir + "/");
-const liveIn = (path: string) => allRuns().some((r) => inPath(r.cwd, path));
+// a Work run, or any job that says its folder (busy.ts: a GPT talk in a folder, #182; a review)
+const liveIn = (path: string) => allRuns().some((r) => inPath(r.cwd, path)) || busyIn(path).length > 0;
 
 // a folder renamed on the disk from the side (#181, rename.ts): what runs where, what the side lists, where Sol runs from
 const MACHINE = { mac: "the Mac", nucbox: "the NucBox" } as const;
@@ -103,6 +111,9 @@ async function renameNow(path: string, name: string) {
     const r = allRuns().find((r) => inPath(r.cwd, p));
     if (r) return titled(r.id);
     if (allTerms().some((t) => t.alive && inPath(t.cwd, p))) return "a terminal in Sol";
+    // a GPT talk with a turn going in the folder (#182), a review reading it: the busy counter knows their folders
+    const job = busyIn(p)[0];
+    if (job) return job.kind === "review" ? "a review" : sessions.some((s) => s.id === job.id) ? titled(job.id) : "a GPT talk";
     for (const [id, hs] of holders()) for (const h of hs) if (h.cwd && inPath(h.cwd, p)) return h.name ? `"${h.name}"` : titled(id);
   };
   const here = machineOf(homedir());
@@ -282,9 +293,29 @@ export async function handleWork(w: Wire, m: any) {
       const said: { who: string; text: string }[] = Array.isArray(m.said) ? m.said : [];
       if (!said.length) return reply({ error: "that conversation is empty or not there" });
       mark(sid(m.sessionId), { mode: "work" });
-      let brief = said.slice(-14).map((x) => `${x.who === "me" ? "Marco" : "Sol"}: ${String(x.text).trim().slice(0, 1400)}`).join("\n\n");
-      if (brief.length > 9000) brief = "…" + brief.slice(-9000);
-      return reply({ brief: `Carried over from a Life conversation${m.title ? ` ("${String(m.title).slice(0, 120)}")` : ""}. Where it stood:\n\n${brief}\n\nCarry on from here in Work.` });
+      return reply({ brief: gist(said, { title: m.title, from: "a Life conversation", to: "in Work" }) });
+    }
+    case "work.switch": {   // the switch flipped mid-talk (#182): a new talk on the other seat, in the same folder, carries on
+      // from this one. The engine only reads: the gist of the talk and where it works, for the face to put in the new
+      // talk's box (Marco sends it himself) with this talk as its parent. Nothing on this talk changes.
+      const reply = (o: object) => w.send({ type: "work.switch", rid: m.rid, ...o });
+      const id = sid(m.sessionId), from = m.seat === "codex" ? "codex" : "claude";
+      const isDir = (p: string) => { try { return statSync(p).isDirectory(); } catch { return false; } };
+      let said: Said[] = [], at: string | null | undefined;
+      if (from === "claude") {
+        const run = getRun(id);
+        said = saidOf(run ? run.items.list : (await sessionItems(id).catch(() => null))?.list ?? []);
+        at = run?.cwd ?? (await sessionInfo(id))?.cwd;
+      } else {
+        said = await openThread("", "codex", id).catch(() => []);
+        at = await codexCwd(id);
+      }
+      if (!said.length) return reply({ error: "that talk is empty or not there" });
+      const cwd = at ? workFolderIn(at, homedir(), isDir, relocated) : undefined;
+      if (!cwd) return reply({ error: "its folder is gone" });
+      const title = typeof m.title === "string" && m.title ? m.title : (await workSessions()).sessions.find((s) => s.id === id)?.title;
+      const [was, now] = from === "claude" ? ["Claude", "GPT"] : ["GPT", "Claude"];
+      return reply({ brief: gist(said, { title, from: `a talk with ${was}`, to: `with ${now}`, you: was }), cwd, parent: id, seat: from === "claude" ? "codex" : "claude" });
     }
     case "work.adjust":
       return getRun(sid(m.sessionId))?.adjust(m);

@@ -100,7 +100,7 @@ export class Run {
   /** something is going on: a turn, or background agents that will wake the main thread when they hand back */
   get working() { return this.busy || this.tasks.length > 0; }
   constructor(public id: string, public cwd: string, public model: string, public effort: string, public mode: PermissionMode, public fast: boolean, private bus: Bus, history?: Items) {
-    this.unlock = lockSession(id, "work");   // throws when Life is writing it: the caller tells the face
+    this.unlock = lockSession(id, "work", cwd);   // throws when Life is writing it: the caller tells the face
     this.items = new Items((it) => this.bus({ type: "work.item", sessionId: id, item: it }), (iid, text) => this.bus({ type: "work.delta", sessionId: id, id: iid, text }));
     if (history) this.items.adopt(history);
   }
@@ -221,7 +221,7 @@ export class Run {
         if (tasks) this.setTasks(tasks);
         if (!this.busy && startsTurn(a)) {
           this.busy = true;
-          this.leave ??= joinBusy("work", this.id, this.mode);
+          this.leave ??= joinBusy("work", this.id, this.mode, this.cwd);
           this.tell();
         }
         if (a.type === "system" && a.subtype === "init") { this.init = a; lastInit = a; this.mode = a.permissionMode ?? this.mode; this.tell(); void this.measure("summary"); }
@@ -299,7 +299,7 @@ export class Run {
   // the face shows them; when the last hands back with the main thread idle, the run is idle and the clock restarts
   private setTasks(next: BgTask[]) {
     this.tasks = next;
-    if (next.length) this.holdTasks ??= joinBusy("work", this.id, "agents");
+    if (next.length) this.holdTasks ??= joinBusy("work", this.id, "agents", this.cwd);
     else { this.holdTasks?.(); this.holdTasks = null; if (!this.busy) this.rest(); }
     this.tell();
   }
@@ -328,7 +328,7 @@ export class Run {
     // said while the main thread works: the run keeps it until the turn ends (#51), the face shows it queued
     if (queued) this.held.keep(msg); else this.inbox.push(msg);
     this.busy = true;
-    this.leave ??= joinBusy("work", this.id, this.mode);
+    this.leave ??= joinBusy("work", this.id, this.mode, this.cwd);
     this.failed = false;
     this.tell();
   }
@@ -340,7 +340,7 @@ export class Run {
     clearTimeout(this.idle);
     for (const m of all) { this.inbox.push(m); this.unqueue(String(m.uuid)); }
     this.busy = true;
-    this.leave ??= joinBusy("work", this.id, this.mode);
+    this.leave ??= joinBusy("work", this.id, this.mode, this.cwd);
     this.failed = false;
     this.tell();
   }

@@ -1,16 +1,18 @@
 // Past conversations, read straight from where the two CLIs keep them. READ ONLY: nothing here
-// ever writes under ~/.codex or ~/.claude. Nothing is cached; it is a local read each time.
+// ever writes under ~/.codex or ~/.claude. Claude's are a local read each time; Codex's go through one index (below),
+// read once per file, because Work's sidebar lists Codex talks in every folder too (#182).
 //
 // Codex:  ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl      (first line is session_meta with the cwd)
 // Claude: ~/.claude/projects/<home path, every non-alphanumeric -> "-">/<session>.jsonl
 
-import { createReadStream } from "node:fs";
+import { createReadStream, realpathSync } from "node:fs";
 import { readdir, stat, realpath } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 import { getTitles } from "./titles.js";
 import { twinIn } from "./home.js";
+import { moved } from "./work/state.js";
 
 export type Seat = "codex" | "claude";
 export type Thread = { seat: Seat; sessionId: string; title: string; updatedAt: string };
@@ -82,45 +84,114 @@ function codexUserText(o: any): string | null {
   return null;
 }
 
-async function codexMeta(file: string): Promise<{ cwd?: string; id?: string }> {
-  let meta: { cwd?: string; id?: string } = {};
-  await eachLine(file, (o) => {
-    meta = { cwd: o?.payload?.cwd, id: o?.payload?.id };
-    return true; // first line only
-  });
-  return meta;
+// The index: every rollout's first line says where it ran (cwd) and what started it (originator: codex_sdk_ts is Sol,
+// codex_cli_rs a Terminal, codex_exec a one-shot `codex exec`, codex_work_desktop the ChatGPT app). A file's first line
+// and first message never change, so each file is read once and kept; a file that grew only gets its time again. The
+// folder list is walked again at most every CODEX_TTL, or at once after a Sol turn (invalidateCodex).
+export type CodexTalk = {
+  id: string; file: string; cwd: string;   // cwd: as recorded (the other machine's home, for a talk made there)
+  real: string;                            // the same folder in this home, links resolved: what is compared
+  originator: string; title: string; updatedAt: number; size: number;
+};
+const CODEX_TTL = 8_000;
+const TITLE_SCAN = 2_000;   // lines read looking for the first thing Marco said (it comes in the first few)
+const entries = new Map<string, CodexTalk & { mtimeMs: number }>();
+const reals = new Map<string, string>();
+let index: { at: number; list: Promise<CodexTalk[]> } | null = null;
+export const invalidateCodex = () => { index = null; };
+
+async function realOf(cwd: string): Promise<string> {
+  // a talk started on the other machine records that machine's home (#65)
+  const t = twinIn(cwd, homedir());
+  const had = reals.get(t);
+  if (had) return had;
+  try { const r = await realpath(t); reals.set(t, r); return r; } catch { return t; }   // a folder not here (yet) is asked again
+}
+
+async function codexEntry(file: string): Promise<(CodexTalk & { mtimeMs: number }) | null> {
+  let st;
+  try { st = await stat(file); } catch { return null; }
+  const had = entries.get(file);
+  if (had && had.mtimeMs === st.mtimeMs) return had;
+  if (had && had.title) { const e = { ...had, mtimeMs: st.mtimeMs, updatedAt: st.mtimeMs, size: st.size }; entries.set(file, e); return e; }
+  let meta: any = null, title = "";
+  await eachLine(file, (o, i) => {
+    if (i === 0) { meta = o?.payload ?? {}; return; }
+    const t = codexUserText(o);
+    if (t && !injected(t) && t.trim()) { title = titleOf(t); return true; }
+    if (i > TITLE_SCAN) return true;
+  }).catch(() => {});
+  if (typeof meta?.cwd !== "string" || !meta.cwd) return null;
+  const e = {
+    id: typeof meta.id === "string" ? meta.id : basename(file, ".jsonl").slice(-36), file, cwd: meta.cwd, real: await realOf(meta.cwd),
+    originator: String(meta.originator ?? ""), title, updatedAt: st.mtimeMs, size: st.size, mtimeMs: st.mtimeMs,
+  };
+  entries.set(file, e);
+  return e;
+}
+
+/** every Codex rollout on this machine (and the other's, through Syncthing), read once per file */
+export function codexIndex(): Promise<CodexTalk[]> {
+  if (index && Date.now() - index.at < CODEX_TTL) return index.list;
+  const list = (async () => {
+    const files = await walk(CODEX_DIR);
+    const out: CodexTalk[] = [];
+    // a few at a time so we do not open thousands of files at once
+    for (let i = 0; i < files.length; i += 32) for (const e of await Promise.all(files.slice(i, i + 32).map(codexEntry))) if (e) out.push(e);
+    const live = new Set(files);
+    for (const f of [...entries.keys()]) if (!live.has(f)) entries.delete(f);
+    return out;
+  })();
+  index = { at: Date.now(), list };
+  list.catch(() => { if (index?.list === list) index = null; });
+  return list;
+}
+
+// where a talk's folder is now: a folder that moved (work.json moved, #129, #181) takes its talks along. Asked at each
+// list, not kept: the map changes while the engine runs
+function placer(): (t: CodexTalk) => string {
+  const map = Object.entries(moved());
+  if (!map.length) return (t) => t.real;
+  return (t) => {
+    for (const [from, to] of map) if (t.real === from || t.real.startsWith(from + "/")) {
+      const p = to + t.real.slice(from.length);
+      try { return realpathSync(p); } catch { return p; }
+    }
+    return t.real;
+  };
 }
 
 async function codexThreads(home: string): Promise<Thread[]> {
-  const files = await walk(CODEX_DIR);
-  const out: Thread[] = [];
-  const work = async (file: string) => {
-    const meta = await codexMeta(file);
-    if (!meta.cwd) return;
-    // a talk started on the other machine records that machine's home (#65)
-    let cwd = twinIn(meta.cwd, homedir());
-    try {
-      cwd = await realpath(cwd);
-    } catch {}
-    if (cwd !== home) return;
-    let title = "";
-    await eachLine(file, (o) => {
-      const t = codexUserText(o);
-      if (t && !injected(t) && t.trim()) {
-        title = titleOf(t);
-        return true;
-      }
-    });
-    const id = meta.id ?? basename(file, ".jsonl").slice(-36);
-    out.push({ seat: "codex", sessionId: id, title: title || "(new conversation)", updatedAt: (await stat(file)).mtime.toISOString() });
-  };
-  // a few at a time so we do not open thousands of files at once
-  for (let i = 0; i < files.length; i += 32) await Promise.all(files.slice(i, i + 32).map(work));
-  return out;
+  const at = placer();
+  return (await codexIndex()).filter((t) => at(t) === home)
+    .map((t) => ({ seat: "codex" as const, sessionId: t.id, title: t.title || "(new conversation)", updatedAt: new Date(t.updatedAt).toISOString() }));
+}
+
+// Codex talks in a project folder (#182): every talk whose folder is not Sol's home (those are Life's chats), except the
+// ones that are not talks: one-shot `codex exec` runs (an agent's reviewer), Sol's own review seat (`skip`: its thread
+// ids, work/review.ts), and the ChatGPT app's own project folders under ~/.codex.
+export async function codexTalks(home: string, skip: Set<string> = new Set()): Promise<CodexTalk[]> {
+  const real = await realpath(home).catch(() => home);
+  const codexHome = join(homedir(), ".codex"), at = placer();
+  return (await codexIndex()).filter((t) => at(t) !== real && t.originator !== "codex_exec" && !skip.has(t.id)
+    && !(t.real === codexHome || t.real.startsWith(codexHome + "/") || t.cwd.startsWith(codexHome + "/")));
+}
+
+/** the folder a Codex thread was started in, as recorded (null when Codex has no such thread) */
+export async function codexCwd(sessionId: string): Promise<string | null> {
+  if (!ID_OK.test(sessionId)) return null;
+  const t = (await codexIndex()).find((x) => x.id === sessionId);
+  if (t) return t.cwd;
+  const f = await findCodexFile(sessionId);
+  return f ? (await codexEntry(f))?.cwd ?? null : null;
 }
 
 async function findCodexFile(sessionId: string): Promise<string | null> {
   if (!ID_OK.test(sessionId)) return null;
+  const known = (await codexIndex()).find((t) => t.id === sessionId);
+  if (known) return known.file;
+  // a thread newer than the index: walk once more, fresh
+  invalidateCodex();
   const files = await walk(CODEX_DIR);
   return files.find((f) => f.endsWith(`${sessionId}.jsonl`)) ?? null;
 }

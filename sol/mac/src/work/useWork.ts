@@ -16,6 +16,8 @@ export type WorkSession = {
   held?: Holder;                       // open in another live process: read-only here (PROTOCOL.md round 11, the lock)
   settled?: Record<string, string>; moved?: string;   // thread map ends already reconciled; where its kept end went on
   folder?: string;                     // shown under this folder instead of its own (project is that folder then)
+  seat?: "codex";                      // a GPT talk in this folder (#182): opened as a talk on the GPT seat
+  running?: boolean;                   // a GPT talk with a turn going (a Claude session's runs say so)
 };
 export type Holder = { pid: number; who: "desktop" | "sol" | "sol-other" | "terminal" | "other"; status: string; waitingFor?: string; name?: string; since: number };
 export type Project = { path: string; name: string; count: number; added?: boolean; group?: string };   // group: the group the folder sits in
@@ -208,7 +210,10 @@ export function useWork(e: { up: boolean; send: (o: object) => boolean; subscrib
   }, [send]);
   // a new session: nothing exists until the first message; the id is made here so the face can follow it at once
   // with no folder picked, ever, it starts in the folder Marco chose for new sessions (prefs.newIn)
-  const fresh = useCallback((cwd?: string) => {
+  // `parent`: the talk this one carries on from (the switch, #182), marked when it starts
+  const parentNext = useRef<string | undefined>(undefined);
+  const fresh = useCallback((cwd?: string, o?: { parent?: string }) => {
+    parentNext.current = o?.parent;
     if (cwd) { setFreshCwd(cwd); keep("sol.work.cwd", cwd); }
     else if (!freshCwd && prefs.newIn) setFreshCwd(prefs.newIn);
     setCurrent("new:" + uuid());
@@ -228,7 +233,9 @@ export function useWork(e: { up: boolean; send: (o: object) => boolean; subscrib
     // a session keeps its own picks: a message carries the run's model, effort, mode and fast, and the window's only for
     // a fresh one or a run the engine closed (#111: a stale window once sent its own "auto" with every message)
     const r = isFresh ? undefined : runsNow.current[id!];
-    send({ type: "work.say", sessionId: id, fresh: isFresh, cwd: isFresh ? freshCwd || undefined : undefined, ...(isFresh && copy ? { worktree: true } : {}), text, files,
+    const parent = isFresh ? parentNext.current : undefined;
+    if (isFresh) parentNext.current = undefined;
+    send({ type: "work.say", sessionId: id, fresh: isFresh, cwd: isFresh ? freshCwd || undefined : undefined, ...(isFresh && copy ? { worktree: true } : {}), ...(parent ? { parent } : {}), text, files,
       model: r?.model ?? model, effort: r?.effort ?? effort, mode: r?.mode ?? mode, fast: r?.fast ?? fast });
     return true;
   }, [send, freshCwd, model, effort, mode, fast, copy]);

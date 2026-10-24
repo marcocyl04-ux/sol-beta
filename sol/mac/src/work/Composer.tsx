@@ -48,12 +48,13 @@ const ago = (t: number) => { const m = Math.round((Date.now() - t) / 60000); ret
 const knownCommands = (): string[] => { try { return JSON.parse(localStorage.getItem("sol.work.commands") ?? "null") ?? BUILTIN; } catch { return BUILTIN; } };
 
 export type Draft = { text: string; atts: Att[] };
-export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, onSent, onRec, d, setD, cowork, toChat }: {
+export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, onSent, onRec, d, setD, cowork, toChat, switchTo }: {
   w: Work; e: ReturnType<typeof useEngine>; busy: boolean; working?: boolean; cwd?: string; asideOn: boolean; setAsideOn: (v: boolean) => void;
   box: React.RefObject<HTMLTextAreaElement | null>; onSent: () => void; onRec: (on: boolean) => void;
   d: Draft; setD: React.Dispatch<React.SetStateAction<Draft>>;   // kept by WorkApp: the words outlive a trip to Settings
   cowork?: boolean;   // Cowork's session: file it labels it cowork
-  toChat?: (s: Seat, m?: string) => void;   // Home: a session runs on Claude Code; picking Codex in a new one opens a chat on it (#141)
+  toChat?: (s: Seat, m?: string) => void;   // Home: a session runs on Claude Code; picking Codex in a new one opens a GPT talk (#141, #182)
+  switchTo?: (s: Seat, m?: string) => void; // the same pick in a running session: a GPT talk carries it on in its folder (#182)
 }) {
   const draft = d.text, atts = d.atts;
   const held = w.live ? w.sessions.find((s) => s.id === w.live)?.held : undefined;
@@ -384,10 +385,10 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
           {(busy || working) && !held && <button className="stop" onClick={() => w.stop()}>stop</button>}
           <input ref={fileInput} type="file" multiple hidden onChange={(ev) => { const fs = Array.from(ev.target.files ?? []); ev.target.value = ""; if (fs.length) void attach(fs); }} />
         </div>
-        <Picker noSeat={!toChat || !!w.live} seat="claude" info={info} seats={e.models.seats} model={w.model} effort={w.effort as never} efforts={info?.efforts ?? e.efforts}
+        <Picker noSeat={!toChat} seat="claude" info={info} seats={e.models.seats} model={w.model} effort={w.effort as never} efforts={info?.efforts ?? e.efforts}
           up={e.up} health={e.health} context={w.run?.context ?? 0} win={w.run?.window || 200000} rec={rec !== "off"} notice={w.error}
-          onSeat={(s) => { if (s !== "claude") toChat?.(s); }} onModel={(m) => w.adjust({ model: m })} onEffort={(v) => w.adjust({ effort: v })}
-          onSeatModel={toChat && !w.live ? toChat : undefined}
+          onSeat={(s) => { if (s !== "claude") (w.live ? switchTo : toChat)?.(s); }} onModel={(m) => w.adjust({ model: m })} onEffort={(v) => w.adjust({ effort: v })}
+          onSeatModel={toChat ? (w.live ? switchTo : toChat) : undefined}
           onMicDown={micDown} onMicUp={micUp}>
           <button className={`wchip leash ${w.mode}`} onClick={leash} title="mode: what Claude may do without asking (cmd+shift+M)">{mode.label}</button>
           {!w.live && <button className="wchip" onClick={folder} title={(w.freshCwd ? tilde(w.freshCwd) : "your home folder") + (w.copy ? "\nin a side copy of its repo (its own branch)" : "")}>in {atLabel}{w.copy ? " · side copy" : ""}</button>}

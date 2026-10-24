@@ -1,6 +1,6 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { join, busyCount, idle, whenIdle, lockSession, Held, relockSession, sessionHolder, busyLine, _reset } from "../src/busy.ts";
+import { join, busyCount, idle, whenIdle, lockSession, Held, relockSession, sessionHolder, sessionCwd, busyLine, busyIn, busyList, _reset } from "../src/busy.ts";
 
 beforeEach(_reset);
 
@@ -39,4 +39,24 @@ test("a fresh Life turn moves its hold onto the session id it learns", () => {
   assert.throws(() => lockSession("sess-9", "work"), Held);
   r();
   assert.equal(sessionHolder("sess-9"), null);
+});
+
+test("a job that works in a folder says which: busyIn finds it there and under it, not beside it (#182, for #181)", () => {
+  const leave = join("life", "t1", "codex", "/Users/m/kaat");
+  join("term", "x1", "zsh");   // no folder: never in one
+  assert.equal(busyList().find((j) => j.id === "t1")?.cwd, "/Users/m/kaat");
+  assert.deepEqual(busyIn("/Users/m/kaat").map((j) => j.id), ["t1"]);
+  assert.deepEqual(busyIn("/Users/m").map((j) => j.id), ["t1"], "a folder above it");
+  assert.deepEqual(busyIn("/Users/m/kaat-2"), [], "a folder beside it with a longer name");
+  assert.deepEqual(busyIn("/Users/m/kaat/web"), [], "a folder inside it is not where it runs");
+  leave();
+  assert.deepEqual(busyIn("/Users/m/kaat"), []);
+});
+
+test("the writer lock keeps the folder, and a fresh talk's move onto its id keeps it too", () => {
+  lockSession("draft-2", "life:b", "/Users/m/kaat");
+  assert.equal(sessionCwd("draft-2"), "/Users/m/kaat");
+  relockSession("draft-2", "thread-2", "life:b");
+  assert.equal(sessionCwd("thread-2"), "/Users/m/kaat");
+  assert.equal(sessionCwd("draft-2"), null);
 });

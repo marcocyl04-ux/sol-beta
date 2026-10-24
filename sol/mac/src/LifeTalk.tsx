@@ -42,14 +42,27 @@ const readFile = (f: File): Promise<Att> =>
 const kept = <T,>(k: string, d: T): T => { try { const v = sessionStorage.getItem(k); return v === null ? d : (JSON.parse(v) as T); } catch { return d; } };
 const keepS = (k: string, v: unknown) => { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch { /* private */ } };
 const homeKept: { draft: string; atts: Att[] } = { draft: kept("sol.home.draft", ""), atts: [] };
+// words put in the box from outside (the switch, #182: the gist a new talk carries on from), shown or not
+export function putInChatBox(text: string) {
+  homeKept.draft = text; keepS("sol.home.draft", text);
+  window.dispatchEvent(new CustomEvent("sol:chat-box", { detail: text }));
+}
+const base = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
 
-export function LifeTalk({ e, mark }: { e: ReturnType<typeof useEngine>; mark: React.MutableRefObject<Marked> }) {
+// onSwitch: a GPT talk in a project folder (e.cwd, #182) flips seats through Home: the other seat's talk is in the same
+// folder (a new one, or one carrying this one on)
+export function LifeTalk({ e, mark, onSwitch }: { e: ReturnType<typeof useEngine>; mark: React.MutableRefObject<Marked>; onSwitch?: (s: "codex" | "claude", m?: string) => void }) {
   // a code block's run cell sends for the conversation showing (run.ts); the output comes back on the socket (Home subscribes)
   useEffect(() => { setRunner({ send: e.send, seat: e.seat === "claude" ? "claude" : "codex", sessionId: e.sessionId ?? null }); }, [e.send, e.seat, e.sessionId]);
   const [draft, setDraft] = useState(homeKept.draft);
   const [atts, setAtts] = useState<Att[]>(homeKept.atts);
   homeKept.draft = draft; homeKept.atts = atts;
   useEffect(() => keepS("sol.home.draft", draft), [draft]);
+  useEffect(() => {
+    const put = (ev: Event) => { setDraft(String((ev as CustomEvent<string>).detail ?? "")); requestAnimationFrame(() => { grow(); box.current?.focus(); }); };
+    window.addEventListener("sol:chat-box", put);
+    return () => window.removeEventListener("sol:chat-box", put);
+  });
   mark.current = (a) => setAtts((x) => [...x.filter((y) => y.name !== a.name), a]);
   const [drop, setDrop] = useState(false);
   const [rec, setRec] = useState<"off" | "on" | "ending">("off"); // ending: the mic is closed, the last words are being read
@@ -60,7 +73,9 @@ export function LifeTalk({ e, mark }: { e: ReturnType<typeof useEngine>; mark: R
   // settings come; the seat switch under the box changes it while the chat is new. An old chat opens where it lives;
   // there the switch, or the other seat's model in the list, starts a new chat on that seat (#141).
   const lifeSeat = e.settings?.defaults.seat ?? "codex";
-  useEffect(() => { if (!e.sessionId && e.seat !== lifeSeat) e.pickSeat(lifeSeat); }, [lifeSeat]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (a new talk in a project folder keeps the seat it was opened on: the folder's switch picked it, #182)
+  useEffect(() => { if (!e.sessionId && !e.cwd && e.seat !== lifeSeat) e.pickSeat(lifeSeat); }, [lifeSeat]); // eslint-disable-line react-hooks/exhaustive-deps
+  const inFolder = !!e.cwd && !!onSwitch;
   const recorder = useRef<Recorder | null>(null);
   // leaving the chat (to a session) while dictating closes the mic; the words heard so far are dropped with it
   useEffect(() => () => { const r = recorder.current; recorder.current = null; void r?.stop().catch(() => {}); }, []);
@@ -289,8 +304,11 @@ export function LifeTalk({ e, mark }: { e: ReturnType<typeof useEngine>; mark: R
         </div>
         <Picker seat={e.seat} info={e.info} seats={e.models.seats} model={e.model} effort={e.effort} efforts={e.efforts}
           up={e.up} health={e.health} context={e.context} win={e.win} parts={e.parts} rec={rec !== "off"} notice={e.notice}
-          onSeat={e.pickSeat} onModel={e.pickModel} onSeatModel={e.pickSeatModel} onEffort={e.pickEffort}
-          onMicDown={micDown} onMicUp={micUp} />
+          onSeat={inFolder ? (s) => { if (s !== e.seat) onSwitch!(s); } : e.pickSeat} onModel={e.pickModel}
+          onSeatModel={inFolder ? (s, m) => (s === e.seat ? e.pickModel(m) : onSwitch!(s, m)) : e.pickSeatModel} onEffort={e.pickEffort}
+          onMicDown={micDown} onMicUp={micUp}>
+          {inFolder && <span className="wchip quiet" title={e.cwd}>in {base(e.cwd!)}</span>}
+        </Picker>
       </div>
     </div>
     </Site>

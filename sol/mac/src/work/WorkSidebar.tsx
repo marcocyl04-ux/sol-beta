@@ -42,7 +42,7 @@ const away = (s: WorkSession) => !!s.machine && s.machine !== HERE;   // its fol
 
 export type RowState = "running" | "needs" | "failed" | "unread" | "done" | "";
 export const rowState = (s: WorkSession, r?: RunInfo): RowState =>
-  r?.waiting ? "needs" : working(r) ? "running" : (r ? r.failed : s.failed) ? "failed" : s.unread ? "unread" : s.done ? "done" : "";
+  r?.waiting ? "needs" : working(r) || s.running ? "running" : (r ? r.failed : s.failed) ? "failed" : s.unread ? "unread" : s.done ? "done" : "";
 
 const age = (t: number) => {
   const d = (Date.now() - t) / 1000;
@@ -235,15 +235,19 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onFresh
   const chatRows = (chats?.threads ?? []).filter((t) => !(t.moved && t.seat === "claude") && words.every((x) => (t.title || "").toLowerCase().includes(x)))
     .sort((a, b) => (+pins.includes(b.sessionId) - +pins.includes(a.sessionId)) || ms(b.updatedAt) - ms(a.updatedAt));
   const begin = (s: WorkSession) => { setEditing(s.id); setText(s.title); };
-  const commit = (s: WorkSession) => { const v = text.trim(); setEditing(null); if (v && v !== s.title) w.rename(s.id, v); };
+  // a GPT talk in a folder (#182) is a Life thread to the engine: opened, and named, as a chat on the GPT seat
+  const asChat = (s: WorkSession): Thread => ({ seat: "codex", sessionId: s.id, title: s.title, updatedAt: new Date(s.updatedAt).toISOString() });
+  const commit = (s: WorkSession) => { const v = text.trim(); setEditing(null); if (v && v !== s.title) { if (s.seat === "codex") chats?.onRename(asChat(s), v); else w.rename(s.id, v); } };
 
   const rowMenu = (ev: React.MouseEvent, s: WorkSession) => {
     ev.preventDefault();
-    const r = runs[s.id];
+    const r = runs[s.id], gpt = s.seat === "codex";   // a GPT talk: no beside, window, fork or delete (Claude Code's)
     const items: MenuItem[] = [
-      { label: "open beside", key: "⌘ click", run: () => onBeside(s.id) },
-      { label: "open in a window", run: () => onPop(s.id, s.title) },
-      { sep: true },
+      ...(gpt ? [] : [
+        { label: "open beside", key: "⌘ click", run: () => onBeside(s.id) },
+        { label: "open in a window", run: () => onPop(s.id, s.title) },
+        { sep: true },
+      ]),
       { label: "rename", key: "↵", run: () => begin(s) },
       { label: s.pinned ? "unpin" : "pin", run: () => w.mark(s.id, { pinned: !s.pinned }) },
       { label: s.done ? "not done" : "mark done", run: () => w.mark(s.id, { done: !s.done }) },
@@ -258,10 +262,10 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onFresh
           run: () => w.mark(s.id, { group: null, folder: s.project === p.path ? null : p.path }) })),
         ...(s.folder ? [{ label: "back to its own folder", run: () => w.mark(s.id, { group: null, folder: null }) }] : []),
       ] },
-      { label: "fork", run: () => w.fork(s.id) },
+      ...(gpt ? [] : [{ label: "fork", run: () => w.fork(s.id) }]),
       { sep: true },
       { label: s.archived ? "unarchive" : "archive", run: () => w.mark(s.id, { archived: !s.archived }) },
-      { label: "delete", danger: true, confirm: working(r) ? undefined : "delete for good?", disabled: working(r), run: () => w.del(s.id) },
+      ...(gpt ? [] : [{ label: "delete", danger: true, confirm: working(r) ? undefined : "delete for good?", disabled: working(r), run: () => w.del(s.id) }]),
     ];
     setMenu({ x: ev.clientX, y: ev.clientY, items });
   };
@@ -324,7 +328,7 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onFresh
   };
 
   const row = (s: WorkSession, depth = 0, bare = false): React.ReactNode => {
-    const on = s.id === w.live;
+    const on = s.id === w.live || (s.seat === "codex" && s.id === chats?.active);
     const st = rowState(s, runs[s.id]);
     const children = bare ? [] : (kids.get(s.id) ?? []).sort(sorter);
     return (
@@ -341,11 +345,12 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onFresh
           <div data-sid={s.id} className={`row wrow ${bare ? "peek" : ""} ${on ? "on" : ""} ${st} ${s.archived ? "archived" : ""} ${s.gone && !away(s) ? "gone" : ""} ${dragging === s.id ? "dragged" : ""}`} style={{ paddingLeft: 10 + depth * 14 }}
             draggable onDragStart={(ev) => { ev.dataTransfer.setData("sol/session", s.id); ev.dataTransfer.effectAllowed = "move"; setDragging(s.id); }}
             onDragEnd={() => { setDragging(null); setOver(null); }}
-            onClick={(ev) => (ev.metaKey ? onBeside(s.id) : w.open(s.id))} onDoubleClick={() => begin(s)} onContextMenu={(ev) => rowMenu(ev, s)}
+            onClick={(ev) => (s.seat === "codex" ? chats?.onOpen(asChat(s)) : ev.metaKey ? onBeside(s.id) : w.open(s.id))} onDoubleClick={() => begin(s)} onContextMenu={(ev) => rowMenu(ev, s)}
             title={`${s.title}\n${s.cwd}${away(s) ? ` (on ${MACHINE[s.machine!]})` : s.gone ? " (folder gone)" : ""}${s.branch ? `\n${s.branch}` : ""}`}>
             {depth > 0 && <i className="twig" />}
             <StateMark st={st} />
             <span className="t">{s.title || "untitled"}</span><Unseen sessionId={s.id} />
+            {s.seat === "codex" && <small className="tag" title="a talk with GPT (Codex), run in this folder">gpt</small>}
             {s.worktree && <small className="tag" title={`a side copy: ${s.worktree}`}><Branch />{s.worktree.replace(/-[0-9a-f]{6}$/, "")}</small>}
             {away(s) && <small className="tag away" title={`ran on ${MACHINE[s.machine!]}; its transcript came over Syncthing`}>{s.machine}</small>}
             {s.held && <small className={`tag held ${s.held.status}`} title={`open in ${HELD[s.held.who]} (${s.held.status}${s.held.waitingFor ? `: ${s.held.waitingFor}` : ""}): read-only here`}>{HELD_SHORT[s.held.who]} · {s.held.status}</small>}
