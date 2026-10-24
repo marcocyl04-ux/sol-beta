@@ -6,7 +6,8 @@
 <title>Sol</title>
 <meta name="description" content="Sol: one window for all your AI. Install with one line, or one download.">
 <!-- sol.js.org (#169): the page people are sent to. The line with a copy button, the download, the one Open Anyway
-     picture, the Linux line. One file, no build; the colours are Sol's own (sol/design/palette.json: paper, ink). -->
+     picture, the Linux line. One file, no build; the colours are Sol's own (sol/design/palette.json: paper, ink).
+     The line names the github.io address until js.org approves sol.js.org (js-org/js.org#12847); then it goes back. -->
 <style>
   :root { color-scheme: dark; --page: #1a1a1a; --ink: #ebebe8; --dim: #9a9a97; --mute: #5c5c5a; --surface: #222; --line: #303030; --ok: #70df45; }
   * { box-sizing: border-box; }
@@ -18,7 +19,7 @@
   .lead { color: var(--dim); font-size: 18px; }
   section { display: flex; flex-direction: column; gap: 10px; }
   .line { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-  .line code { flex: 1; font: 14px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); user-select: all; overflow-x: auto; white-space: nowrap; }
+  .line code { flex: 1; font: 14px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); user-select: all; overflow-wrap: anywhere; }
   button, .btn { padding: 8px 16px; background: var(--ink); color: var(--page); border: 1px solid var(--ink); border-radius: 999px; font: inherit; font-size: 14px; cursor: pointer; text-decoration: none; white-space: nowrap; }
   button.quiet { background: none; color: var(--ink); border-color: var(--line); }
   button.done { color: var(--ok); border-color: var(--ok); background: none; }
@@ -42,7 +43,7 @@
 
   <section>
     <h2>Mac, the line</h2>
-    <div class="line"><code id="line">curl -fsSL https://sol.js.org/install | sh</code><button id="copy" class="quiet" type="button">copy</button></div>
+    <div class="line"><code id="line">curl -fsSL https://marcocyl04-ux.github.io/sol-beta/install | sh</code><button id="copy" class="quiet" type="button">copy</button></div>
     <p class="note">Paste it in Terminal. It asks what to call you, puts Sol in <code>~/Sol</code> and opens it. A few minutes, once. No GitHub account, no Homebrew.</p>
   </section>
 
@@ -58,7 +59,7 @@
 
   <section>
     <h2>Linux, and Windows under WSL</h2>
-    <div class="line"><code>curl -fsSL https://sol.js.org/install | sh</code></div>
+    <div class="line"><code>curl -fsSL https://marcocyl04-ux.github.io/sol-beta/install | sh</code></div>
     <p class="note">The same line; no app there, Sol opens in your browser. Windows: inside Ubuntu under WSL (<code>wsl --install</code> once in PowerShell).</p>
   </section>
 

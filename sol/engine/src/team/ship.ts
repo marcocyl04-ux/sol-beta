@@ -205,7 +205,7 @@ moves stable, and holds only what runs. Nothing here is edited by hand; the next
 **Mac**, one line in Terminal. It asks what to call you, puts Sol in \`~/Sol\`, and opens Sol.app:
 
 \`\`\`
-curl -fsSL https://sol.js.org/install | sh
+curl -fsSL https://marcocyl04-ux.github.io/sol-beta/install | sh
 \`\`\`
 
 Or download \`Sol-mac.zip\` from the [latest release](https://github.com/marcocyl04-ux/sol-beta/releases/latest),
