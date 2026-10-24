@@ -28,6 +28,9 @@ type View = { by: GroupBy; sort: SortBy; status: Status };
 const VIEW0: View = { by: "project", sort: "recent", status: "active" };
 const loadView = (): View => { try { return { ...VIEW0, ...JSON.parse(localStorage.getItem("sol.work.view") ?? "{}") }; } catch { return VIEW0; } };
 const SHOW = 6; // rows a folder shows before "more"
+const baseOf = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
+// a file a rename listed: inside the folder from its own name on, else from the home folder (~)
+const shortPath = (f: string, dir: string) => (f.startsWith(dir + "/") ? baseOf(dir) + f.slice(dir.length) : f.replace(/^\/(Users|home)\/[^/]+/, "~"));
 
 // who holds a session open elsewhere (the lock): one writer per transcript, so here it is read-only
 export const HELD: Record<string, string> = { desktop: "the Claude app", sol: "Sol", "sol-other": "another Sol", terminal: "a terminal", other: "another Claude" };
@@ -125,6 +128,19 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onFresh
   const [over, setOver] = useState<string | null>(null);
   const [moving, setMoving] = useState<string | null>(null);   // the top row being dragged, by its order key
   const [line, setLine] = useState<{ key: string; at: "above" | "below" } | null>(null);
+  // what a folder rename said (#181), under that folder, quietly, a while: the reason it was refused, or that it went
+  // through and which files still say the old name (a click lists them)
+  const [said, setSaid] = useState<{ path: string; text: string; files?: string[]; open?: boolean } | null>(null);
+  const saidTimer = useRef<number | undefined>(undefined);
+  const say = (x: typeof said, ms = 12_000) => { window.clearTimeout(saidTimer.current); setSaid(x); if (x) saidTimer.current = window.setTimeout(() => setSaid(null), ms); };
+  const renameFolder = (p: Project, name: string) => {
+    say({ path: p.path, text: `renaming to ${name}…` }, 60_000);
+    void w.renameFolder(p.path, name).then((r) => {
+      if (r.error || !r.to) return say({ path: p.path, text: r.error ?? "the engine said nothing" });
+      const n = r.mentioned ?? 0, old = baseOf(p.path);
+      say({ path: r.to, text: `renamed on the disk${n ? ` · ${n} ${n === 1 ? "file still says" : "files still say"} ${old}` : ""}`, files: r.mentions }, n ? 30_000 : 8000);
+    });
+  };
   const searchRef = useRef<HTMLInputElement>(null);
   // the layout (#133): the arrangement's, held here from a press until the engine writes it back (kept if it is away)
   const [went, setWent] = useState<{ layout?: Layout; share?: number }>({});
@@ -260,8 +276,8 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onFresh
       const into = (id: string | null) => w.group("move", { id, folder: p.path });
       const starts = w.prefs.newIn === p.path, other = !starts && w.prefs.newIn ? w.prefs.newIn.split("/").pop() : "";
       items.splice(2, 0,
-        // its own folder name typed back gives the folder its own name again
-        { label: "rename…", ask: p.name, run: (name?: string) => name && name !== p.name && w.folder("name", p.path, name === p.path.split("/").pop() ? "" : name) },
+        // the real folder, on the disk (#181): the engine renames it, or says in one line why not
+        { label: "rename…", ask: baseOf(p.path), run: (name?: string) => { if (name && name !== baseOf(p.path)) renameFolder(p, name); } },
         { label: "move to", sub: [
           ...w.groups.map((g) => ({ label: g.name, on: p.group === g.id, run: () => into(p.group === g.id ? null : g.id) })),
           { label: "a new group with it…", ask: "group name", run: (name?: string) => name && w.group("add", { name, folders: [p.path] }) },
@@ -429,6 +445,11 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onFresh
         </div>
         {mine && <p className="wmine" title={mine.subjects.length ? `over ${mine.base}:\n` + mine.subjects.join("\n") + (mine.count > mine.subjects.length ? `\n…and ${mine.count - mine.subjects.length} more` : "") : `on ${mine.base}`}>
           {mine.count ? `${mine.count} of his own over stable` : "nothing of his own yet"}</p>}
+        {p && said?.path === p.path && <>
+          <p className="wmine" style={said.files?.length ? { cursor: "pointer" } : undefined} title={said.files?.length ? said.files.join("\n") : undefined}
+            onClick={said.files?.length ? () => say({ ...said, open: !said.open }, 120_000) : undefined}>{said.text}</p>
+          {said.open && said.files?.map((f) => <p key={f} className="wmine" title={f}>{shortPath(f, p.path)}</p>)}
+        </>}
         {isFolded && (() => {   // folded, the live rows still show, flat, from everything under it (#111)
           const peek = under(sec).filter(live).sort(sorter);
           return peek.length > 0 ? <div className="wpeek">{peek.map((s) => row(s, 0, true))}</div> : null;

@@ -13,6 +13,7 @@ export type Holder = {
   status: string;        // busy | idle | waiting
   waitingFor?: string;
   name?: string;         // the holder's own title for it
+  cwd?: string;          // the folder it runs in (a folder is not renamed under it, rename.ts)
   since: number;
 };
 
@@ -64,7 +65,7 @@ export function holders(): Map<string, Holder[]> {
     if (Number.isFinite(said) && Number.isFinite(p.start) && Math.abs(said - p.start) > 5000) continue;   // the pid was reused
     const h: Holder = {
       pid: Number(r.pid), who: whoOf(r.entrypoint, p.ppid), status: String(r.status ?? "idle"),
-      ...(r.waitingFor ? { waitingFor: String(r.waitingFor) } : {}), ...(r.name ? { name: String(r.name) } : {}),
+      ...(r.waitingFor ? { waitingFor: String(r.waitingFor) } : {}), ...(r.name ? { name: String(r.name) } : {}), ...(r.cwd ? { cwd: String(r.cwd) } : {}),
       since: Number(r.statusUpdatedAt ?? r.updatedAt ?? r.startedAt ?? 0),
     };
     map.set(r.sessionId, [...(map.get(r.sessionId) ?? []), h]);

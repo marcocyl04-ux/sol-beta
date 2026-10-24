@@ -4,7 +4,8 @@
 // home (/Users/<x>/… on the Mac, /home/<x>/… on the NucBox) files under the same folder in this home, and the session
 // carries the machine it ran on. A folder renamed or moved (state.ts moved, #129) keeps its sessions: a transcript still
 // says the old place, and files under the new one. Scratch dirs drop out; a folder that is not here stays, marked gone,
-// but a folder whose sessions are all gone drops out too unless the stale pref is on. A folder wears the name Marco gave it, if any.
+// but a folder whose sessions are all gone drops out too unless the stale pref is on. A folder wears its own name on the
+// disk (#181: renaming it in the side renames the folder, rename.ts), or parent/name when two listed share one.
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -55,7 +56,7 @@ export const workFolderIn = (cwd: string, home: string, isDir: (p: string) => bo
 // the other machine keeps its own folder name when it comes over Syncthing; if it was filed under this home instead,
 // the next guess finds it; a folder that moved may keep its old name there (a move by hand) or wear the new one (live
 // renames them), so both are tried (and a miss costs nothing: lastSaid falls back to the file's time).
-const slug = (p: string) => p.replace(/[^A-Za-z0-9]/g, "-");
+export const slug = (p: string) => p.replace(/[^A-Za-z0-9]/g, "-");
 const transcript = (id: string, ...cwds: string[]) => {
   const guesses = [...new Set(cwds.flatMap((c) => (inHome(c) ? [c, local(c)] : [c])))].map((c) => join(homedir(), ".claude", "projects", slug(c), `${id}.jsonl`));
   return guesses.find((f) => existsSync(f)) ?? guesses[0];
@@ -74,7 +75,7 @@ export async function workSessions(): Promise<{ sessions: WorkSession[]; project
   return fileSessions(await all());
 }
 
-// the SDK's list filed by folder, with Sol's marks, groups and names on it (no reading of ~/.claude here: tests feed it)
+// the SDK's list filed by folder, with Sol's marks and groups on it (no reading of ~/.claude here: tests feed it)
 export function fileSessions(list: SDKSessionInfo[]): { sessions: WorkSession[]; projects: Project[] } {
   const st = workState(), stale = prefs().stale;
   const hidden = new Set(st.hidden), byHand = new Set(st.folders);
@@ -113,7 +114,7 @@ export function fileSessions(list: SDKSessionInfo[]): { sessions: WorkSession[];
   for (const g of st.groups) for (const f of g.folders ?? []) groupOf.set(f, g.id);
   const names = new Map<string, number>();
   for (const p of counts.keys()) names.set(basename(p), (names.get(basename(p)) ?? 0) + 1);
-  const nameOf = (p: string) => st.names?.[p] || (names.get(basename(p))! > 1 ? `${basename(dirname(p))}/${basename(p)}` : basename(p) || p);
+  const nameOf = (p: string) => (names.get(basename(p))! > 1 ? `${basename(dirname(p))}/${basename(p)}` : basename(p) || p);
   const projects = [...counts].map(([path, count]) => ({ path, name: nameOf(path), count, ...(added.has(path) ? { added: true } : {}), ...(groupOf.has(path) ? { group: groupOf.get(path) } : {}) }));
   return { sessions: out, projects };
 }
@@ -132,7 +133,7 @@ export function withRuns(filed: { sessions: WorkSession[]; projects: Project[] }
     sessions.push({ id: r.sessionId, title: "new session", cwd: r.cwd, project, ...(w ? { worktree: w.name } : {}), updatedAt: at, createdAt: at, ...(st.marks[r.sessionId] ?? {}) });
     const i = projects.findIndex((x) => x.path === project);
     if (i >= 0) projects[i] = { ...projects[i], count: projects[i].count + 1 };
-    else projects.push({ path: project, name: st.names?.[project] || basename(project) || project, count: 1 });
+    else projects.push({ path: project, name: basename(project) || project, count: 1 });
   }
   return { sessions, projects };
 }

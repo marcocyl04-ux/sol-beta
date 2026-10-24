@@ -35,6 +35,8 @@ export type RunInfo = {
 };
 export const working = (r?: RunInfo) => !!r && (r.busy || !!r.tasks?.length);
 export type Files = { files: string[]; missing?: boolean; cwd?: string };
+// a folder renamed on the disk (#181, engine work/rename.ts): mentions are files that still say the old path (none changed)
+export type FolderRenamed = { error?: string; ok?: boolean; from?: string; to?: string; sessions?: number; mentions?: string[]; mentioned?: number; notes?: string[] };
 export type Thread = { sessionId: string; items: Item[]; cwd?: string; branch?: string; title?: string; fresh?: boolean };
 export type TermInfo = { tid: string; cwd: string; title: string; alive: boolean; code?: number; at: number };
 
@@ -265,7 +267,9 @@ export function useWork(e: { up: boolean; send: (o: object) => boolean; subscrib
     group: (op: "add" | "rename" | "delete" | "move", a: { id?: string | null; name?: string; sessions?: string[]; folders?: string[]; folder?: string; in?: string; about?: string }) => send({ type: "work.group", op, ...a }),
     // the order is shown at once; the engine's list comes back with the next work.sessions
     setOrder: (keys: string[]) => { setOrderS(keys); send({ type: "work.order", keys }); },
-    folder: (op: "add" | "hide" | "show" | "name", path: string, name?: string) => send({ type: "work.folder", op, path, ...(op === "name" ? { name: name ?? "" } : {}) }),
+    folder: (op: "add" | "hide" | "show", path: string) => send({ type: "work.folder", op, path }),
+    // the real folder renamed on the disk (#181): the reason when refused, else where it went and the files that still say the old place
+    renameFolder: (path: string, name: string) => ask<FolderRenamed>("work.folder", { op: "rename", path, name }, 60_000),
     del: (id: string) => send({ type: "work.delete", sessionId: id }),
     fork: (id: string, upTo?: string) => send({ type: "work.fork", sessionId: id, upTo }),
     // a message queued behind the running turn: read at its next step, or forgotten (#51)

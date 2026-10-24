@@ -1,5 +1,5 @@
 // Work mode's own marks on Claude Code sessions: pinned, done, unread, archived, which group a session sits in, which
-// session started which, folders Marco added by hand, the groups whole folders sit in, and the names he gave folders. Claude's transcripts stay Claude's (the SDK writes them);
+// session started which, folders Marco added by hand, the groups whole folders sit in, and the folders that moved. Claude's transcripts stay Claude's (the SDK writes them);
 // these marks are Sol's and live in one small JSON file outside the repo:
 //   macOS  ~/Library/Application Support/com.marcol04.sol/work.json
 //   Linux  ~/.local/share/sol/work.json
@@ -47,11 +47,10 @@ export type WorkState = {
   groups: Group[];
   folders: string[];         // added by hand; shown even with no sessions
   hidden: string[];          // folders Marco took out of the side
-  names: Record<string, string>;   // a folder's shown name, by path (none = its own name)
   order: string[];           // the side's top rows as Marco dragged them: "g:<group id>" or a folder's path (#73)
   prefs?: Partial<Prefs>;
   copies?: Record<string, string>;   // the side copies Sol made: folder → its repo
-  moved?: Record<string, string>;    // folders renamed or moved: old path → where it is now (sol/mine/live --rename writes it, #129)
+  moved?: Record<string, string>;    // folders renamed or moved: old path → where it is now (rename.ts and sol/mine/live --rename write it, #129, #181)
 };
 
 const FILE = process.env.SOL_STATE
@@ -66,9 +65,10 @@ export function workState(): WorkState {
   if (state) return state;
   try {
     const v = JSON.parse(readFileSync(FILE, "utf8"));
-    state = { marks: v.marks ?? {}, groups: v.groups ?? [], folders: v.folders ?? [], hidden: v.hidden ?? [], names: v.names ?? {}, order: Array.isArray(v.order) ? v.order.map(String) : [], prefs: v.prefs ?? {}, copies: v.copies ?? {}, moved: v.moved ?? {} };
+    // a folder shows its own name on the disk (#181): the names it once wore here (v.names) are left behind
+    state = { marks: v.marks ?? {}, groups: v.groups ?? [], folders: v.folders ?? [], hidden: v.hidden ?? [], order: Array.isArray(v.order) ? v.order.map(String) : [], prefs: v.prefs ?? {}, copies: v.copies ?? {}, moved: v.moved ?? {} };
   } catch {
-    state = { marks: {}, groups: [], folders: [], hidden: [], names: {}, order: [] };
+    state = { marks: {}, groups: [], folders: [], hidden: [], order: [] };
   }
   return state;
 }
@@ -153,17 +153,35 @@ export function groupOp(op: string, a: { id?: string | null; name?: string; sess
   return g.id;
 }
 
-export function folderOp(op: string, path: string, name?: unknown) {
+export function folderOp(op: string, path: string) {
   const s = workState();
   if (!path) return;
   if (op === "add") { s.folders = [...new Set([...s.folders, path])]; s.hidden = s.hidden.filter((p) => p !== path); }
   else if (op === "hide") { s.hidden = [...new Set([...s.hidden, path])]; s.folders = s.folders.filter((p) => p !== path); }
   else if (op === "show") s.hidden = s.hidden.filter((p) => p !== path);
-  else if (op === "name") {   // the folder's shown name; an empty one gives it its own name back
-    const t = String(name ?? "").trim().slice(0, 60);
-    s.names = { ...s.names };
-    if (t) s.names[path] = t; else delete s.names[path];
-  }
+  else return;   // a folder's name is its name on the disk: renaming it is rename.ts (#181)
+  save();
+}
+
+// a folder renamed on the disk (rename.ts, #181): every path Sol keeps that is the folder or under it says the new place,
+// and moved remembers the old one, so Claude's transcripts (which still say it) file under the new folder. An older move
+// that ended in the old place now ends in the new one (chains collapse); one that started where the folder now is goes,
+// since that place is a real folder again
+export function folderMoved(from: string, to: string) {
+  const s = workState();
+  const under = (p: string, d: string) => p === d || p.startsWith(d + "/");
+  const at = (p: string) => (under(p, from) ? to + p.slice(from.length) : p);
+  for (const m of Object.values(s.marks)) if (m.folder) m.folder = at(m.folder);
+  for (const g of s.groups) { if (g.folders) g.folders = [...new Set(g.folders.map(at))]; if (g.in) g.in = at(g.in); }
+  s.folders = [...new Set(s.folders.map(at))];
+  s.hidden = [...new Set(s.hidden.map(at))];
+  s.order = [...new Set(s.order.map((k) => (k.startsWith("/") ? at(k) : k)))];
+  if (s.prefs) for (const k of ["newIn", "wtDir"] as const) { const v = s.prefs[k]; if (typeof v === "string" && v) s.prefs[k] = at(v); }
+  if (s.copies) s.copies = Object.fromEntries(Object.entries(s.copies).map(([c, r]) => [at(c), at(r)]));
+  const mv: Record<string, string> = {};
+  for (const [a, b] of Object.entries(s.moved ?? {})) { const t = at(b); if (!under(a, to) && a !== t) mv[a] = t; }
+  mv[from] = to;
+  s.moved = mv;
   save();
 }
 

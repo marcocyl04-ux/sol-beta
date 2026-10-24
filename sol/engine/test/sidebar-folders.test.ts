@@ -36,12 +36,12 @@ test("a group holds folders, and move puts a folder in one group at most (or non
   groupOp("delete", { id: a }); groupOp("delete", { id: b });
 });
 
-test("a folder's name is shown when set, and an empty name gives it its own back", () => {
-  folderOp("name", SRC, "  SOL  ");
-  assert.equal(fileSessions([s(SRC)]).projects[0].name, "SOL");
-  folderOp("name", SRC, "");
+test("a folder wears its own name on the disk (#181): no label of Sol's, parent/name when two share one", () => {
+  folderOp("name", SRC);   // the old label op does nothing now
   assert.equal(fileSessions([s(SRC)]).projects[0].name, "lib");
-  assert.deepEqual(workState().names, {});
+  assert.equal("names" in workState(), false);
+  const two = fileSessions([s("/usr/lib"), s("/usr/local/lib")]).projects.map((p) => p.name).sort();
+  assert.deepEqual(two, ["local/lib", "usr/lib"]);
 });
 
 test("the Claude app's scratch workspaces and gone folders stay out unless stale is on", () => {

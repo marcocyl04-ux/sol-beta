@@ -1,16 +1,19 @@
 // The Work wire (PROTOCOL.md round 11): the face's work.* messages, and what goes back to every face.
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import { renameSession, deleteSession, forkSession } from "@anthropic-ai/claude-agent-sdk";
-import { workSessions, withRuns, sessionItems, sessionInfo, invalidate, watchSessions, topicsFor } from "./sessions.js";
+import { workSessions, withRuns, sessionItems, sessionInfo, invalidate, watchSessions, topicsFor, relocated } from "./sessions.js";
 import { pickTopic } from "../titles.js";
 import { workSay, getRun, allRuns, lastInit, setChanging, workDefaults, type WorkSay } from "./runs.js";
 export { setChanging as setWorkChanging };
-import { workState, mark, forget, groupOp, folderOp, setOrder, prefs, setPrefs } from "./state.js";
+import { workState, mark, forget, groupOp, folderOp, folderMoved, setOrder, prefs, setPrefs } from "./state.js";
+import { renameFolder, ENGINE_ROOT, SOL_HOME, windowRoot } from "./rename.js";
 import { listCopies, removeCopy, stale } from "./copies.js";
 import { keepAwake, about, banner, styles } from "./machine.js";
 import { setWorkHooks, type Start } from "./tools.js";
 import { aside } from "./aside.js";
-import { watchHolders } from "./holders.js";
+import { watchHolders, holders } from "./holders.js";
+import { machineOf } from "../home.js";
 import { threadView, forkHere, reconcile } from "./reconcile.js";
 import { fileHits, folderOf, tree } from "./files.js";
 import { review, stopReview, markReview, withReviews } from "./review.js";
@@ -90,6 +93,26 @@ function startSweep() {
 
 const inPath = (p: string, dir: string) => p === dir || p.startsWith(dir + "/");
 const liveIn = (path: string) => allRuns().some((r) => inPath(r.cwd, path));
+
+// a folder renamed on the disk from the side (#181, rename.ts): what runs where, what the side lists, where Sol runs from
+const MACHINE = { mac: "the Mac", nucbox: "the NucBox" } as const;
+async function renameNow(path: string, name: string) {
+  const { sessions, projects } = await workSessions();
+  const titled = (id: string) => `"${sessions.find((s) => s.id === id)?.title ?? id.slice(0, 8)}"`;
+  const liveIn = (p: string) => {
+    const r = allRuns().find((r) => inPath(r.cwd, p));
+    if (r) return titled(r.id);
+    if (allTerms().some((t) => t.alive && inPath(t.cwd, p))) return "a terminal in Sol";
+    for (const [id, hs] of holders()) for (const h of hs) if (h.cwd && inPath(h.cwd, p)) return h.name ? `"${h.name}"` : titled(id);
+  };
+  const here = machineOf(homedir());
+  const elsewhere = (p: string) => { const m = sessions.find((s) => s.project === p && s.machine && s.machine !== here)?.machine; return m ? MACHINE[m] : undefined; };
+  const r = await renameFolder(path, name, {
+    home: homedir(), solRoots: [ENGINE_ROOT, SOL_HOME, process.cwd(), windowRoot() ?? ""].filter(Boolean),
+    known: [...projects.map((x) => x.path), ...workState().folders], liveIn, elsewhere, moved: folderMoved, at: relocated,
+  });
+  return "ok" in r ? { ...r, sessions: projects.find((x) => x.path === path)?.count ?? 0 } : r;
+}
 
 // the side copies as the drawer lists them (git and du in each, so only when asked)
 async function copiesNow() {
@@ -281,7 +304,15 @@ export async function handleWork(w: Wire, m: any) {
       setOrder(m.keys);
       return broadcastSessions();
     case "work.folder":
-      folderOp(String(m.op), String(m.path ?? ""), m.name);
+      if (m.op === "rename") {   // the real folder, on the disk (#181): answered by rid, the reason when refused
+        const reply = (o: object) => w.send({ type: "work.folder", rid: m.rid, ...o });
+        let r;
+        try { r = await renameNow(String(m.path ?? ""), String(m.name ?? "")); }
+        catch (err) { return reply({ error: err instanceof Error ? err.message.split("\n")[0] : String(err) }); }
+        if ("ok" in r) { invalidate(); broadcastSessions(); }
+        return reply(r);
+      }
+      folderOp(String(m.op), String(m.path ?? ""));
       invalidate();
       return broadcastSessions();
     case "work.delete": {
