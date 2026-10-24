@@ -1,0 +1,177 @@
+#!/usr/bin/env node
+// The harness (#83, docs/how-we-work/PRD.md section 13): what an agent is refused, enforced by the machine.
+// Claude Code runs this before every Bash, Edit, Write and MultiEdit call (.claude/settings.json, committed).
+// It reads the call on stdin and either says nothing (the call goes ahead) or refuses it with one plain line.
+// Refused: a commit on main; work on another person's branch; a branch made without Take; merging, or moving
+// stable or live; committing home data or a key; editing the fence from inside a running Sol; a PR without a
+// test note; a push or PR from a base branch while another person's base branch is open (#98); parking the face-hot flag,
+// installing, opening or quitting Sol.app, restarting the engine's jobs, moving where Sol lives (sol/mine/live, #116; #114, the window is the person's). Any person can let one through from their own window: .claude/harness.local.json (gitignored),
+// {"allow": ["merge"]}, names the rule; the guard then says so on stderr and steps aside. Rule names are below.
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+
+const input = JSON.parse(readFileSync(0, "utf8") || "{}");
+const tool = input.tool_name || "";
+const args = input.tool_input || {};
+const cwd = input.cwd || process.cwd();
+
+function git(a, dir = cwd) { try { return execFileSync("git", a, { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return ""; } }
+const root = git(["rev-parse", "--show-toplevel"]);
+if (!root) process.exit(0); // not in a repository: nothing to guard
+
+const local = (() => { try { return JSON.parse(readFileSync(join(root, ".claude/harness.local.json"), "utf8")); } catch { return {}; } })();
+const allowed = new Set(Array.isArray(local.allow) ? local.allow : []);
+function refuse(rule, why) {
+  if (allowed.has(rule)) { process.stderr.write(`harness: ${rule} let through by your local override (.claude/harness.local.json)\n`); process.exit(0); }
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: `harness (${rule}): ${why}` } }));
+  process.exit(0);
+}
+
+// who I am: the login gh is signed in as, remembered in .git so the guard never waits on the network twice
+function login() {
+  const kept = git(["config", "--get", "sol.login"]);
+  if (kept) return kept;
+  try { const l = execFileSync("gh", ["api", "user", "-q", ".login"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); if (l) { git(["config", "sol.login", l]); return l; } } catch {}
+  return "";
+}
+function myNames() {
+  const l = login(); if (!l) return [];
+  const names = [l];
+  const people = join(root, "docs/people");
+  if (existsSync(people)) for (const f of readdirSync(people)) {
+    try { if (f.endsWith(".md") && readFileSync(join(people, f), "utf8").split("\n").includes(`login: ${l}`)) names.push(basename(f, ".md")); } catch {}
+  }
+  return names;
+}
+const branch = git(["symbolic-ref", "--short", "-q", "HEAD"]);
+// the main checkout this one is a side copy of (the worktree's common .git, one level up), or "" when this is it
+const mainRoot = (() => { const c = git(["rev-parse", "--path-format=absolute", "--git-common-dir"]); return c ? resolve(c, "..") : ""; })();
+
+// the repo's open PRs (number, branch, author), asked of gh at most once a minute per repo: kept in a temp file so the
+// guard stays fast. No answer (offline, no gh) is an empty list: the guard never stops work because GitHub is away.
+function openPrs() {
+  const file = join(tmpdir(), `sol-guard-prs-${createHash("sha1").update(root).digest("hex").slice(0, 12)}.json`);
+  try { if (Date.now() - statSync(file).mtimeMs < 60_000) return JSON.parse(readFileSync(file, "utf8")); } catch {}
+  try {
+    const out = execFileSync("gh", ["pr", "list", "--state", "open", "--json", "number,headRefName,author", "--limit", "100"], { cwd: root, encoding: "utf8", timeout: 8000, stdio: ["ignore", "pipe", "ignore"] });
+    const list = JSON.parse(out);
+    try { writeFileSync(file, JSON.stringify(list)); } catch {}
+    return list;
+  } catch { return []; }
+}
+
+// inside a running Sol: the seat is the SDK started from sol/engine
+const insideSol = process.env.CLAUDE_CODE_ENTRYPOINT === "sdk-ts" && /\/sol\/engine\//.test(process.env.CLAUDE_CODE_EXECPATH || "");
+// the fence has one home, sol/engine/src/inventory.ts; read its list rather than keep a second one
+function fence() {
+  try {
+    const src = readFileSync(join(root, "sol/engine/src/inventory.ts"), "utf8");
+    const m = src.match(/const FENCE = \[([\s\S]*?)\];/);
+    return (m ? [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]) : []).map((f) => resolve(root, "sol/mac/src", f));
+  } catch { return []; }
+}
+function isFenced(p) {
+  const abs = isAbsolute(p) ? p : resolve(cwd, p);
+  return fence().includes(abs);
+}
+
+const HOME_DATA = /^sol\/home\/(memory|life|school|desk|talk|output|tmp|browser-profile|voice|attachments)\/(?!\.keep$)/;
+const SECRET_FILE = /(^|\/)\.env$|^sol\/engine\/(team|settings|doors|titles)\.json$/;
+const SECRET_TEXT = /sk-ant-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|AIza[0-9A-Za-z_-]{30,}|tskey-[a-z]+-[A-Za-z0-9]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY/;
+
+if (tool === "Edit" || tool === "Write" || tool === "MultiEdit" || tool === "NotebookEdit") {
+  const p = args.file_path || args.notebook_path || "";
+  if (insideSol && p && isFenced(p)) refuse("fence", `${basename(p)} is on the fence: the few face files that keep the window alive are never edited from inside a running Sol (sol/README.md, Mutable mode). Edit it from a terminal, outside Sol.`);
+  process.exit(0);
+}
+if (tool !== "Bash") process.exit(0);
+
+const cmd = String(args.command || "");
+const segments = cmd.split(/\n|&&|\|\||;|\|/).map((s) => s.trim()).filter(Boolean);
+const mine = myNames();
+
+for (const seg of segments) {
+  const s = seg.replace(/^(sudo\s+)?(command\s+)?/, "");
+
+  // a branch is made by Take, nowhere else (a */mine branch is MY SOL's own and may be made by hand)
+  const mk = s.match(/^git\s+(?:checkout\s+(?:-b|-B|--orphan)|switch\s+(?:-c|-C|--create))\s+(\S+)/) || s.match(/^git\s+branch\s+(?!-)(\S+)/);
+  if (mk && !/\/mine$/.test(mk[1])) refuse("branch-without-take", `a branch starts with Take, which also claims the issue: bash sol/take <issue-number>. (A */mine branch is the one exception.)`);
+
+  // merging is a lead's press on GitHub; stable and live move by a human's hand (the stamp, promote)
+  if (/^git\s+merge\b(?!.*--abort)/.test(s) || /^gh\s+pr\s+merge\b/.test(s)) refuse("merge", `merging is the lead's one approval on GitHub, pressed by a person; an agent opens a draft PR and stops.`);
+  if (/^git\s+(push|branch|update-ref|reset|tag)\b.*\b(stable|live)\b/.test(s) && !/^git\s+push\b.*\bbeta\b/.test(s)) refuse("stable-move", `stable and live move by a human's hand only (the stamp; sol/promote). Leave one line for them.`);
+  if (/^git\s+push\b.*(\s-f\b|--force)/.test(s) && (/\b(main|stable|live)\b/.test(s) || branch === "main")) refuse("stable-move", `a force push to main, stable or live rewrites what others stand on; never.`);
+
+  // main takes one commit outside a PR: the owner's press in Cowork (#117, sol/engine/src/team/press.ts), a setting such
+  // as who leads a label, made by the engine for the person who pressed and signed by them. That is the one exception,
+  // and it never passes here: it is a person's press, not an agent's shell. The same write by hand, GitHub's contents
+  // or refs API aimed at main (a contents write with no branch lands on main too), is a commit on main and refused.
+  if (/^gh\s+api\b/.test(s) && /(-X\s*|--method[\s=]+)(PUT|POST|PATCH|DELETE)\b|\s(-f|-F|--field|--raw-field|--input)\s/i.test(s)
+    && ((/\/contents\//.test(s) && (/\bbranch=main\b/.test(s) || !/\bbranch=/.test(s))) || /\/git\/refs\/heads\/main\b/.test(s)))
+    refuse("main-by-api", `writing to main through GitHub's API is a commit on main with no PR. A setting (who leads a label) is the owner's press in Cowork; anything else goes on your branch and a draft PR.`);
+
+  // a commit: not on main, not on another person's branch, nothing of home's and no key in it
+  if (/^git\s+commit\b/.test(s)) {
+    if (branch === "main") refuse("main-commit", `nothing is committed on main; work on your branch (bash sol/take <issue-number>) and open a draft PR. (Sol's own face edits go through sol/mutate.)`);
+    const prefix = branch.includes("/") ? branch.split("/")[0] : "";
+    if (prefix && mine.length && !mine.includes(prefix) && !/\/mine$/.test(branch)) refuse("others-branch", `${branch} is ${prefix}'s branch; one writer per branch. Take your own issue, or comment on theirs.`);
+    const staged = git(["diff", "--cached", "--name-only"]).split("\n").filter(Boolean);
+    const all = (/\s-a\b|--all\b/.test(s) || segments.some((x) => /^git\s+add\b/.test(x)))
+      ? git(["status", "--porcelain", "--untracked-files=all"]).split("\n").filter(Boolean).map((l) => l.slice(3).replace(/^.* -> /, "")) : [];
+    const files = [...new Set([...staged, ...all])];
+    const home = files.filter((f) => HOME_DATA.test(f));
+    if (home.length) refuse("home-data", `these are a person's own and never committed: ${home.slice(0, 5).join(", ")}${home.length > 5 ? " …" : ""}`);
+    const secretFiles = files.filter((f) => SECRET_FILE.test(f));
+    if (secretFiles.length) refuse("key", `these hold keys or a machine's own settings and never leave it: ${secretFiles.join(", ")}`);
+    const text = git(["diff", "--cached"]) + "\n" + all.map((f) => { try { return readFileSync(join(root, f), "utf8"); } catch { return ""; } }).join("\n");
+    const hit = text.match(SECRET_TEXT);
+    if (hit) refuse("key", `something that looks like a key is in the commit (${hit[0].slice(0, 12)}…). A key that is committed is a key that leaks; take it out first.`);
+  }
+
+  // base allows one open branch at a time (#98, PRD section 7): a push or a PR from a base branch stops while another
+  // person's base branch has an open PR. My own second base branch goes through: Take already asked, and I can override.
+  if (/^[^/]+\/base-/.test(branch) && (/^git\s+push\b/.test(s) || /^gh\s+pr\s+create\b/.test(s))) {
+    const other = openPrs().find((p) => /^[^/]+\/base-/.test(p.headRefName) && p.headRefName !== branch
+      && !mine.includes(p.headRefName.split("/")[0]) && !mine.includes(String(p.author?.login ?? "")));
+    if (other) refuse("base-second-branch", `base allows one open branch at a time; #${other.number} (${other.author?.login ?? other.headRefName.split("/")[0]}) is open: build on that branch or wait.`);
+  }
+
+  // the window is the person's, in both folders (#114): no session parks the face-hot flag, installs or opens or quits
+  // Sol.app, or touches the engine's launchd or systemd jobs. The person switches the face from the menu bar; a merge on
+  // their word installs a build (sol/promote). MY SOL tries its changes on its own stage, sol/mine/stage.
+  const writes = /^(rm|mv|cp|touch|chflags|ditto|rsync|install|tee|truncate)\b|(^|[^<0-9=-])>(?!&)/;   // a write, not 2>/dev/null, >&2, => or ->
+  if (/face-hot/.test(s) && writes.test(s)) refuse("window", `the face-hot flag is the person's own switch (the menu bar); a session never parks or restores it. MY SOL tries its build on its own stage: bash sol/mine/stage.`);
+  if (/\bSol\.app\b|\/Applications\b/.test(s) && (writes.test(s) || /^(open|killall|pkill|osascript|xattr|codesign)\b/.test(s))) refuse("window", `the Sol window is the person's: a session never installs, opens or quits Sol.app. A merge on their word installs a build (sol/promote); MY SOL runs on its own stage (sol/mine/stage).`);
+  if (/^(open|killall|pkill)\s+(-\S+\s+)*['"]?Sol(\.app)?['"]?$/.test(s) || (/^osascript\b/.test(s) && /\bquit\b/.test(s) && /\bSol\b/.test(s))) refuse("window", `the Sol window is the person's: a session never opens or quits it. MY SOL runs on its own stage (sol/mine/stage).`);
+  if (/^launchctl\s+(kickstart|stop|bootout|unload|kill|remove|disable)\b.*\bsol-engine|^systemctl\s+(--user\s+)?(restart|stop|kill|disable)\b.*\bsol-engine/.test(s)) refuse("window", `the engine renews itself after a saved build; a session never restarts or stops it (that ends the session mid-turn). When it is truly stuck, one line for the person: bash sol/back.`);
+  if (/^(?:(?:bash|sh|zsh|exec)\s+(?!-n\b))?\S*\bmine\/(?:un)?live\b/.test(s) && !/\s--plan\b/.test(s)) refuse("window", `sol/mine/live and unlive move the Sol the person lives in (its engine, its jobs, Sol.app) and stop this very engine on the way; only the person runs them, in Terminal.app. Leave them the one line.`);
+
+  // from a side copy, the live checkout's build is not mine to run (#119 near miss: a scratch Vite started in the live
+  // sol/mac rewrote the hot face's cache under the window): a build or dev server named with the main checkout's path,
+  // or run after a cd into it, is refused; the side copy has its own sol/mac and sol/engine.
+  if (mainRoot && root !== mainRoot && /\b(vite|tsc|npm\s+(run|ci|install|start)|npx|node\s+\S*(vite|tsc))\b/.test(s)
+      && (s.includes(mainRoot + "/sol/") || segments.some((x) => (x.startsWith("cd " + mainRoot + "/") || x === "cd " + mainRoot)
+          && !x.startsWith("cd " + mainRoot + "/.claude/worktrees/") && !x.startsWith("cd " + root + "/") && x !== "cd " + root)))   // a cd into a side copy under the live checkout is the copy's own
+    refuse("window", `that is the live checkout's build (${mainRoot}/sol); a side copy runs its own sol/mac and sol/engine, and the stage (sol/mine/stage) for a whole second Sol.`);
+
+  // the fence, from a shell
+  if (insideSol && /(\bsed\s+-i|\btee\b|>>?|\bcp\b|\bmv\b|\brm\b)/.test(s)) {
+    const named = (s.match(/[\w./-]+\.(tsx?|css)/g) || []).find((p) => isFenced(p));
+    if (named) refuse("fence", `${basename(named)} is on the fence and is never changed from inside a running Sol.`);
+  }
+}
+
+// a PR says what to try, for the person who will try it (read on the whole command: a title or body may hold ; or &&)
+const prAt = cmd.search(/(^|\s)gh\s+pr\s+create\b/);
+if (prAt >= 0) {
+  const pr = cmd.slice(prAt); // only what follows gh pr create: a commit's own -F before it is not the body
+  let body = pr; // an inline --body, a heredoc, a $(cat …): the words are in the command itself
+  const bf = pr.match(/(?:--body-file|-F)\s+(\S+)/);
+  if (bf) { try { body = readFileSync(resolve(cwd, bf[1].replace(/^["']|["']$/g, "")), "utf8"); } catch { body = ""; } }
+  else if (!/(\s--body|\s-b)\b/.test(pr)) refuse("pr-without-note", `a PR carries a test note: a body (the template) with "What to try" written for the person who will try it, and "Felt or silent".`);
+  if (!/what to try/i.test(body)) refuse("pr-without-note", `the PR body has no test note: a line "What to try" (what to do, what you should notice) for the person who will try it, and "Felt or silent".`);
+}
+process.exit(0);

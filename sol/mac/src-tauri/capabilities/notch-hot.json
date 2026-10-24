@@ -1,0 +1,23 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notch-hot",
+  "description": "The notch and island in mutable mode, their page served by Vite on localhost:1420",
+  "windows": [
+    "notch",
+    "island"
+  ],
+  "remote": {
+    "urls": [
+      "http://localhost:1420/*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "allow-engine-port",
+    "allow-notch-expand",
+    "allow-notch-geometry",
+    "allow-face-log",
+    "allow-face-mode",
+    "allow-face-state"
+  ]
+}

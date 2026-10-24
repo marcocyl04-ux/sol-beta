@@ -1,0 +1,23 @@
+# The live engine on the NucBox, as a user unit (Two Sols, sol/PROTOCOL.md). Install once:
+#   mkdir -p ~/.config/systemd/user && cp ~/sol-live/sol/engine/systemd/sol-engine.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now sol-engine
+# It runs the engine through its keeper (engine/keep: the last good build after three failed starts) from the live
+# checkout (~/sol-live, branch "live") and points at the synced home/, so what Sol writes lands in the same back room
+# on every machine. sol/promote installs this file again each time, so a change here reaches the NucBox with it. Log: journalctl --user -u sol-engine -f
+[Unit]
+Description=Sol engine (live)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/sol-live/sol/engine
+ExecStart=/usr/bin/bash %h/sol-live/sol/engine/keep
+Environment=SOL_HOME=%h/computer/personal/projects/ecosystem/sol/home
+Environment=SOL_PROFILE=%h/.local/share/sol/browser-profile
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# Omarchy's mise shims print a line on stdout before every tool; the engine parses gh's JSON (2026-10-21)
+Environment=MISE_QUIET=1
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Undo: takes back the last change Sol made to its own face (sol/PROTOCOL.md, round 10). It reverts the newest
+# "mutate:" commit not yet undone, as a new commit "undo: <its message>", so history is kept and an undo can itself be
+# undone by hand (git revert). Run again to go one further back. Refuses when sol/mac or sol/design hold uncommitted
+# changes (an edit not yet a mutate would be mixed in) or when the change no longer comes off cleanly.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+paths=(sol/mac sol/design)
+if [ -n "$(git status --porcelain -- "${paths[@]}")" ]; then
+  echo "undo: sol/mac or sol/design has uncommitted changes; mutate or drop them first:" >&2
+  git status --short -- "${paths[@]}" | head -5 >&2
+  exit 1
+fi
+undone="$(git log --format=%B --grep='^undo: ' | sed -n 's/^This reverts commit \([0-9a-f]*\)\..*/\1/p')"
+target=""
+for h in $(git log --format=%H --grep='^mutate: '); do
+  if ! grep -q "^$h" <<<"$undone"; then target="$h"; break; fi
+done
+if [ -z "$target" ]; then echo "undo: no change of Sol's left to undo" >&2; exit 1; fi
+subject="$(git log -1 --format=%s "$target")"
+if ! git diff "$target" "$target^" -- "${paths[@]}" | git apply --index; then
+  echo "undo: $(git rev-parse --short "$target") no longer comes off cleanly (later edits touch the same lines)" >&2
+  exit 1
+fi
+git commit -q -m "undo: ${subject#mutate: }" -m "This reverts commit $target." -- "${paths[@]}"
+echo "undo: $(git rev-parse --short HEAD) took back $(git rev-parse --short "$target") ${subject#mutate: }"

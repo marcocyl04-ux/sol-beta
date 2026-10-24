@@ -1,0 +1,51 @@
+/* Hand (#34): the hands record under the action board, the line over Cowork's stage, the rows handed to me in the
+   side. Ink and hairlines at rest; yellow waits on a person (me), green done, red wrong; signatures amber. */
+
+/* ---- the record ---- */
+.hrec ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+/* handrow, not hrow: face.css owns .hrow (History), and the two met in the main window; the last four properties are
+   what this row used to take from face.css, kept so it looks the same */
+.handrow { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 8px 4px; border-bottom: 1px solid var(--line); font-size: 12.5px; color: var(--ink); cursor: default;
+  border-radius: var(--r-s); position: relative; z-index: 1; outline: 0; }
+.handrow[title^="http"], .handrow:hover { cursor: pointer; }
+.handrow:hover { background: var(--surface); }
+.handrow .who { flex: none; white-space: nowrap; }
+.handrow .who small { color: var(--mute); font-size: 11px; }
+.handrow .arr { color: var(--mute); }
+.handrow .how { flex: none; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--pill); font-size: 11px; color: var(--dim); }
+.handrow.review .how { border-style: dashed; }
+.handrow .line { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dim); font-style: italic; }
+.handrow .grow { flex: 1; }
+.handrow .ago { flex: none; color: var(--mute); font-size: 11px; font-variant-numeric: tabular-nums; }
+.hsaid { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; font-size: 12px; color: var(--dim); }
+.hsaid i { width: 6px; height: 6px; border-radius: 50%; background: var(--green-strong); }
+.hsaid.failed { color: var(--red-soft); }
+.hsaid.failed i { background: var(--red-strong); }
+
+/* ---- the line over the stage ---- */
+.hline { flex: none; margin: 10px 28px 0; padding: 7px 8px 7px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); font-size: 12.5px; color: var(--dim); }
+.hline .hrow1 { display: flex; align-items: center; gap: 12px; }
+.hline .what { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.hline .what i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--yellow-strong); }
+.hline .what b { font-weight: 500; font-variant-numeric: tabular-nums; }
+.hline .by { color: var(--amber); }
+.hline.busy .what i { animation: hand-blink 1.1s ease-in-out infinite; }
+.hline.done .what i { background: var(--green-strong); }
+.hline.failed .what { color: var(--red-soft); }
+.hline.failed .what i { background: var(--red-strong); }
+.hline .brief { margin: 4px 0 1px 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--mute); }
+.hline .moves, .hpass { flex: none; display: flex; gap: 6px; }
+.hline button { padding: 3px 11px; background: var(--page); border: 1px solid var(--line); border-radius: var(--pill); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.hline button:hover:not(:disabled) { border-color: var(--mute); }
+.hline button:disabled { color: var(--mute); cursor: default; }
+.hline button.first { background: var(--ink); border-color: var(--ink); color: var(--page); }
+.hline button.first:hover:not(:disabled) { background: #fff; border-color: #fff; }
+.hline button.take:active { background: var(--green-strong); border-color: var(--green-strong); }
+.hpass { align-items: center; margin: 8px 0 1px; }
+.hpass input { flex: 1; min-width: 0; padding: 5px 10px; background: var(--page); border: 1px solid var(--line); border-radius: var(--pill); color: var(--ink); font: inherit; font-size: 12.5px; outline: none; }
+.hpass input:focus { border-color: var(--mute); }
+@keyframes hand-blink { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .hline.busy .what i { animation: none; } }
+
+/* ---- handed to me, in the side ---- */
+.cside .hside .csig { font-size: 10.5px; }

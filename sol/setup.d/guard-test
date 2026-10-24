@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Guard test (#22, 2026-10-20): sol/setup touches launchd only with a terminal or --launchd, on port 7777, and when
+# the jobs are not installed or installed from this checkout. Runs the guard against a scratch home and a fake
+# launchctl that records every call, so nothing real is read or touched:  bash sol/setup.d/guard-test
+set -u
+cd "$(dirname "$0")/../.."
+ROOT=$(pwd -P)
+t=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$t"' EXIT
+mkdir -p "$t/bin" "$t/other/sol/engine/launchd"
+# the fake: `print` answers from $t/loaded/<job> (the plist path launchd would report), nothing else does anything
+cat > "$t/bin/launchctl" <<'FAKE'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE_LOG"
+[ "$1" = print ] && f="$FAKE_DIR/loaded/${2##*/}" && [ -f "$f" ] && { printf '\tpath = %s\n' "$(cat "$f")"; exit 0; }
+exit 1
+FAKE
+chmod +x "$t/bin/launchctl"
+plist() { printf '<plist>\n  <key>WorkingDirectory</key><string>%s/sol/engine</string>\n</plist>\n' "$1"; }
+for j in com.marco.sol-engine com.marco.sol-engine-build; do plist "$t/other" > "$t/other/sol/engine/launchd/$j.plist"; done
+
+fails=0
+# case "name" "expected start of the verdict" [setup args...]; the scratch home is set up by the lines before it
+case_() {
+  local name=$1 want=$2; shift 2
+  got=$(HOME="$t/home" PATH="$t/bin:$PATH" FAKE_LOG="$t/log" FAKE_DIR="$t" SOL_SETUP_GUARD_ONLY=1 bash sol/setup "$@" </dev/null)
+  case $got in "$want"*) echo "  ok    $name" ;; *) echo "  FAIL  $name: got \"$got\", want \"$want…\""; fails=$((fails + 1)) ;; esac
+}
+fresh() { rm -rf "$t/home" "$t/loaded"; mkdir -p "$t/home/Library/LaunchAgents" "$t/loaded"; unset SOL_PORT SOL_NO_KEEP; }
+LA="$t/home/Library/LaunchAgents"
+
+fresh; case_ "no terminal, no --launchd: left to the Terminal run" "launchd=no spare=no the engine is installed only by a run in your own Terminal" 
+fresh; case_ "--launchd, nothing installed: installs" "launchd=1" --launchd
+fresh; SOL_PORT=7778 case_ "a spare port: never launchd" "launchd=no spare=1" --launchd
+fresh; SOL_NO_KEEP=1 case_ "SOL_NO_KEEP: never launchd" "launchd=no spare=1" --launchd
+fresh; ln -s "$t/other/sol/engine/launchd/com.marco.sol-engine.plist" "$LA/com.marco.sol-engine.plist"
+case_ "a link into another checkout: not touched" "launchd=no spare=no another Sol's engine is installed from $t/other; not touching it" --launchd
+fresh; plist "$t/other" > "$LA/com.marco.sol-engine-build.plist"
+case_ "a file for another checkout: not touched" "launchd=no spare=no another Sol's engine is installed from $t/other" --launchd
+fresh; echo "$t/other/sol/engine/launchd/com.marco.sol-engine.plist" > "$t/loaded/com.marco.sol-engine"
+case_ "loaded by launchd from another checkout, no file here: not touched" "launchd=no spare=no another Sol's engine" --launchd
+fresh; ln -s "$t/other/sol/engine/launchd/com.marco.sol-engine.plist" "$LA/com.marco.sol-engine.plist"
+case_ "--check with another's engine: says so" "launchd=no spare=no another Sol's engine" --check
+fresh; for j in com.marco.sol-engine com.marco.sol-engine-build; do plist "$ROOT" > "$LA/$j.plist"; done
+case_ "installed from this checkout: kept up to date" "launchd=1" --launchd
+fresh; plist "$ROOT" > "$t/mine.plist"; echo "$t/mine.plist" > "$t/loaded/com.marco.sol-engine"
+case_ "loaded by launchd from a plain file of this checkout: kept up to date" "launchd=1" --launchd
+fresh; ln -s "$ROOT/sol/engine/launchd/com.marco.sol-engine.plist" "$LA/com.marco.sol-engine.plist"
+case_ "a link into this checkout: allowed (setup leaves the link itself alone)" "launchd=1" --launchd
+
+if grep -qv '^print ' "$t/log"; then echo "  FAIL  the guard called launchctl for more than print:"; grep -v '^print ' "$t/log" | sed 's/^/        /'; fails=$((fails + 1))
+else echo "  ok    the guard only ever ran launchctl print"; fi
+[ "$fails" -eq 0 ] && echo "guard-test: all pass" || echo "guard-test: $fails failed"
+[ "$fails" -eq 0 ]

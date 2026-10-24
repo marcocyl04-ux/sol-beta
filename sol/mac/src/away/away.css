@@ -1,0 +1,90 @@
+/* The doorway: Marco's phone page. Tokens come from face.css (paper #1a1a1a, ink, dim, mute, surface, line). */
+html, body, #root { height: 100%; overflow: hidden; overscroll-behavior: none; }
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+
+.away { position: fixed; inset: 0; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: var(--page);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+
+.strip { flex: none; display: flex; justify-content: space-between; gap: 16px; padding: 14px 20px 0; font-size: 12px; letter-spacing: 0.08em; color: var(--dim); }
+.strip .right { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+
+.mid { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 28px; text-align: center; }
+.creature-btn { display: block; padding: 0; margin: 0 0 4px; background: none; border: 0; color: inherit; cursor: pointer; touch-action: manipulation; }
+.creature-btn canvas { display: block; }
+
+.said { width: 100%; max-width: 340px; min-height: 142px; margin-top: 8px; }
+.say { margin: 0; font-size: 21px; line-height: 1.35; color: var(--ink); letter-spacing: -0.005em; text-wrap: balance; }
+.say.dim { color: var(--dim); }
+.did { margin: 14px 0 0; font-size: 12px; line-height: 1.5; color: var(--dim); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+.doing { list-style: none; margin: 14px auto 0; padding: 0; display: inline-flex; flex-direction: column; gap: 7px; align-items: flex-start; max-width: 100%; }
+.doing li { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--dim); max-width: 100%; white-space: nowrap; }
+.doing li > i { flex: none; position: relative; width: 12px; height: 6px; }
+.doing li.done > i::before { content: ""; position: absolute; left: 3px; top: 0; width: 6px; height: 6px; background: var(--green-strong); }
+.doing li.run { color: var(--ink); }
+.doing li.run > i::before { content: ""; position: absolute; left: 0; top: 0.5px; width: 5px; height: 5px; background: var(--sun); animation: step 0.9s steps(1, end) infinite; }
+@keyframes step { 0% { transform: translateX(0); } 25% { transform: translateX(3px); } 50% { transform: translateX(7px); } 75% { transform: translateX(3px); } }
+
+.me { margin: 22px 0 0; min-height: 18px; max-width: 320px; display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--mute); text-align: left; }
+.me svg { flex: none; fill: none; stroke: var(--mute); stroke-width: 1.2; stroke-linecap: round; }
+.me svg rect { fill: var(--mute); stroke: none; }
+.me span { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+.type { flex: none; padding: 0 28px 6px; }
+.type input { width: 100%; max-width: 340px; display: block; margin: 0 auto; height: 44px; padding: 0 14px; box-sizing: border-box; background: var(--line); border: 0; border-radius: var(--r-s);
+  color: var(--ink); font: inherit; font-size: 16px; outline: none; -webkit-user-select: text; user-select: text; }
+.type input::placeholder { color: var(--mute); }
+.type input:disabled { opacity: 0.4; }
+
+.foot { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-bottom: env(safe-area-inset-bottom); }
+.bars { height: 32px; display: flex; align-items: center; gap: 5px; }
+.bars i { width: 4px; height: 4px; background: var(--mute); border-radius: 1px; }
+.bars.on i { background: var(--sun); }
+.handle-zone { width: 100%; height: 36px; display: grid; place-items: center; touch-action: none; cursor: grab; }
+.handle { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--line); }
+
+/* asheet, not sheet: face.css (loaded on this page too) owns .sheet for the desk's page; overflow, the side borders,
+   cursor, user-select and touch-action are what this sheet used to take from it, kept so it looks and drags the same */
+.asheet { position: absolute; left: 0; right: 0; bottom: 0; height: 64%; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line);
+  overflow: hidden; cursor: default; user-select: none; touch-action: none;
+  border-radius: var(--r-l) var(--r-l) 0 0; padding-bottom: env(safe-area-inset-bottom); z-index: 5; will-change: transform; }
+.asheet .handle-zone { height: 28px; flex: none; }
+.asheet .lines { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 24px 24px; -webkit-user-select: text; user-select: text; }
+.asheet p { margin: 0 0 14px; font-size: 15px; line-height: 1.5; color: var(--ink); }
+.asheet p.me { color: var(--dim); max-width: none; display: block; min-height: 0; font-size: 15px; }
+.asheet p b { display: block; margin-bottom: 1px; font-size: 11px; font-weight: 400; letter-spacing: 0.1em; color: var(--mute); }
+.asheet p.none { color: var(--mute); }
+
+.strip .gear { background: none; border: 0; padding: 12px 20px 12px 20px; margin: -12px -20px -12px -20px; font: inherit; letter-spacing: inherit; color: inherit; cursor: pointer; }
+.strip .gear:active { color: var(--ink); }
+
+.asheet.settings { height: 88%; z-index: 6; }
+.asheet h2 { margin: 22px 0 8px; font-size: 11px; font-weight: 400; letter-spacing: 0.1em; color: var(--mute); }
+.asheet h2:first-child { margin-top: 4px; }
+.vlist { list-style: none; margin: 0; padding: 0; }
+.vrow { width: 100%; height: 48px; display: flex; align-items: center; gap: 10px; padding: 0; background: none; border: 0; border-top: 1px solid var(--line); color: var(--ink); font-size: 16px; text-align: left; cursor: pointer; touch-action: manipulation; }
+.vlist li:first-child .vrow { border-top: 0; }
+.vrow .mk { flex: none; width: 20px; display: flex; align-items: center; justify-content: flex-start; }
+.vrow .sq { display: block; width: 6px; height: 6px; background: var(--ink); }
+.vrow b { font-weight: 400; flex: 1; }
+.vrow .w { color: var(--dim); font-size: 13px; }
+.rowbars { display: flex; align-items: center; gap: 2px; height: 20px; }
+.rowbars i { width: 2px; height: 3px; background: var(--sun); }
+.asheet p.why { margin: -4px 0 10px 30px; font-size: 12px; color: var(--dim); }
+.asheet p.note { margin: 10px 0 0; font-size: 12px; color: var(--dim); }
+.asheet p.note.engine { margin-top: 28px; color: var(--mute); }
+.patience { display: flex; align-items: center; gap: 14px; }
+.patience .ptrack { position: relative; flex: 1; height: 44px; touch-action: none; cursor: pointer; }
+.patience .ptrack::before { content: ""; position: absolute; left: 0; right: 0; top: 20px; height: 4px; background: var(--line); }
+.patience .fill { position: absolute; left: 0; top: 20px; height: 4px; background: var(--dim); }
+.patience .knob { position: absolute; top: 14px; width: 16px; height: 16px; margin-left: -8px; background: var(--ink); }
+.patience .val { min-width: 64px; text-align: right; font-size: 13px; color: var(--dim); }
+.langs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.langs button { height: 44px; padding: 0 4px; background: none; border: 1px solid var(--line); border-radius: var(--r-s); color: var(--dim); font-size: 13px; cursor: pointer; }
+.langs button.on { background: var(--raised); color: var(--ink); border-color: var(--mute); }
+
+@media (prefers-reduced-motion: reduce) { .doing li.run > i::before { animation: none; } }
+
+.meswap { margin-top: 0; }
+.said .swap { }
+.creature-btn { transform-origin: 50% 80%; }

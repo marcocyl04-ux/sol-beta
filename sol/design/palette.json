@@ -1,0 +1,21 @@
+{
+  "note": "Sol's colours, one file. FIRST PASS (2026-10-18), awaiting Marco's references: every value is picked from the creature's own pixels (icon-grid.json) except red soft, mixed from ember. His references swap in here; run palette-build.py, no code changes. Functional colours are fixed signals for the states; the seat gradients colour everything at rest, as before step 3 (repair 2026-10-18, Marco: only the chat box's highlight goes plain); the creature's ten colours are named for the things that wear one.",
+  "functional": {
+    "green": { "soft": "#ceecb2", "strong": "#70df45", "note": "done, good. Strong: the done flash, a tick that lands. Soft: a quiet it-went-fine. From the creature: mint, green." },
+    "yellow": { "soft": "#f6ec8c", "strong": "#f4c82a", "note": "waiting on you (Your call). Strong: the pulse when the ask arrives. Soft: the ask at rest. From the creature: butter, sun." },
+    "red": { "soft": "#f2867c", "strong": "#fd302d", "note": "wrong, unplugged. Strong: the wrong flash, a failure. Soft: Unplugged, steady. Strong is the creature's ember; soft is ember mixed toward white (not a creature pixel)." }
+  },
+  "gradients": {
+    "sol": { "stops": ["#fd69b9", "#ff2e4e", "#fb7129", "#f89b2a", "#f4c82a"], "note": "the creature's own candy to sun (the old ring's sol slice). Working: the one moving colour." },
+    "home": { "stops": ["#fd69b9", "#ff4888", "#ff2e4e"], "note": "the home (life) seat, candy to heart: its glow, dots, switch fragment and wipe, pings, Show stripe, and the creature's dust and corner tint at rest." },
+    "work": { "stops": ["#f4c82a", "#f89b2a", "#fb7129"], "note": "the work seat, sun to orange: the same places as home." },
+    "dawn": { "stops": ["#fb9ed5", "#ffbe96", "#f6ec8c"], "note": "warm and soft: the creature's pastels blush, peach, butter. Decorative, for cosmetics." },
+    "meadow": { "stops": ["#ceecb2", "#8dc965", "#70df45", "#e8ef54"], "note": "cool: the creature's greens mint, leaf, green, lime. Decorative, for cosmetics." }
+  },
+  "creature": {
+    "note": "the creature's ten colours in its own order, named. Decorative, for things that wear one colour: the hands, the Show's lanes, the landing shimmer, a step running.",
+    "colours": { "green": "#70df45", "lime": "#e8ef54", "sun": "#f4c82a", "amber": "#f89b2a", "orange": "#fb7129", "ember": "#fd302d", "heart": "#ff2e4e", "pink": "#ff4888", "candy": "#fd69b9", "blush": "#fb9ed5" }
+  },
+  "ink": { "value": "#ebebe8", "note": "text, and the one plain highlight: the chat box's fringe (face.css --ink)." },
+  "paper": { "value": "#1a1a1a", "note": "the window (face.css --page)." }
+}

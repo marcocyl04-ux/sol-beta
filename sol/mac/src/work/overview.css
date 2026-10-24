@@ -1,0 +1,81 @@
+/* The overview at parity with Claude Code's session rail (#40, PROTOCOL.md round 20). Beside Overview.tsx; the cards
+   themselves (.wocard, .wohead, .worow…) stay in work.css. Ink text, hairline capsules, no colour at rest: the bar's
+   tints are palette.css names mixed toward grey, and colour speaks only where something happens (yellow: waiting on
+   Marco; red: wrong). */
+
+/* the closed card's bar turns yellow when auto-compact is near: a person can act on it */
+.wover .wobar.hot i { background: var(--yellow-strong); }
+
+/* ---- Context, opened ---- */
+.woctx { display: flex; flex-direction: column; gap: 10px; padding-top: 2px; }
+.woctxhead { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: var(--ink); }
+.woctxhead em { margin-left: auto; font-style: normal; color: var(--dim); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.wostack { display: flex; gap: 1.5px; height: 9px; border-radius: 5px; overflow: hidden; background: var(--raised); }
+.wostack i { display: block; min-width: 2px; height: 100%; }
+.wostack i.rest { background: repeating-linear-gradient(135deg, var(--mute) 0 2px, #4a4a48 2px 4px); }
+.wostack i.free { background: var(--raised); min-width: 0; }
+
+.woparts { display: flex; flex-direction: column; }
+.wopart { display: grid; grid-template-columns: 8px 1fr auto 52px; align-items: center; gap: 10px; padding: 3.5px 0; font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.wopart > i { width: 8px; height: 8px; border-radius: 2px; }
+.wopart.free > i { box-shadow: inset 0 0 0 1px var(--line); }
+.wopart.rest > i { background: repeating-linear-gradient(135deg, var(--mute) 0 2px, #4a4a48 2px 4px); }
+.wopart span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wopart span.listed { text-decoration: underline dotted var(--mute); text-underline-offset: 3px; cursor: help; }
+.wopart b { font-weight: 400; text-align: right; }
+.wopart b small { color: var(--mute); font-size: 11px; margin-right: 2px; }
+.wopart em { font-style: normal; color: var(--dim); text-align: right; }
+.woparts.deferred { padding-top: 6px; border-top: 1px solid var(--line); }
+.woparts.deferred .wopart { color: var(--mute); }
+.woparts.deferred .wopart > i { box-shadow: inset 0 0 0 1px var(--line); }
+.woparts.deferred .wopart em { color: var(--mute); }
+
+.wolists { display: flex; flex-direction: column; border-top: 1px solid var(--line); padding-top: 4px; }
+.wolisthead { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 0; background: none; border: 0; color: var(--ink); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.wolisthead:disabled { cursor: default; color: var(--mute); }
+/* "aside", not "side": face.css's .side is the fixed sessions column, and it carried the closed chevrons off the card */
+.wochev.aside { rotate: -45deg; margin-left: 2px; }
+.wochev.aside.open { rotate: 45deg; margin-top: -3px; }
+.wolisthead .wochev.aside { margin: 0 2px 0 0; }
+.wolisthead em { margin-left: auto; font-style: normal; color: var(--dim); font-variant-numeric: tabular-nums; }
+.wolistbody { display: flex; flex-direction: column; gap: 3px; padding: 2px 0 8px 16px; font-size: 12px; color: var(--dim); max-height: 260px; overflow-y: auto; }
+.wolistbody > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wolistbody b { font-weight: 500; color: var(--ink); }
+.wolistbody em { font-style: normal; color: var(--mute); }
+.wolistbody .dim { color: var(--mute); }
+
+.wocompact { display: flex; align-items: center; gap: 10px; min-height: 28px; font-size: 12.5px; color: var(--ink); }
+.wocompact > span:first-child { color: var(--dim); }
+.wocompact > :last-child { margin-left: auto; }
+.wohow { margin-top: -4px; }
+
+/* a hairline capsule: the pane's one kind of button; the first of an ask is the one that does it */
+.wocap { flex: none; padding: 4px 11px; border: 1px solid var(--line); border-radius: var(--pill, 999px); background: none; color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.wocap:hover:not(:disabled) { border-color: var(--mute); }
+.wocap:disabled { color: var(--mute); cursor: default; }
+.wocap.first { border-color: var(--dim); }
+.woask { display: flex; align-items: center; gap: 10px; }
+.woask.row { flex-wrap: wrap; padding: 6px 0 4px; font-size: 12px; color: var(--dim); line-height: 1.45; }
+.woask.row > span { flex: 1 1 100%; }
+.woask.row b { font-weight: 500; color: var(--ink); }
+
+/* ---- Environment: Remote Control ---- */
+.woswitch { flex: none; position: relative; width: 26px; height: 14px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--raised); cursor: pointer; }
+.woswitch i { position: absolute; top: 1px; left: 1px; width: 10px; height: 10px; border-radius: 50%; background: var(--mute); }
+.woswitch.on { border-color: var(--dim); }
+.woswitch.on i { background: var(--ink); }
+.woswitch.busy { opacity: .55; cursor: default; }
+.wobody .wourl { text-align: left; color: var(--dim); padding-left: 24px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wobad { color: var(--red-strong) !important; }
+
+/* ---- Connectors: a letter mark, the name, the state at the right ---- */
+.woconn { padding: 4px 0; }
+.wolet { flex: none; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; border: 1px solid var(--line); background: var(--raised); color: var(--dim); font-style: normal; font-size: 10.5px; font-weight: 600; }
+.woauth { color: var(--yellow-strong) !important; font-size: 12px; }
+button.woauth:hover { text-decoration: underline; text-underline-offset: 3px; }
+.wolinkmore { align-self: flex-start; margin-top: 4px; font-size: 12px; }
+
+/* ---- Changes ---- */
+.wochg .wonum { font-variant-numeric: tabular-nums; color: var(--dim); }
+.wochg .wonum b { font-weight: 400; color: var(--ink); margin-right: 2px; }
+.wochg .woright em { font-style: normal; color: var(--mute); }

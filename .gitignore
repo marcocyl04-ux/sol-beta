@@ -1,0 +1,68 @@
+node_modules/
+dist/
+target/
+.DS_Store
+
+# big slides, stay local
+sol/home/school/*/material/*.pptx
+
+# Sol: the browser tool's logins and cookies, and saved attachments
+sol/home/browser-profile/
+sol/home/voice/
+sol/home/attachments/
+
+# Sol: the keeper's copies of the engine build and its try count (engine/launchd/keep)
+sol/engine/dist.good/
+sol/engine/dist.good.new/
+sol/engine/dist.bad/
+sol/engine/.keep
+
+# Sol: keys (Gemini Live)
+sol/engine/.env
+# Sol: what sol/setup leaves behind (logs to read when a step failed, a skipped team key)
+sol/engine/.setup-*
+
+# Sol: settings and conversation names (written by the engine)
+sol/engine/settings.json
+sol/engine/titles.json
+sol/engine/doors.json
+# Sol: the team settings, each person's own (Together, BUILD.md)
+sol/engine/team.json
+
+# Claude Code session lock, machine-local
+.claude/scheduled_tasks.lock
+
+# Sol: pages the desk renders from PDFs (remade on demand)
+sol/home/desk/pages/
+
+# Sol: the seat's scratch downloads while studying
+sol/home/school/*/tmp/
+
+# Sol: the back room's data is each person's own (CONTRIBUTING.md). The instructions stay shared.
+sol/home/memory/*
+!sol/home/memory/.keep
+sol/home/life/*
+!sol/home/life/.keep
+sol/home/school/
+sol/home/desk/
+sol/home/talk/
+sol/home/output/
+sol/home/tmp/
+# a person's own buttons (sol/mac/src/buttons/index.ts takes them in) and their arrangement (engine/src/arrange.ts):
+# a stamp, sol/promote and a rebase of <you>/mine never touch either
+sol/home/buttons/
+sol/home/arrangement.json
+sol/home/arrangement.bad-*.json
+sol/home/arrangement.json.*.tmp
+# the sol skill linked for Claude chats by sol/setup (sol/home is each person's own)
+sol/home/.claude/skills/
+
+# The harness (sol/harness/guard, .claude/settings.json): what is each person's own stays out
+.claude/settings.local.json
+.claude/harness.local.json
+.claude/worktrees/
+sol/engine/.stage/
+sol/engine/.live/
+sol/engine/.live-build.log
+sol/engine/*.before-live
+sol/engine/*.before-unlive

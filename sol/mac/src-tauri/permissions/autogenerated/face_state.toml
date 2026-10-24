@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-face-state"
+description = "Enables the face_state command without any pre-configured scope."
+commands.allow = ["face_state"]
+
+[[permission]]
+identifier = "deny-face-state"
+description = "Denies the face_state command without any pre-configured scope."
+commands.deny = ["face_state"]

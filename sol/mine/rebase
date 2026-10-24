@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# MY SOL rebase (#76): run in the MY SOL checkout after each stamp of stable:  bash sol/mine/rebase
+# Fetches, refuses a dirty tree, and rebases this `*/mine` branch onto stable (origin's when it is ahead of the local
+# one; in a tester's clone of the beta repo, which has no stable, its main). A conflict is never left behind: it
+# names each file and the lines in conflict, aborts the rebase and exits 1, so the checkout is just as it was. On success it says how many of his own commits sit over stable.
+set -u
+cd "$(git rev-parse --show-toplevel)" || exit 2
+branch=$(git symbolic-ref --short -q HEAD || true)
+case $branch in
+  */mine) ;;
+  *) echo "mine/rebase: this checkout is on ${branch:-a detached head}, not a */mine branch; run it in MY SOL" >&2; exit 2 ;;
+esac
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "mine/rebase: there are changes not committed here; commit or stash them first" >&2
+  git status --short --untracked-files=no >&2; exit 1
+fi
+has() { git rev-parse --verify -q "$1" >/dev/null; }
+# the beta repo (#79) has no stable: its main is the stamp's export ("Sol stable-..."), so a tester's */mine goes onto that
+export_main() { has refs/remotes/origin/main && git log -1 --format=%s refs/remotes/origin/main | grep -q '^Sol stable-'; }
+git fetch -q origin '+refs/heads/stable:refs/remotes/origin/stable' 2>/dev/null \
+  || { ! has refs/heads/stable && git fetch -q origin '+refs/heads/main:refs/remotes/origin/main' 2>/dev/null && export_main; } \
+  || echo "mine/rebase: could not fetch (offline?); using what is here"
+if has refs/heads/stable && has refs/remotes/origin/stable && git merge-base --is-ancestor stable origin/stable; then base=origin/stable
+elif has refs/heads/stable; then base=stable
+elif has refs/remotes/origin/stable; then base=origin/stable
+elif export_main; then base=origin/main
+else echo "mine/rebase: there is no stable branch here or on origin" >&2; exit 1
+fi
+if ! out=$(git rebase "$base" 2>&1); then
+  if [ ! -d "$(git rev-parse --git-path rebase-merge)" ] && [ ! -d "$(git rev-parse --git-path rebase-apply)" ]; then
+    echo "mine/rebase: git would not start the rebase onto $base:" >&2; echo "$out" >&2; exit 1
+  fi
+  echo "mine/rebase: $branch does not go onto $base by itself; these places conflict:"
+  git diff --name-only --diff-filter=U | while IFS= read -r f; do
+    lines=$(awk '/^<<<<<<< /{s=NR} /^>>>>>>> /{if (s) {printf "%s%d-%d", sep, s, NR; sep=", "; s=0}}' "$f" 2>/dev/null)
+    if [ -n "$lines" ]; then echo "  $f, lines $lines"; else echo "  $f (removed on one side, changed on the other)"; fi
+  done
+  stuck=$(git log -1 --format='%h %s' REBASE_HEAD 2>/dev/null || true)
+  [ -n "$stuck" ] && echo "  while putting on: $stuck"
+  if ! git rebase --abort; then
+    echo "mine/rebase: the rebase could not be undone; the checkout is mid-rebase. Run: git rebase --abort" >&2; exit 1
+  fi
+  echo "mine/rebase: nothing changed, $branch is where it was. Fix it by hand (git rebase $base), or ask a session in MY SOL."
+  exit 1
+fi
+n=$(git rev-list --count "$base..HEAD")
+case $n in 0) echo "mine/rebase: $branch is on $base, nothing of his own over it yet" ;; 1) echo "mine/rebase: $branch is on $base, 1 commit of his own over it" ;; *) echo "mine/rebase: $branch is on $base, $n commits of his own over it" ;; esac

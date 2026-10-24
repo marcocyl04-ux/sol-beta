@@ -1,0 +1,6 @@
+{
+  "handsAtOnce": [2, 4],
+  "moveMs": 1000,
+  "minMoveMs": 500,
+  "beatPauseMs": 350
+}

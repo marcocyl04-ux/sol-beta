@@ -1,0 +1,61 @@
+/* The notch and the island: a black slab, the creature in it (two forms, see Notch.tsx). Things slide, never fade. The slab (class "slab":
+   face.css, loaded on this page too, owns ".pill" and ".tab" and would size them) is sized by springs in Notch.tsx; the window is larger
+   than the open slab so an overshoot is never cut off. */
+html, body, #root { background: transparent !important; }
+.notch { position: fixed; inset: 0; overflow: hidden; user-select: none; -webkit-user-select: none; cursor: default; }
+.notch .slab {
+  position: absolute; top: var(--tab-top, 0px); left: 50%; width: 200px; height: 36px; background: #000;
+  border-radius: 0 0 16px 16px; translate: -50% 0; transform-origin: 50% 0;
+  overflow: hidden;
+}
+.notch.island .slab { border-radius: 13px; }
+.notch.shape-bar .slab, .notch.shape-wings .slab { border-radius: 0 0 14px 14px; }
+/* wings: the creature sits in the menu bar to the left of the camera, nothing under the cutout while closed */
+.notch.shape-wings .mark { left: 10px; margin-left: 0; top: 2px; }
+.notch.shape-wings .say-box { top: calc(var(--off, 0px) + 50px); left: 24px; right: 24px; }
+.notch.shape-wings .say { font-size: 15px; line-height: 1.35; -webkit-line-clamp: 3; }
+.notch.shape-bar .mark { top: calc(var(--off, 0px) + 1px); }
+/* --off is the part of the tab behind the camera cutout (0 on a monitor); the creature sits just under it */
+.notch .mark { position: absolute; top: calc(var(--off, 0px) + 3px); left: 50%; margin-left: -12px; width: 24px; height: 24px; }
+.notch.island .mark { top: 1px; }
+.notch .say-box { position: absolute; left: 18px; right: 18px; top: calc(var(--off, 0px) + 40px); }
+.notch .say {
+  margin: 0; text-align: center;
+  font: 13px/1.3 -apple-system, system-ui, sans-serif; color: #e9e6df;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.notch .say.dim { color: #8a877f; }
+.notch canvas.ring-c { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* the crew (Crew.tsx, issue #15): its canvas over the slab; while it works down in the card the line moves over to make room */
+.notch canvas.crew-c { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.notch.crew .say-box { left: 60px; }
+.notch.crew .say { text-align: left; }
+/* Notch buttons (#6, Card.tsx): the sentence line gives up its right third to the buttons; the card grows no taller and
+   the sentence ellipsises first. Ink capsules on the slab, the first filled (pearl on ink), no colour at rest; the pressed
+   one takes its functional tint from palette.css (yellow Allow / Deny, red Stop / Hang up, green Start). */
+.notch .say-box { display: flex; align-items: flex-start; gap: 12px; }
+.notch .say-text { flex: 1 1 auto; min-width: 0; }
+.notch.btns .say { text-align: left; }
+.notch.btns.shape-wings .say { -webkit-line-clamp: 2; }
+.notch .say.one { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.notch .card-btns { flex: 0 0 auto; max-width: 36%; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.notch .card-row { display: flex; gap: 6px; }
+.notch .cbtn {
+  font: 600 12px/1 -apple-system, system-ui, sans-serif; letter-spacing: 0.01em; white-space: nowrap;
+  padding: 6px 11px; border-radius: 999px; border: 1px solid rgba(233, 230, 223, 0.5); background: transparent; color: #e9e6df;
+  cursor: default; transform-origin: 50% 100%; transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+.notch .cbtn.first { background: #e9e6df; border-color: #e9e6df; color: #000; }
+.notch .cbtn.pressed { background: #e9e6df; border-color: #e9e6df; color: #000; }
+.notch .cbtn.pressed[data-tint="yellow"] { background: var(--yellow-strong); border-color: var(--yellow-strong); }
+.notch .cbtn.pressed[data-tint="red"] { background: var(--red-strong); border-color: var(--red-strong); }
+.notch .cbtn.pressed[data-tint="green"] { background: var(--green-strong); border-color: var(--green-strong); }
+.notch .card-meta { font: 11px/1.2 -apple-system, system-ui, sans-serif; color: #8a877f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.notch.shape-wings .card-btns { padding-top: 1px; }
+@media (prefers-reduced-motion: reduce) { .notch .cbtn { transition: none; } }
+.notch.shape-wings .card-btns { margin-top: -3px; }
+/* the island is 84 tall: the buttons sit a little higher and smaller so the count fits above the edge */
+.notch.island .card-btns { margin-top: -6px; gap: 3px; }
+.notch.island .cbtn { padding: 5px 10px; }
+/* the button Return would press, while Return is Sol's: a small ⏎ after its word, quieter than the word */
+.notch .cbtn .ret { margin-left: 5px; font-weight: 400; font-size: 11px; opacity: 0.55; }

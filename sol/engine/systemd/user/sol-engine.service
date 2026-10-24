@@ -1,0 +1,17 @@
+# A teammate's own engine on Linux or WSL, as a systemd user unit (#22, 2026-10-20). sol/setup fills the @BLANKS@
+# with that checkout's paths and writes it to ~/.config/systemd/user/sol-engine.service; it is never installed as is.
+# The engine runs through its keeper (engine/keep), like the Mac's launchd job and the NucBox's live unit.
+# Log: journalctl --user -u sol-engine -n 50 -f
+[Unit]
+Description=Sol engine (@ROOT@)
+After=network-online.target
+
+[Service]
+WorkingDirectory=@ENG@
+ExecStart=/usr/bin/env bash @ENG@/keep
+Environment=PATH=@PATH@
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

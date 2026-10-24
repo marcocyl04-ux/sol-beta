@@ -1,0 +1,5 @@
+/* File it (#119): the line over the composer is the new-stable line (cowork/ship.css .sline) holding the Pass field's
+   input (cowork/hands.css .hpass); only the glue that puts the one inside the other lives here. */
+.sline.fileit .hpass { flex: 1; min-width: 0; margin: 0; }
+.sline.fileit .moves button:disabled { color: var(--mute); cursor: default; }
+.sline.fileit .moves button.first:disabled { background: var(--page); border-color: var(--line); }

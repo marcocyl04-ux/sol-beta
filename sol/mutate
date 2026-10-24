@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Mutate: an edit to Sol's own face becomes one commit. The seat runs it after each change it makes in mutable mode
+# (sol/PROTOCOL.md, round 10): ../mutate "the creature in the notch blinks twice when a timer ends"
+# It commits sol/mac and sol/design only, as "mutate: <message>", and nothing else that happens to be staged.
+# It refuses when those folders hold staged changes from before (someone else's work in progress): a seat's edits
+# are never staged, so a mutate never sweeps in what it did not make.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+msg="${*:-}"
+if [ -z "$msg" ]; then echo "mutate: say what changed, in one line: sol/mutate \"<message>\"" >&2; exit 2; fi
+msg="$(printf '%s' "$msg" | tr '\n' ' ' | sed 's/^mutate: *//')"
+paths=(sol/mac sol/design)
+if ! git diff --cached --quiet -- "${paths[@]}"; then
+  echo "mutate: sol/mac or sol/design has staged changes that are not this edit; commit them first:" >&2
+  git diff --cached --name-status -- "${paths[@]}" | head -5 >&2
+  exit 1
+fi
+git add -A -- "${paths[@]}"
+if git diff --cached --quiet -- "${paths[@]}"; then echo "mutate: nothing changed in sol/mac or sol/design" >&2; exit 1; fi
+changed="$(git diff --cached --name-only -- "${paths[@]}" | sed 's|^sol/||' | paste -sd ' ' -)"
+git commit -q -m "mutate: $msg" -- "${paths[@]}"
+echo "mutate: $(git rev-parse --short HEAD) $msg ($changed)"

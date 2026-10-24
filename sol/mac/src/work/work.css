@@ -1,0 +1,748 @@
+/* Work mode. Everything here reads the same tokens as Life (face.css); the paper is the same in both modes since 2026-10-15. */
+
+/* the bar: the open session's name and where it runs, after the side key */
+.wtitle { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding-left: 6px; }
+.wtitle .tt { color: var(--ink); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw; }
+.wtitle .where { color: var(--mute); font-size: 12px; white-space: nowrap; }
+
+/* ---- the side ---- */
+.side.wside { width: 272px; }
+.wsearch { flex: 1; display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: var(--r); color: var(--mute); }
+.wsearch:focus-within { border-color: var(--mute); color: var(--dim); }
+.wsearch input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--ink); font: inherit; font-size: 12.5px; }
+.wsearch input::placeholder { color: var(--mute); }
+/* the search row is one bar, as tall as new session above it: the search, a hairline, then the layout and the view inside the same border */
+.wfind { display: flex; align-items: center; gap: 2px; height: 36px; margin: 0 10px 4px; padding: 0 4px 0 0; border: 1px solid var(--line); border-radius: var(--r); }
+.wfind:has(input:focus) { border-color: var(--mute); }
+.wfind .wsearch { min-width: 0; height: 100%; padding: 0 6px 0 10px; border: 0; }
+.wfind .wsearch input { width: 0; }   /* the search gives way, never the buttons: an input's own width pushed them past the border */
+.wfind .wlay::before { content: ""; position: absolute; left: -2px; top: 7px; bottom: 7px; width: 1px; background: var(--line); }
+.wfind .wlay { margin-left: 3px; }
+.wview { flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; background: none; border: 1px solid transparent; border-radius: 7px; color: var(--mute); cursor: pointer; }
+.wview:hover { --knob: var(--raised); color: var(--ink); background: var(--raised); }   /* the sliders' knobs take the hover's fill */
+/* the layout (#133): its button in the search row, between the search and the view, a picture of the layout; held, the
+   three, under it; in carousel, the dots that say which section shows. Split is two halves that scroll on their own with a line that drags;
+   carousel one section a page, sideways, snapped */
+.wlay { position: relative; flex: none; display: flex; }
+.wlay .wview.on { color: var(--ink); border-color: var(--line); }
+.wlaypick { position: absolute; z-index: 5; top: calc(100% + 8px); right: -3px; display: flex; gap: 2px; padding: 0 3px; border: 1px solid var(--line); border-radius: var(--pill); background: var(--surface); }
+.wdots { display: flex; align-items: center; justify-content: center; gap: 6px; height: 14px; margin: 0 10px 4px; }
+.wdot { width: 5px; height: 5px; padding: 0; background: var(--line); border: 0; border-radius: 50%; cursor: pointer; }
+.wdot:hover { background: var(--mute); }
+.wdot.on { background: var(--ink); }
+.side-list.whalves, .side-list.wcarousel { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.wpart { position: relative; min-height: 0; overflow-y: auto; padding: 0 10px 12px; }
+.wline { flex: none; height: 11px; margin: 0 18px; cursor: row-resize; touch-action: none; background: linear-gradient(var(--line), var(--line)) center / 100% 1px no-repeat; }
+.wline:hover, .wline.on { background-image: linear-gradient(var(--mute), var(--mute)); }
+.wcar { flex: 1; min-height: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
+.wcar::-webkit-scrollbar { display: none; }
+.wpage { position: relative; flex: 0 0 100%; min-width: 0; overflow-y: auto; padding: 0 10px 16px; scroll-snap-align: start; }
+
+.wsec { position: relative; border-radius: var(--r); transition: none; }
+.wsec.over { box-shadow: inset 0 0 0 1px var(--mute); background: color-mix(in srgb, var(--raised) 50%, transparent); }
+.wsec .group.tog { position: relative; z-index: 1; margin-top: 4px; }
+.wsec .group.tog .gl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsec .group.tog small { margin-left: auto; }
+.wsec .group.tog .fic { flex: none; color: var(--dim); }
+.wst.pin i { background: var(--mute); }
+.wsec .here { display: none; place-items: center; width: 18px; height: 18px; margin: -4px -6px -4px 4px; padding: 0; background: none; border: 0; border-radius: var(--r-s); color: var(--dim); cursor: pointer; }
+.wsec .group.tog:hover .here { display: grid; }
+.wsec .here:hover { color: var(--ink); background: var(--raised); }
+.wsec .here svg { width: 11px; height: 11px; }
+/* a top row dragged above or below another: a thin line where it lands (#73) */
+.wsec.line-above::before, .wsec.line-below::after { content: ""; position: absolute; left: 8px; right: 8px; z-index: 2; height: 2px; border-radius: 1px; background: var(--ink); pointer-events: none; }
+.wsec.line-above::before { top: 1px; }
+.wsec.line-below::after { bottom: -3px; }
+.wsec.newgroup { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; padding: 12px; border: 1px dashed var(--line); color: var(--mute); font-size: 12px; }
+
+.wrow { z-index: 1; gap: 8px; padding-top: 5px; padding-bottom: 5px; }
+/* the open session is painted by the row itself, so it never drifts when folders fold or the list scrolls (#73);
+   under the pointer it takes the hover pill's colour, as it did when the two pills overlapped */
+.wrow.on { background: var(--surface); color: var(--ink); }
+.wrow.on:hover { background: var(--raised); }
+.wrow.archived .t, .wrow.gone .t { color: var(--mute); }
+.wrow.gone .t { text-decoration: line-through; text-decoration-color: var(--line); }
+.wrow.dragged { opacity: 0.4; }
+.wsec.dragged > .group.tog { opacity: 0.4; }
+.wnest { margin-left: 10px; }   /* a group's folders, inside it */
+.wpeek { margin-left: 10px; }   /* a folded section's live rows, still shown (#111) */
+.wpeek .wrow.peek { padding-left: 16px; }
+.wrow .age { flex: none; font-size: 10.5px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.wrow .tag { flex: none; display: inline-flex; align-items: center; gap: 3px; max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--dim); border: 1px solid var(--line); border-radius: var(--pill); padding: 0 5px; line-height: 14px; }
+.wrow .tag.agents { color: var(--ink); border-color: var(--ink); }
+.wrow .age.live { color: var(--ink); }
+.wrow .arch { display: none; flex: none; place-items: center; width: 18px; height: 18px; padding: 0; margin-left: -4px; background: none; border: 0; border-radius: var(--r-s); color: var(--dim); cursor: pointer; }
+.wrow:hover .arch { display: grid; }
+.wrow:hover .age { display: none; }
+.wrow .arch:hover { color: var(--ink); background: var(--line); }
+.wrow .twig { flex: none; width: 7px; height: 7px; margin-right: -2px; border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); translate: 0 -3px; }
+
+/* the state mark: one cell's room on the left of every row */
+.wst { flex: none; display: grid; place-items: center; width: 12px; height: 12px; }
+.wst i { width: 5px; height: 5px; background: transparent; }
+.wst.needs i { background: var(--glow); box-shadow: 0 0 6px var(--glow); animation: wneed 1.4s steps(2) infinite; }
+.wst.failed i { background: var(--red-strong); }
+.wst.unread i { background: var(--ink); }
+.wst.run canvas { width: 12px !important; height: 12px !important; }
+.wst.done svg { width: 11px; height: 11px; color: var(--dim); }
+@keyframes wneed { 50% { opacity: 0.45; } }
+
+.wmore { display: block; margin: 0 0 4px 30px; padding: 3px 0; background: none; border: 0; color: var(--mute); font: inherit; font-size: 11.5px; cursor: pointer; }
+.wmore:hover { color: var(--ink); }
+.wmine { margin: -2px 0 4px 30px; font-size: 11.5px; color: var(--mute); cursor: default; }
+
+/* ---- the menu at the pointer ---- */
+.menu { position: fixed; z-index: 80; min-width: 190px; max-width: 280px; padding: 5px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 12px 32px -10px var(--shade); font-size: 12.5px; user-select: none; }
+.menu hr { height: 1px; margin: 5px 6px; border: 0; background: var(--line); }
+.menu .mhead { padding: 7px 10px 3px 26px; font-size: 10px; letter-spacing: 0.08em; font-variant-caps: all-small-caps; color: var(--mute); }
+.mitem { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 10px 5px 8px; background: none; border: 0; border-radius: var(--r-s); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.mitem:hover:not(:disabled), .mitem.open { background: var(--raised); }
+.mitem:disabled { color: var(--mute); cursor: default; }
+.mitem.danger { color: var(--red-strong); }
+.mitem .tick { flex: none; width: 10px; height: 10px; }
+.mitem.on .tick { background: linear-gradient(var(--ink), var(--ink)) center / 4px 4px no-repeat; }
+.mitem span { flex: 1; }
+.mitem .mnote { display: block; margin-top: 1px; font-style: normal; font-size: 11.5px; color: var(--mute); }
+.mitem small, .mitem kbd { font: inherit; font-size: 11px; color: var(--mute); }
+.msub { padding-left: 10px; }
+.mitem.asking { padding: 3px 4px; }
+.mitem.asking input { width: 100%; background: var(--page); border: 1px solid var(--mute); border-radius: var(--r-s); outline: 0; color: var(--ink); font: inherit; padding: 4px 7px; }
+.mitem.confirming { cursor: default; flex-wrap: wrap; padding: 6px 8px; }
+.mitem.confirming span { color: var(--dim); flex-basis: 100%; margin-bottom: 4px; }
+.mitem.confirming button { padding: 3px 10px; background: var(--page); border: 1px solid var(--line); border-radius: var(--pill); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.mitem.confirming button.yes { color: var(--page); background: var(--red-strong); border-color: var(--red-strong); }
+
+/* ---- the talk ---- */
+.wempty { flex-direction: column; gap: 14px; }
+.wwhere { margin: 0; color: var(--mute); font-size: 12.5px; }
+.wwhere b { color: var(--dim); font-weight: 500; }
+.wline { margin: 0 0 18px; color: var(--mute); font-size: 12.5px; text-align: center; }
+.wline.error { color: var(--red-strong); }
+
+/* ---- steps: one card of Claude's work between two messages ---- */
+.wtalk { display: contents; }
+.wsteps .step-meta { flex: none; display: flex; align-items: center; gap: 8px; max-width: 42%; min-width: 0; font-size: 11.5px; color: var(--mute); }
+.wsteps .step-meta .cmd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11px; color: var(--mute); }
+.wsteps .step-meta .stat { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+.wsteps .step-meta .stat b { font-weight: 500; color: var(--dim); }
+.wsteps .step-meta .stat i { font-style: normal; color: var(--mute); }
+.wsteps .step-meta .who, .wsteps .step-meta .srv { white-space: nowrap; border: 1px solid var(--line); border-radius: var(--pill); padding: 0 7px; line-height: 16px; font-size: 10.5px; color: var(--dim); }
+.wsteps .step-meta .behind { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-size: 10.5px; color: var(--dim); }
+.wsteps .step-meta .behind canvas { width: 10px !important; height: 10px !important; }
+.wsteps .step-meta .behind.over { color: var(--mute); }
+.wstep.quiet .step-text { color: var(--mute); }
+.wstep.running .step-state { width: auto; }
+.elapsed { font-size: 10.5px; color: var(--mute); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wwait .elapsed { font-size: 12px; }
+.wstep.wsh .step-detail b { font-weight: 500; color: var(--ink); }
+.step-detail.flush { padding: 0; background: none; border: 0; font-family: inherit; white-space: normal; max-height: none; overflow: visible; }
+.step-detail .err { margin: 6px 0 0; padding: 8px 10px; color: var(--red-strong); background: var(--page); border: 1px solid var(--line); border-radius: var(--r-s); font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; }
+.wsteps.nested { margin: 0; padding: 2px 0; background: var(--page); border-radius: var(--r-s); }
+.wsteps.nested .step-row { min-height: 26px; padding: 2px 10px; font-size: 12.5px; }
+.wsteps.nested .step-detail { margin-left: 34px; background: var(--surface); }
+.helper-in { display: flex; flex-direction: column; gap: 8px; }
+.helper-in .brief { margin: 0; padding: 8px 12px; color: var(--dim); font-size: 12.5px; line-height: 1.5; border-left: 2px solid var(--line); white-space: pre-wrap; max-height: 120px; overflow: auto; }
+.helper-in .report { padding: 10px 12px; background: var(--page); border: 1px solid var(--line); border-radius: var(--r-s); font-size: 13px; color: var(--ink); max-height: 300px; overflow: auto; }
+
+/* an edit, as the lines it took out and put in */
+.wdiff { border: 1px solid var(--line); border-radius: var(--r-s); background: var(--page); font-family: var(--mono); font-size: 11.5px; line-height: 1.55; max-height: 360px; overflow: auto; }
+.wdiff .dl { display: flex; min-width: max-content; padding-right: 12px; color: var(--dim); }
+.wdiff .dl i { flex: none; width: 22px; text-align: center; font-style: normal; color: var(--mute); user-select: none; }
+.wdiff .dl span { white-space: pre; }
+.wdiff .dl.add { color: var(--ink); background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.wdiff .dl.add i { color: var(--ink); }
+.wdiff .dl.del { color: var(--mute); background: color-mix(in srgb, var(--red-strong) 8%, transparent); }
+.wdiff .dl.del span { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--mute) 60%, transparent); }
+.wdiff .dl.del i { color: var(--red-strong); }
+.wdiff .dl.gap { padding: 2px 0 2px 22px; color: var(--mute); font-family: inherit; font-size: 11px; background: var(--surface); }
+
+/* ---- cards in the talk: the task list, the next step, a question, a door to another session, an aside ---- */
+.wcard { position: relative; margin: 0 0 20px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); font-size: 13px; color: var(--ink); user-select: text; }
+.wcard .whead { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 10.5px; letter-spacing: 0.08em; font-variant-caps: all-small-caps; color: var(--mute); }
+.wcard .whead span { flex: 1; }
+.wcard .choices { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.wcard .choices button { padding: 5px 13px; background: var(--page); border: 1px solid var(--line); border-radius: var(--pill); color: var(--ink); font: inherit; font-size: 12.5px; cursor: pointer; }
+.wcard .choices button:hover:not(:disabled) { border-color: var(--mute); }
+.wcard .choices button.first { background: var(--ink); border-color: var(--ink); color: var(--page); }
+.wcard .choices button:disabled { color: var(--mute); cursor: default; }
+.wcard .instead { display: block; width: 100%; margin-top: 10px; padding: 6px 10px; background: var(--page); border: 1px solid var(--line); border-radius: var(--r-s); outline: 0; color: var(--ink); font: inherit; font-size: 12.5px; }
+.wcard .instead:focus { border-color: var(--mute); }
+.wcard .instead::placeholder { color: var(--mute); }
+
+.wplan { padding: 10px 14px; }
+.pstep { display: flex; align-items: center; gap: 10px; min-height: 26px; color: var(--dim); }
+.pstep.completed .pt { color: var(--mute); }
+.pstep.in_progress .pt { color: var(--ink); }
+.pmark { flex: none; display: grid; place-items: center; width: 12px; height: 12px; }
+.pmark i { width: 7px; height: 7px; border: 1px solid var(--mute); }
+.pmark svg { width: 11px; height: 11px; color: var(--mute); }
+.pmark canvas { width: 12px !important; height: 12px !important; }
+.pt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptag { flex: none; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 8px; background: none; border: 1px solid var(--line); border-radius: var(--pill); color: var(--dim); font: inherit; font-size: 11px; line-height: 18px; cursor: pointer; }
+.ptag:hover:not(:disabled) { color: var(--ink); border-color: var(--mute); }
+
+/* Codex's review card: the same card, its remarks ruled apart; a sent or dismissed one goes quiet */
+.wreview .wrvstat { margin: 0; color: var(--dim); line-height: 1.55; }
+.wreview .wrvstat.busy { color: var(--mute); }
+.wreview .wrvstat code { display: block; margin-top: 4px; font-size: 11.5px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wreview .wrvstat em { display: block; margin-top: 4px; font-style: normal; color: var(--red-strong); }
+.wreview .wrv { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.wreview .wrv .at { font-size: 11.5px; color: var(--dim); }
+.wreview .wrv .md { margin-top: 4px; line-height: 1.55; }
+.wreview .wrv .md p { margin: 0; }
+.wreview .wrv .choices { margin-top: 10px; }
+.wreview .wrv .was { display: block; margin-top: 6px; font-size: 11.5px; color: var(--mute); }
+.wreview .wrv.sent .md, .wreview .wrv.dismissed .md { color: var(--mute); }
+.wreview .wrv.dismissed .at { color: var(--mute); }
+.wwrap { background: none; }
+.wwrap .recap { margin: 0; color: var(--dim); line-height: 1.55; }
+.wwrap .wask { margin: 10px 0 0; color: var(--ink); }
+.wwrap.last { background: var(--surface); }
+
+.wperm { border-color: var(--mute); }
+.wperm .whead span { font-variant-caps: normal; letter-spacing: 0; font-size: 13px; color: var(--ink); }
+.wperm .why { margin: -2px 0 8px; color: var(--dim); font-size: 12.5px; }
+.wperm .why.err, .waside .why.err { color: var(--red-strong); }
+.wperm .cmdblock { margin: 0; padding: 9px 12px; background: var(--page); border: 1px solid var(--line); border-radius: var(--r-s); font-family: var(--mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+.wperm .planmd { max-height: 360px; overflow: auto; padding: 4px 2px; }
+.wperm.questions .q + .q { margin-top: 16px; }
+.wperm .qt { margin: 0 0 10px; }
+.wperm .opts { display: flex; flex-direction: column; gap: 6px; }
+.wperm .opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 12px; background: var(--page); border: 1px solid var(--line); border-radius: var(--r-s); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.wperm .opt b { font-weight: 500; font-size: 13px; }
+.wperm .opt span { color: var(--dim); font-size: 12px; }
+.wperm .opt:hover { border-color: var(--mute); }
+.wperm .opt.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.wline.perm-done { text-align: left; margin-left: 4px; }
+.wline.perm-done.deny { color: var(--dim); }
+
+.wsess { display: flex; align-items: center; gap: 10px; width: 100%; margin: 0 0 18px; padding: 9px 12px; background: none; border: 1px solid var(--line); border-radius: var(--r); color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.wsess:hover:not(:disabled) { background: var(--surface); }
+.wsess:disabled { color: var(--mute); cursor: default; }
+.wsess .lead { flex: none; font-size: 10.5px; letter-spacing: 0.08em; font-variant-caps: all-small-caps; color: var(--mute); }
+.wsess .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsess .wst-i { flex: none; display: grid; place-items: center; width: 12px; height: 12px; }
+.wsess .wst-i canvas { width: 12px !important; height: 12px !important; }
+.wsess .wst-i svg { width: 11px; height: 11px; color: var(--dim); }
+.wsess .wst-i i { width: 5px; height: 5px; }
+.wsess .wst-i i.needs { background: var(--glow); }
+.wsess .wst-i i.failed { background: var(--red-strong); }
+.wsess .chev { flex: none; color: var(--mute); }
+
+.waside { margin: 0 0 8px; max-height: 40vh; overflow: auto; box-shadow: 0 12px 32px -14px var(--shade); }
+.waside .x { padding: 0 4px; background: none; border: 0; color: var(--mute); font: inherit; font-size: 15px; line-height: 1; cursor: pointer; }
+.waside .x:hover { color: var(--ink); }
+.waside .aq { margin: 0 0 8px; color: var(--dim); font-size: 12.5px; }
+.ask-inner.aside { border-style: dashed; border-color: var(--mute); }
+
+.wme { display: flex; flex-direction: column; align-items: flex-end; }
+.wme.queued .msg.me { color: var(--dim); border-style: dashed; }
+/* the row under a message of his (#51): hidden until hovered, worn all the time while queued */
+.merow { display: flex; align-items: center; gap: 10px; min-height: 16px; margin: 3px 2px 12px; font-size: 11px; color: var(--mute); }
+.wme:not(.queued) .merow { visibility: hidden; }
+.wme:not(.queued):hover .merow { visibility: visible; }
+.merow button { display: inline-flex; align-items: center; background: none; border: 0; padding: 0; color: var(--mute); font: inherit; font-size: 11px; line-height: 16px; cursor: pointer; }
+.merow button:hover, .merow .mnow { color: var(--ink); }
+.merow .mticks.one { opacity: .7; }
+.merow .mdone { color: var(--ink); }
+.wline.compact, .wline.note { display: flex; align-items: center; gap: 12px; }
+.wline.compact::before, .wline.compact::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+.wviewk { flex: none; height: 24px; margin-right: 6px; padding: 0 9px; background: none; border: 1px solid var(--line); border-radius: var(--pill); color: var(--mute); font: inherit; font-size: 11px; cursor: pointer; }
+.wviewk:hover { color: var(--ink); border-color: var(--mute); }
+.wviewk.on { color: var(--ink); border-color: var(--mute); }   /* a capsule whose view shows (Cowork's Team rail) */
+/* Show to team (#101): the switch in the bar; on, it carries a small live dot */
+.wshowk.on { color: var(--ink); border-color: var(--ink); display: inline-flex; align-items: center; gap: 6px; }
+.wshowdot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink); animation: wshowpulse 1.6s ease-in-out infinite; }
+@keyframes wshowpulse { 50% { opacity: 0.25; } }
+.wcard .choices { flex-direction: row; }
+.wwrap .recap { padding-left: 0; margin: 0; }
+
+/* ---- P3: the box. + at its left, the @ and / list over it, the chips under it ---- */
+.wplus { flex: none; width: 24px; height: 24px; margin: 0 -4px 1px -6px; padding: 0; background: none; border: 1px solid var(--line); border-radius: 50%; color: var(--dim); font: inherit; font-size: 15px; line-height: 1; cursor: pointer; }
+.wplus:hover { color: var(--ink); border-color: var(--mute); }
+.ask-inner.drop { border-color: var(--ink); }
+.wpop { position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); z-index: 30; max-height: 280px; overflow-y: auto; padding: 5px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 12px 32px -10px var(--shade); }
+.wpop button { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 5px 10px; background: none; border: 0; border-radius: var(--r-s); color: var(--ink); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }
+.wpop button.on { background: var(--raised); }
+.wpop b { flex: none; font-weight: 500; }
+.wpop span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mute); font-size: 11.5px; }
+.picker .wchip { padding: 1px 9px; border: 1px solid var(--line); border-radius: var(--pill); font-size: 11.5px; color: var(--dim); }
+.picker .wchip:hover { color: var(--ink); border-color: var(--mute); }
+.picker .wchip.on { color: var(--ink); border-color: var(--ink); }
+/* the mode pill: a filled chip like Claude Code's; bypass dashed, the one to notice */
+.picker .wchip.leash { padding: 2px 10px; border-color: transparent; background: var(--raised); color: var(--ink); border-radius: var(--r-s); }
+.picker .wchip.leash.bypassPermissions { border: 1px dashed var(--ink); }
+
+/* ---- P4: the panes at the right, the session beside, the bar's keys ---- */
+.wcols { flex: 1; min-height: 0; display: flex; }
+.wcols > .page-in { min-width: 0; }
+.wbeside { flex: 1; min-width: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); }
+.wbhead { flex: none; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+.wbhead .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--ink); }
+.wbeside .talk { padding-top: 4px; }
+.wbbox { flex: none; padding: 8px 14px 14px; }
+.wbbox textarea { width: 100%; resize: none; min-height: 36px; max-height: 140px; padding: 9px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); color: var(--ink); font: inherit; font-size: 13px; outline: 0; }
+.wbbox textarea:focus { border-color: var(--mute); }
+
+.wpanes { flex: none; display: flex; justify-content: flex-start; overflow: hidden; min-width: 0; }
+.wpane { flex: none; height: 100%; }
+.wtabs { gap: 4px; border-bottom: 1px solid var(--line); }
+.wstage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wpbody { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; }
+.wpbody[hidden] { display: none; }
+.wpempty { margin: 28px 22px; color: var(--mute); font-size: 12.5px; line-height: 1.6; }
+.wlink { flex: none; padding: 2px 6px; background: none; border: 0; border-radius: var(--r-s); color: var(--dim); font: inherit; font-size: 12px; cursor: pointer; }
+.wlink:hover { color: var(--ink); background: var(--raised); }
+.wlink:disabled { opacity: .35; cursor: default; background: none; color: var(--dim); }
+.wbtn { flex: none; display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 11px; background: var(--ink); border: 0; border-radius: var(--pill); color: var(--page); font: inherit; font-size: 12px; cursor: pointer; }
+.wbtn kbd { font: inherit; font-size: 10.5px; opacity: .7; }
+.wpane .who { flex: none; white-space: nowrap; border: 1px solid var(--line); border-radius: var(--pill); padding: 0 7px; line-height: 16px; font-size: 10.5px; color: var(--dim); }
+.wpane .md { font-size: 13px; line-height: 1.6; color: var(--ink); }
+.wopen { margin: 0 0 6px; }
+
+/* the bar's keys: a pane each; the changes key shows the branch's count once there is one */
+.bar .barbtn svg { width: 14px; height: 14px; }
+.barbtn.wpk { width: auto; min-width: 28px; padding: 0 7px; }
+.wstat { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--mute); white-space: nowrap; }
+.wstat b { font-weight: 500; color: var(--dim); }
+.wticket { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; background: none; border: 1px solid var(--line); border-radius: var(--pill); color: var(--dim); font-family: var(--mono); font-size: 11px; cursor: pointer; }
+.wticket:hover { color: var(--ink); border-color: var(--mute); }
+.wticket i { width: 6px; height: 6px; border-radius: 50%; background: var(--green-strong); }
+.wticket.draft i, .wticket.run i { background: var(--sun); }
+.wticket.bad i { background: var(--red-strong); }
+.wticket.merged i { background: var(--ink); }
+.wticket.closed i { background: var(--mute); }
+
+/* plan, tasks, helpers */
+.wplanp, .wtasks, .whelper, .wpr { padding: 16px 18px 28px; display: flex; flex-direction: column; gap: 10px; }
+.wpsteps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.wpsteps li { display: flex; align-items: flex-start; gap: 10px; padding: 5px 0; font-size: 13px; color: var(--dim); }
+.wpsteps li.in_progress { color: var(--ink); }
+.wpsteps li.completed { color: var(--mute); }
+.wpsteps .mk { flex: none; display: grid; place-items: center; width: 14px; height: 18px; }
+.wpsteps .mk i { width: 6px; height: 6px; border: 1px solid var(--mute); }
+.wpsteps .mk svg { width: 11px; height: 11px; }
+.wpsteps .mk canvas { width: 12px !important; height: 12px !important; }
+.wpmd { padding: 14px 16px; background: var(--sheet, var(--surface)); border: 1px solid var(--line); border-radius: var(--r); }
+.wtasks h4, .wpr h4 { margin: 8px 0 0; font-size: 11px; font-weight: 500; color: var(--mute); letter-spacing: .02em; }
+.wtask { border-radius: var(--r-s); }
+.wtrow { display: flex; align-items: center; gap: 9px; padding: 6px 8px; margin: 0 -8px; border-radius: var(--r-s); font-size: 12.5px; color: var(--ink); cursor: pointer; }
+.wtrow:hover { background: var(--raised); }
+.wtrow .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wtrow code { max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11px; color: var(--mute); }
+.wtout { margin: 4px 0 6px 21px; padding: 8px 10px; max-height: 240px; overflow: auto; background: var(--surface); border-radius: var(--r-s); font-family: var(--mono); font-size: 11px; white-space: pre-wrap; color: var(--dim); }
+.whhead { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+.whhead b { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wback { margin-left: -6px; }
+.whhead .wback { flex: none; padding: 2px 6px; background: none; border: 0; color: var(--dim); font: inherit; font-size: 12px; cursor: pointer; border-radius: var(--r-s); }
+.wbrief { padding: 10px 12px; border-left: 2px solid var(--line); color: var(--dim) !important; max-height: 220px; overflow: auto; }
+.wreport { padding: 12px 14px; background: var(--surface); border-radius: var(--r); }
+
+/* the pull request */
+.wprhead { display: flex; align-items: center; gap: 6px; }
+.wprhead .wticket { cursor: default; }
+.wpr h3 { margin: 2px 0 0; font-size: 15px; font-weight: 500; color: var(--ink); line-height: 1.35; }
+.wprmeta { margin: 0; font-size: 12px; color: var(--dim); }
+.wprmeta code { font-family: var(--mono); font-size: 11px; }
+.wprmeta b { font-weight: 500; color: var(--ink); }
+.wchecks { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); padding: 4px 0; }
+.wcheck { display: flex; align-items: center; gap: 9px; padding: 5px 12px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
+.wcheck:hover { background: var(--raised); }
+.wnote { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.wnote > b { display: flex; gap: 8px; align-items: center; font-weight: 500; }
+
+/* the changes */
+.wdiffp { display: flex; flex-direction: column; min-height: 100%; }
+.wdhead { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--page); border-bottom: 1px solid var(--line); }
+.wseg { display: flex; padding: 2px; gap: 2px; border: 1px solid var(--line); border-radius: var(--pill); }
+.wseg button { height: 22px; padding: 0 10px; background: none; border: 0; border-radius: var(--pill); color: var(--dim); font: inherit; font-size: 11.5px; cursor: pointer; }
+.wseg button.on { background: var(--ink); color: var(--page); }
+.wdstat { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--mute); }
+.wdstat b { font-weight: 500; color: var(--ink); }
+.wdfiles { display: flex; flex-direction: column; padding: 6px 8px; border-bottom: 1px solid var(--line); max-height: 34%; overflow: auto; }
+.wdf { display: flex; align-items: baseline; gap: 8px; padding: 4px 8px; background: none; border: 0; border-radius: var(--r-s); color: var(--dim); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; min-width: 0; }
+.wdf:hover { background: var(--raised); color: var(--ink); }
+.wdf.on { background: var(--raised); color: var(--ink); }
+.wdf .st { flex: none; width: 6px; height: 6px; align-self: center; background: var(--mute); }
+.wdf.added .st { background: var(--green-strong); }
+.wdf.deleted .st { background: var(--red-strong); }
+.wdf .n { flex: none; color: inherit; }
+.wdf .d { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--mute); }
+.wdf .c { flex: none; margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--mute); }
+.wdf .c b { font-weight: 500; color: var(--dim); }
+.wdbody { flex: 1; padding: 10px 12px 18px; display: flex; flex-direction: column; gap: 14px; }
+.wdfh { display: flex; align-items: center; gap: 8px; padding: 0 2px 6px; font-size: 12px; color: var(--ink); cursor: pointer; }
+.wdfh .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; }
+.wdfh .c { font-family: var(--mono); font-size: 10.5px; color: var(--mute); }
+.wdfh .c b { font-weight: 500; color: var(--dim); }
+.wdtag { flex: none; font-size: 10px; color: var(--dim); border: 1px solid var(--line); border-radius: var(--pill); padding: 0 6px; line-height: 15px; }
+.wdlines { max-height: none; overflow-x: auto; }
+.wdlines .dl u { flex: none; width: 34px; padding-right: 6px; text-align: right; text-decoration: none; color: var(--mute); font-size: 10.5px; user-select: none; }
+.wdlines .dl.can { cursor: text; }
+.wdlines .dl.can:hover { box-shadow: inset 2px 0 0 var(--ink); }
+.wdlines .dl.del.can { cursor: default; }
+.wremark { display: flex; align-items: flex-start; gap: 8px; margin: 2px 8px 4px 90px; padding: 6px 10px; background: var(--sheet, var(--surface)); border: 1px solid var(--line); border-radius: var(--r-s); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px; color: var(--ink); white-space: normal; }
+.wremark span { flex: 1; }
+.wremark button { background: none; border: 0; color: var(--mute); cursor: pointer; font: inherit; padding: 0; }
+.wcomment { margin: 4px 8px 6px 90px; display: flex; flex-direction: column; gap: 4px; }
+.wcomment textarea { resize: vertical; padding: 7px 10px; background: var(--sheet, var(--surface)); border: 1px solid var(--mute); border-radius: var(--r-s); outline: 0; color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12.5px; }
+.wkeys { font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 10.5px; color: var(--mute); }
+.wkeys kbd { font: inherit; }
+.wdsend { position: sticky; bottom: 0; display: flex; align-items: center; gap: 12px; justify-content: flex-end; padding: 10px 14px; background: var(--page); border-top: 1px solid var(--line); font-size: 12px; color: var(--dim); }
+
+/* the terminal */
+.wterm { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wttabs { flex: none; display: flex; align-items: center; gap: 4px; padding: 8px 10px 6px; overflow-x: auto; }
+.wtt { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 10px; border: 1px solid transparent; border-radius: var(--pill); color: var(--dim); font-size: 11.5px; cursor: pointer; white-space: nowrap; }
+.wtt:hover { background: var(--raised); }
+.wtt.on { border-color: var(--line); background: var(--raised); color: var(--ink); }
+.wtt.ended span { text-decoration: line-through; color: var(--mute); }
+.wtt button { width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--mute); cursor: pointer; font-size: 12px; line-height: 1; }
+.wtt button:hover { background: var(--line); color: var(--ink); }
+.wtplus { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--dim); font-size: 15px; cursor: pointer; }
+.wtplus:hover { background: var(--raised); color: var(--ink); }
+.wxterm { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 4px 4px 8px 12px; }
+.wxhost { flex: 1; min-height: 0; }
+.wxhost .xterm-viewport { background: transparent !important; }
+.wtgone { flex: none; margin: 6px 0 0; font-size: 11.5px; color: var(--mute); }
+
+/* the file */
+.wfilep { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wfhead { position: relative; flex: none; padding: 10px 12px 6px; }
+.wfhead .wsearch { height: 30px; }
+.wfhits { position: absolute; z-index: 4; left: 12px; right: 12px; top: 42px; display: flex; flex-direction: column; padding: 4px; background: var(--sheet, var(--surface)); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 8px 24px var(--shade, rgba(0,0,0,.2)); }
+.wfhits button { padding: 5px 8px; background: none; border: 0; border-radius: var(--r-s); color: var(--ink); font-family: var(--mono); font-size: 11.5px; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wfhits button:hover, .wfhits button:first-child { background: var(--raised); }
+.wfbar { flex: none; display: flex; align-items: center; gap: 4px; padding: 2px 12px 8px; border-bottom: 1px solid var(--line); }
+.wfbar .p { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; color: var(--ink); margin-right: 6px; }
+.wfbar .grow { flex: 1; }
+.wfnote { flex: none; margin: 8px 14px 0; font-size: 12px; color: var(--dim); }
+.wfdir { display: flex; flex-direction: column; padding: 8px; }
+.wfdir button { padding: 5px 8px; background: none; border: 0; border-radius: var(--r-s); color: var(--ink); font-family: var(--mono); font-size: 12px; text-align: left; cursor: pointer; }
+.wfdir button:hover { background: var(--raised); }
+.wfimg { flex: 1; min-height: 0; overflow: auto; padding: 8px; }
+.wfimg img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 6px; }
+.wfed { flex: 1; min-height: 0; display: flex; font-family: var(--mono); font-size: 12px; line-height: 18px; }
+.wfgut { flex: none; overflow: hidden; padding: 10px 8px 40px 10px; text-align: right; color: var(--mute); user-select: none; font-size: 10.5px; }
+.wfgut span { display: block; height: 18px; }
+.wfed textarea { flex: 1; min-width: 0; resize: none; padding: 10px 14px 40px 6px; background: none; border: 0; outline: 0; color: var(--ink); font: inherit; line-height: 18px; white-space: pre; overflow: auto; tab-size: 2; }
+
+/* a Life conversation offered to Work, once, under the bar */
+.wcarry { flex: none; display: flex; align-items: center; gap: 10px; margin: 6px 18px 0; padding: 8px 8px 8px 14px; border: 1px solid var(--line); border-radius: var(--pill); font-size: 12.5px; }
+.wcarry .from { flex: none; color: var(--mute); font-size: 11px; }
+.wcarry .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.wlanded { border-radius: var(--r-l); padding: 10px 8px 10px 14px; border-color: var(--ink); }
+.wlanded .t { display: flex; flex-direction: column; gap: 2px; white-space: normal; }
+.wlanded .t b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wlanded .t small { color: var(--dim); font-size: 12px; }
+
+/* P5: sessions — an offer, a proposal, fork from here, a step's session */
+.woffer .ot { margin: 0 0 4px; font-size: 13.5px; color: var(--ink); }
+.woffer .ot small { color: var(--mute); font-size: 11.5px; }
+.woffer .op { margin: 0 0 10px; color: var(--dim); font-size: 12.5px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.wprop { margin: 0 0 18px; }
+.wyou { position: relative; }
+.wforkhere { position: absolute; right: calc(100% + 12px); top: 2px; white-space: nowrap; padding: 0 8px; background: var(--page); border: 1px solid var(--line); border-radius: var(--pill); color: var(--mute); font: inherit; font-size: 11px; line-height: 18px; cursor: pointer; visibility: hidden; translate: 6px 0; transition: translate .2s cubic-bezier(.2,.9,.3,1.25), visibility 0s .2s; }
+.wyou:hover .wforkhere { visibility: visible; translate: 0 0; transition: translate .2s cubic-bezier(.2,.9,.3,1.25), visibility 0s; }
+.wforkhere:hover { color: var(--ink); border-color: var(--mute); }
+.ptag { display: inline-flex; align-items: center; gap: 5px; }
+.ptag .wst-i { display: grid; place-items: center; width: 10px; height: 10px; }
+.ptag .wst-i i { width: 5px; height: 5px; border-radius: 50%; background: var(--mute); }   /* at rest: --line2 was never defined, so the dot drew nothing */
+.ptag .wst-i i.needs { background: var(--glow); }
+.ptag .wst-i i.failed { background: var(--red-strong); }
+.ptag .wst-i canvas { width: 10px !important; height: 10px !important; }
+.ptag .wst-i svg { width: 9px; height: 9px; }
+
+/* ---- P6: Work's drawers in Settings ---- */
+.wfield { width: 220px; padding: 7px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-s); color: var(--ink); font: inherit; font-size: 12.5px; font-family: var(--mono); }
+.wfield:focus { outline: none; border-color: var(--dim); }
+.wcopyhead { display: flex; align-items: center; gap: 12px; padding: 4px 0 10px; font-size: 13px; color: var(--ink); }
+.wcopyhead .dim { color: var(--dim); font-size: 12px; }
+.wcopyhead .grow { flex: 1; }
+.wcopies { display: flex; flex-direction: column; }
+.wcopy { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.wcopy .t, .wcopy .s { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wcopy .t b { font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wcopy .t span, .wcopy .s span { color: var(--dim); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wcopy .s { align-items: flex-end; }
+.wcopy .s .st { color: var(--ink); font-size: 12px; }
+.wcopy.stale .s .st { color: var(--dim); }
+.wcopy.live .s .st { color: var(--ok); }
+.wsure { display: flex; align-items: center; gap: 4px; color: var(--dim); font-size: 11.5px; }
+.wlink.danger { color: var(--warn); }
+.wtools { display: flex; flex-direction: column; gap: 8px; }
+.wtrow { display: grid; grid-template-columns: 110px 1fr; font-size: 12.5px; }
+.wtrow .k { color: var(--dim); }
+.wtrow .v { color: var(--ink); line-height: 1.6; }
+.wtrow .mcp { display: inline-flex; align-items: center; gap: 5px; margin-right: 12px; }
+.wtrow .mcp i { width: 6px; height: 6px; border-radius: 50%; background: var(--mute); }
+.wtrow .mcp.connected i { background: var(--ok); }
+.wtrow .mcp.failed i { background: var(--warn); }
+.wfacts { margin-top: 12px; }
+.wfacts .link { margin-left: 4px; }
+.wlog { margin: 12px 0 0; padding: 10px 12px; max-height: 180px; overflow: auto; background: var(--surface); border-radius: var(--r-s); color: var(--dim); font: 11px/1.55 var(--mono); white-space: pre-wrap; word-break: break-all; }
+
+/* 1–9 in a menu */
+.mitem kbd.mnum { margin-left: auto; opacity: .55; }
+
+/* the suggested prompt: the placeholder in ink's quieter tone, a little brighter than the hint */
+.ask-inner textarea.ghost::placeholder { color: var(--dim); }
+
+/* the browser in a Work pane: the frame owns the width and the grip. A descendant rule, not a child one: the Site
+   wrapper (display: contents) sits between, and with `>` the pane kept its Life width and no height at all */
+.wpbody:is([data-pane="browser"], [data-pane="desk"]) .pane { width: 100% !important; flex: 1; min-height: 0; border-left: 0; }
+.wpbody:is([data-pane="browser"], [data-pane="desk"]) .pane > .grip { display: none; }
+.wstage:focus { outline: none; }
+
+/* cmd+/ — the keys */
+.wkeysheet { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: var(--shade, rgba(0,0,0,.35)); }
+.wkeycard { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 22px 34px; width: min(880px, calc(100vw - 48px)); padding: 28px 32px; background: var(--page); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.35); }
+.wkeycard h4 { margin: 0 0 10px; color: var(--dim); font-size: 12px; font-weight: 400; letter-spacing: .08em; font-variant-caps: all-small-caps; }
+.wkeycard .kr { display: flex; align-items: baseline; gap: 12px; padding: 4px 0; font-size: 12.5px; color: var(--ink); }
+.wkeycard kbd { flex: none; min-width: 64px; font: 12px var(--mono); color: var(--dim); }
+.menu:focus { outline: none; }
+
+/* ---- the show (P7): the stage, the bar line, the map ---- */
+.wshow { display: flex; flex-direction: column; gap: 14px; padding: 18px 18px 28px; overflow: auto; height: 100%; box-sizing: border-box; }
+.wshowstage, .wshowmap { display: block; width: 100%; image-rendering: pixelated; }
+.wshowbar { display: flex; align-items: baseline; gap: 14px; padding: 8px 2px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font: 12px var(--mono, ui-monospace, Menlo, monospace); color: var(--ink); min-height: 18px; }
+.wshowbar .cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wshowbar .cmd b { color: var(--mute); font-weight: 400; }
+.wshowbar .dim { color: var(--mute); }
+.wshowstat { flex: none; color: var(--dim); font-variant-numeric: tabular-nums; }
+.wshowstat b { color: var(--ink); font-weight: 500; }
+.roll { display: inline-flex; vertical-align: bottom; }
+.roll .rd { display: inline-block; height: 1.2em; line-height: 1.2em; overflow: hidden; }
+.roll .rd > span { display: flex; flex-direction: column; will-change: transform; }
+.roll .rd i { font-style: normal; height: 1.2em; }
+
+/* ---- one writer per session (P8): the read-only strip, the row tag, the thread map ---- */
+.wheld { display: flex; align-items: center; gap: 12px; margin: 0 0 8px; padding: 7px 8px 7px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); font-size: 12px; color: var(--dim); }
+.wheld .who { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wheld .who b { color: var(--ink); font-weight: 500; }
+.wheld .who i, .wrow .tag.held::before { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--mute); }
+.wheld .who i.busy, .wrow .tag.held.busy::before { background: var(--ink); }
+.wheld .who i.waiting, .wrow .tag.held.waiting::before { background: var(--sun); }
+.wheld .moves { flex: none; display: flex; gap: 6px; }
+.wheld .moves button, .wthmoves button { padding: 3px 11px; background: var(--page); border: 1px solid var(--line); border-radius: var(--pill); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.wheld .moves button:hover:not(:disabled), .wthmoves button:hover:not(:disabled) { border-color: var(--mute); }
+.wheld .moves button:disabled, .wthmoves button:disabled { color: var(--mute); cursor: default; }
+.wrow .tag.held { max-width: 96px; }
+.wrow .tag.held::before { content: ""; width: 5px; height: 5px; }
+.barbtn.wsplit { width: auto; min-width: 28px; gap: 4px; padding: 0 7px; grid-auto-flow: column; font-size: 11px; font-variant-numeric: tabular-nums; }
+
+.wthread { display: flex; flex-direction: column; gap: 16px; padding: 18px 18px 28px; overflow: auto; height: 100%; box-sizing: border-box; }
+.wthmap { display: block; width: 100%; shape-rendering: crispEdges; }
+.wths .c { fill: var(--dim); }
+.wths.open .c { fill: var(--ink); }
+.wths.settled .c { fill: var(--mute); }
+.wths.twig .c { fill: var(--line); }
+.wths .end { fill: none; stroke: var(--ink); stroke-width: 1; }
+.wths.settled .end, .wths.twig .end { stroke: var(--mute); }
+.wthends { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.wthend { display: flex; flex-direction: column; gap: 3px; padding: 10px 2px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.wthend.twig, .wthend.settled { color: var(--mute); }
+.wthend.kept { box-shadow: inset 2px 0 0 var(--ink); padding-left: 10px; }
+.wthwho b { color: var(--ink); font-weight: 500; }
+.wthend.twig .wthwho b, .wthend.settled .wthwho b { color: var(--dim); }
+.wthwho span { margin-left: 6px; font: 11px var(--mono); color: var(--mute); }
+.wthwhat { color: var(--dim); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.wthwhat a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--line); cursor: pointer; }
+.wthlast { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wthmoves { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.wthmoves span { color: var(--ink); font-size: 12px; }
+.wthmoves button.q { background: none; border-color: transparent; color: var(--mute); }
+.wthdim { margin: 0; color: var(--mute); font-size: 12px; line-height: 1.5; }
+
+/* the rail (buttons/Rail.tsx): invisible itself; a preset's row, its name quiet until the rail is looked at. The rows
+   are clipped to the bar's height, so a row sliding out leaves under its edge */
+.bar .barsep { flex: none; width: 1px; height: 16px; background: var(--line); }
+.rail { flex: none; align-self: stretch; display: flex; align-items: center; gap: 8px; }
+.railrows { position: relative; align-self: stretch; display: flex; justify-content: flex-end; overflow: clip; }
+.railrow { flex: none; display: flex; align-items: center; gap: 8px; }
+.railrow.out { position: absolute; top: 0; right: 0; bottom: 0; pointer-events: none; }   /* the leaving row never takes a press */
+.railname { color: var(--line); font-size: 11px; font-style: italic; white-space: nowrap; transition: color .2s; }
+.rail:hover .railname { color: var(--mute); }
+/* the undo note: an agent changed the rail; quiet, like the preset's name, with the one word that takes it back */
+.railundo { color: var(--mute); font-size: 11px; font-style: italic; white-space: nowrap; }
+.railundo button { padding: 0; background: none; border: 0; color: var(--dim); font: inherit; font-style: normal; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.railundo button:hover { color: var(--ink); }
+/* the rail changed where it is (#171): a dot per preset after its name, pressable; the + only while the rail is looked
+   at; a lifted button leaves its dashed place while its ghost follows the pointer, a caret where it would land */
+.raildots { display: flex; gap: 3px; margin: 0 2px 0 -3px; }
+.raildots button { width: 9px; height: 14px; padding: 0; background: radial-gradient(circle, var(--line) 2px, transparent 2.5px); border: 0; cursor: pointer; transition: background .2s; }
+.rail:hover .raildots button { background: radial-gradient(circle, var(--mute) 2px, transparent 2.5px); }
+.raildots button.on, .rail:hover .raildots button.on { background: radial-gradient(circle, var(--ink) 2px, transparent 2.5px); }
+.raildots button:hover { background: radial-gradient(circle, var(--dim) 2.5px, transparent 3px); }
+.rail .railplus { opacity: 0; transition: opacity .15s; border-style: dashed; }
+.rail:hover .railplus, .rail .railplus:focus-visible, .rail .railplus.on { opacity: 1; border-color: var(--line); }
+.rail .raillifted { border: 1px dashed var(--line); color: transparent; background: none; }
+.rail .raillifted > * { visibility: hidden; }
+/* a button on the preset that does not show here, drawn while the preset is being changed (#171) */
+.rail .railaway { opacity: .35; border: 1px dashed var(--line); }
+.railghost { position: fixed; z-index: 90; display: flex; flex-direction: column; align-items: center; gap: 3px; translate: -50% -50%; padding: 7px; background: var(--raised); border: 1px solid var(--mute); border-radius: var(--r-s); box-shadow: 0 10px 24px -8px var(--shade); color: var(--ink); pointer-events: none; }
+.railghost em { font-style: normal; font-size: 11px; padding: 0 4px; }
+.railghost small { font-size: 10px; color: var(--dim); }
+.railghost.off { opacity: .7; border-style: dashed; }
+.railcaret { position: fixed; z-index: 90; width: 2px; height: 24px; border-radius: 1px; background: var(--glow); pointer-events: none; }
+
+/* the rail's two sheets (#171): the + panel (AddSheet.tsx) and every preset and button (Shelf.tsx), in the menu's
+   surface; heads as the menu's; a button is a tile, its glyph over its name, a text one its capsule alone */
+.rsheet { position: fixed; z-index: 70; max-height: calc(100vh - 72px); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 12px 32px -10px var(--shade); font-size: 12.5px; user-select: none; }
+.rsheet h3 { margin: 0; font-size: 14px; font-weight: 500; color: var(--ink); }
+.rsheet h3 span { margin-left: 8px; font-size: 11.5px; font-weight: 400; color: var(--mute); }
+.rsheet h4 { margin: 14px 0 7px; font-size: 10px; font-weight: 400; letter-spacing: 0.08em; font-variant-caps: all-small-caps; color: var(--mute); }
+.rsheet button { font: inherit; }
+.rsheet svg, .railghost svg { flex: none; width: 14px; height: 14px; }
+.rsheet .rpill { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--pill); font-size: 10.5px; font-style: normal; color: var(--dim); white-space: nowrap; }
+.rsheet .rx { position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; padding: 0; display: none; place-items: center; background: var(--raised); border: 1px solid var(--line); border-radius: 50%; color: var(--dim); font-size: 11px; line-height: 1; cursor: pointer; }
+.rsheet .rx:hover { color: var(--ink); border-color: var(--mute); }
+.rsheet .rnone { color: var(--mute); font-size: 12px; }
+.rsheet .rsaid { min-height: 16px; margin: 10px 0 0; color: var(--dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rsheet .rsaid b { color: var(--ink); font-weight: 500; }
+.rsheet .rsaid i { color: var(--ink); }
+.rsheet .rhint { margin: 8px 0 0; color: var(--mute); font-size: 11.5px; line-height: 1.5; }
+.rsheet .rhint button { padding: 0; background: none; border: 0; color: var(--dim); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 2px; cursor: pointer; }
+.rsheet .rhint button:hover { color: var(--ink); }
+.rtiles { display: flex; flex-wrap: wrap; gap: 6px; }
+.rtile { position: relative; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-width: 70px; height: 58px; padding: 0 6px; box-sizing: border-box; background: none; border: 1px solid var(--line); border-radius: var(--r-s); color: var(--dim); cursor: pointer; }
+.rtile span { max-width: 100%; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rtile:hover, .rtile.sel { background: var(--raised); border-color: var(--mute); color: var(--ink); }
+.rtile.in::after { content: ""; position: absolute; top: 5px; right: 5px; width: 5px; height: 5px; border-radius: 50%; background: var(--glow); }
+.rtile.in { color: var(--ink); }
+.rtile.own { border-style: dashed; }
+/* a button that does not show here: faint on the sheets, as on the rail while it is changed (#171) */
+.rtile.rfaint, .raddslot.rfaint > :not(.rx), .rbslot.rfaint > :not(.rx) { opacity: .45; }
+.rtile.rfaint:hover, .rtile.rfaint.sel { opacity: .8; }
+
+/* the + panel: the preset's ten slots, the next one in the accent; then find, the groups, the tiles, one line */
+.radd { width: 540px; overflow-y: auto; padding: 16px 18px 12px; }
+.raddslots { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 12px; }
+.raddslot { position: relative; height: 40px; display: grid; place-items: center; border: 1px dashed var(--line); border-radius: var(--r-s); color: var(--glow); font-size: 11px; }
+.raddslot.next { border-color: var(--glow); }
+.raddslot.full { border: 1px solid var(--line); background: var(--raised); color: var(--ink); cursor: grab; }
+.raddslot.full:hover .rx { display: grid; }
+.raddslot.swap { border-color: var(--glow); box-shadow: 0 0 0 1px var(--glow) inset; }
+.raddslot.gone { background: none; border-style: dashed; }
+.raddfind { width: 100%; box-sizing: border-box; height: 30px; margin-top: 14px; padding: 0 10px; background: var(--page); border: 1px solid var(--line); border-radius: var(--r-s); outline: 0; color: var(--ink); font: inherit; }
+.raddfind:focus { border-color: var(--mute); }
+.raddtabs { display: flex; gap: 16px; margin: 12px 0 10px; border-bottom: 1px solid var(--line); }
+.raddtabs button { padding: 0 0 7px; background: none; border: 0; border-bottom: 1px solid transparent; margin-bottom: -1px; color: var(--mute); cursor: pointer; }
+.raddtabs button:hover { color: var(--dim); }
+.raddtabs button.on { color: var(--ink); border-bottom-color: var(--ink); }
+.radd .rtiles { margin-top: 12px; }
+.raddtabs + .rtiles { margin-top: 0; }
+.raddfoot { display: flex; justify-content: flex-end; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
+.raddfoot button { padding: 0; background: none; border: 0; color: var(--mute); font-size: 12px; cursor: pointer; }
+.raddfoot button:hover { color: var(--ink); }
+
+/* every preset and button: the presets as cards on the left, the one picked as a bench on the right over every button */
+.rshelf { display: grid; grid-template-columns: 250px 1fr; width: min(900px, calc(100vw - 24px)); height: min(640px, calc(100vh - 72px)); overflow: hidden; }
+.rpresets { overflow-y: auto; padding: 4px 14px 14px; border-right: 1px solid var(--line); }
+.rpcard { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-s); cursor: pointer; outline: 0; }
+.rpcard:hover { border-color: var(--mute); }
+.rpcard.sel { background: var(--raised); border-color: var(--mute); }
+.rptop { display: flex; align-items: baseline; justify-content: space-between; }
+.rptop b { font-weight: 500; color: var(--ink); font-size: 13px; }
+.rptop span { font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.rptop span.over { color: var(--glow); }
+.rpmini { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 7px; color: var(--dim); min-height: 14px; }
+.rsheet .rpmini svg { width: 12px; height: 12px; }
+.rpmini .rpill { height: 15px; padding: 0 5px; font-size: 9.5px; }
+.rpmodes { display: flex; gap: 5px; }
+.rpmodes button { height: 20px; padding: 0 8px; background: none; border: 1px solid var(--line); border-radius: var(--pill); color: var(--mute); font-size: 10.5px; cursor: pointer; }
+.rpmodes button:hover { color: var(--dim); border-color: var(--mute); }
+.rpmodes button.on { color: var(--ink); border-color: var(--dim); }
+.rpnew { width: 100%; height: 36px; background: none; border: 1px dashed var(--line); border-radius: var(--r-s); color: var(--dim); cursor: pointer; }
+.rpnew:hover { color: var(--ink); border-color: var(--mute); }
+.rsheet .rpname { width: 100%; box-sizing: border-box; height: 30px; padding: 0 10px; background: var(--page); border: 1px solid var(--mute); border-radius: var(--r-s); outline: 0; color: var(--ink); font: inherit; }
+.rbench { overflow-y: auto; padding: 14px 18px 14px; }
+.rbhead { display: flex; align-items: baseline; gap: 12px; min-height: 30px; }
+.rbhead .rpname { width: 220px; }
+.rbask { color: var(--mute); font-size: 12px; }
+.rbask button { padding: 0; background: none; border: 0; color: var(--mute); cursor: pointer; }
+.rbask button:hover { color: var(--ink); }
+.rbask button.danger { color: var(--warn); }
+.rbrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 44px; margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); }
+.rbslot { position: relative; display: grid; place-items: center; min-width: 34px; height: 32px; padding: 0 4px; box-sizing: border-box; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--raised); color: var(--ink); cursor: grab; }
+.rbslot:hover .rx { display: grid; }
+.rbslot.line { min-width: 14px; background: none; border-color: transparent; }
+.rbslot.line i { width: 1px; height: 16px; background: var(--mute); }
+.rbslot.gone { background: none; border-style: dashed; }
+.rbslot.rbempty { background: none; border-style: dashed; cursor: default; }
+.rbench section .rtiles { gap: 6px; }
+.rfoot { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--line); }
+.rfoot button { background: none; border: 0; padding: 2px 0; color: var(--dim); font-size: 12px; cursor: pointer; }
+.rfoot button:hover { color: var(--ink); }
+.rfoot kbd { margin-left: 6px; font: inherit; font-size: 11px; color: var(--mute); }
+/* a button's hover card, in the free foot of the presets column so it never covers a tile: what it does, its key,
+   how often pressed; on or off the bench; an own one changed or deleted */
+.rcard { position: absolute; z-index: 75; left: 14px; bottom: 14px; width: 222px; box-sizing: border-box; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 12px 32px -10px var(--shade); }
+.rcard b { color: var(--ink); font-weight: 500; font-size: 13px; }
+.rcard p { margin: 6px 0; color: var(--dim); line-height: 1.45; }
+.rcard small { display: block; color: var(--mute); font-size: 11px; line-height: 1.5; }
+.rcard div { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.rcard button { height: 24px; padding: 0 10px; background: none; border: 1px solid var(--line); border-radius: var(--pill); color: var(--dim); font: inherit; font-size: 11.5px; cursor: pointer; }
+.rcard button:hover { color: var(--ink); border-color: var(--mute); }
+.rcard button.on { color: var(--ink); border-color: var(--dim); }
+.rcard button.danger { color: var(--warn); }
+/* an own button's pane or glyph that threw: its one line, where it would have drawn */
+.ownbroke { margin: 24px; color: var(--dim); font-style: italic; }
+.barbtn.wcall { position: relative; }
+.barbtn.wcall canvas.arms { width: 18px; height: 18px; }
+
+/* the overview: four cards, Claude Code's shape on Sol's paper */
+.wover { display: flex; flex-direction: column; gap: 10px; padding: 14px; overflow-y: auto; height: 100%; box-sizing: border-box; }
+.wocard { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+.wohead { display: flex; align-items: center; gap: 6px; width: 100%; padding: 12px 14px; background: none; border: 0; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.wohead b { font-weight: 500; }
+.wochev { width: 6px; height: 6px; border-right: 1.3px solid var(--mute); border-bottom: 1.3px solid var(--mute); transition: rotate .18s; }
+.wochev.side { rotate: -45deg; margin-left: 2px; }
+.wochev.side.open { rotate: 45deg; }
+.wochev.down { rotate: 45deg; margin: -3px 0 0 4px; }
+.wochev.down:not(.open) { rotate: -45deg; margin-top: 0; }
+.woright { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 12.5px; font-style: normal; font-variant-numeric: tabular-nums; }
+.wobar { width: 46px; height: 7px; border-radius: 4px; background: var(--raised); overflow: hidden; }
+.wobar i { display: block; height: 100%; border-radius: 4px; background: var(--dim); }
+.wobar.hot i { background: var(--amber); }
+.wobody { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 2px; }
+.worow { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 5px 0; color: var(--ink); font-size: 13px; background: none; border: 0; font-family: inherit; text-align: left; }
+.worow svg { flex: none; color: var(--dim); }
+.worow span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.worow em { font-style: normal; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wolinkrow { width: 100%; cursor: pointer; border-radius: var(--r-s); }
+.wolinkrow:hover span { text-decoration: underline; text-underline-offset: 3px; }
+.wolink { background: none; border: 0; padding: 0; color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.wolink.dim { color: var(--mute); }
+.wolink:hover { color: var(--ink); text-decoration: underline; }
+.wodot { flex: none; width: 6px; height: 6px; margin: 0 4px; border-radius: 50%; background: var(--red-strong); }
+.wodot.on { background: var(--dim); }
+.wodot.wait { background: var(--amber); }
+.woline { margin: 2px 0 0; font-size: 12px; line-height: 1.5; }
+.woline.dim { color: var(--mute); }
+
+/* ---- the page pane (#54): the page the session wrote on a white stage, pins in ink over it ---- */
+.wpagep { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wpchips { flex: none; display: flex; flex-wrap: wrap; gap: 4px; padding: 10px 12px 6px; }
+.wpchips button { max-width: 220px; padding: 3px 9px; background: none; border: 1px solid var(--line); border-radius: var(--pill); color: var(--dim); font: inherit; font-size: 11.5px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wpchips button:hover { color: var(--ink); background: var(--raised); }
+.wpchips button.on { color: var(--ink); border-color: var(--ink); }
+.wpagep .wlink.on { color: var(--ink); background: var(--raised); }
+.wpstage { position: relative; flex: 1; min-height: 0; background: #fff; }
+.wpstage iframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+.wpstage.marking iframe { cursor: crosshair; }
+.wpover { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.wpin { position: absolute; box-sizing: border-box; border: 1.5px solid #111; border-radius: 3px; box-shadow: 0 0 0 2px rgba(255,255,255,.85); }
+.wpin.live { border-style: dashed; }
+.wpin b { position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 50%; background: #111; color: #fff; font: 600 10.5px/18px -apple-system, BlinkMacSystemFont, sans-serif; text-align: center; box-shadow: 0 0 0 2px #fff; }
+.wpbox { position: absolute; border: 1px dashed #111; background: rgba(0,0,0,.05); }
+.wpwrite { position: absolute; z-index: 3; width: 280px; display: flex; flex-direction: column; gap: 3px; padding: 6px; background: #fff; border: 1px solid #111; border-radius: var(--r-s); box-shadow: 0 8px 24px rgba(0,0,0,.18); pointer-events: auto; user-select: text; }   /* over a browser frame too, where the page around it takes no selection */
+.wpwrite small { color: #555; font-family: var(--mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wpwrite textarea { resize: none; padding: 6px 8px; background: #fff; border: 1px solid #ccc; border-radius: var(--r-s); outline: 0; color: #111; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12.5px; }
+.wpwrite textarea:focus { border-color: #111; }
+.wpkept { flex: none; max-height: 170px; overflow: auto; padding: 6px 0; border-top: 1px solid var(--line); }
+.wpkept .wremark { margin: 2px 12px 4px; align-items: center; }
+.wpkept .wremark > b { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--ink); color: var(--page); font: 600 10.5px/18px -apple-system, BlinkMacSystemFont, sans-serif; text-align: center; }
+.wpkept .wremark code { font-family: var(--mono); font-size: 11px; color: var(--dim); margin-right: 4px; }
+.wpkept .wremark .wlink { padding: 0 4px; font-size: 11px; }

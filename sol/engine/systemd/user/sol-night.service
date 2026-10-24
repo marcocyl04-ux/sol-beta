@@ -1,0 +1,16 @@
+# The night job (#99, docs/how-we-work/PRD.md section 7): one run on the always-on machine, started by sol-night.timer.
+# Only the NucBox's live checkout runs it: sol/promote fills the @BLANKS@ (@ROOT@ = ~/sol-live) and writes it to
+# ~/.config/systemd/user/sol-night.service; it is never installed on a Mac or a teammate's machine.
+# By hand, posting nothing: bash ~/sol-live/sol/night --dry-run. Log: journalctl --user -u sol-night -n 50
+[Unit]
+Description=Sol night job: clashes, still claims, the digest (@ROOT@)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@ROOT@
+ExecStart=/usr/bin/env bash @ROOT@/sol/night
+Environment=PATH=@PATH@
+Environment=GIT_TERMINAL_PROMPT=0
+# Omarchy's mise shims print a line on stdout before every tool; the night job parses gh's JSON
+Environment=MISE_QUIET=1

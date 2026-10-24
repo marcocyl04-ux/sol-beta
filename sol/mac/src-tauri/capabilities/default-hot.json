@@ -1,0 +1,37 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default-hot",
+  "description": "The main window in mutable mode, its page served by Vite on localhost:1420; also Work's pop-out windows (work-*)",
+  "windows": [
+    "main",
+    "work-*"
+  ],
+  "remote": {
+    "urls": [
+      "http://localhost:1420/*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-create",
+    "core:webview:allow-create-webview-window",
+    "opener:default",
+    "allow-engine-port",
+    "allow-notch-expand",
+    "allow-notch-geometry",
+    "allow-face-log",
+    "allow-face-mode",
+    "allow-face-state",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        {
+          "path": "$HOME/**"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# Back (#18, 2026-10-17): Sol goes back to the last thing that worked, in one step, with no one around to help.
+# Marco runs it from Terminal when Sol is down and the steps in Settings → engine (or sol/HELP.md) say so:
+#   bash ~/computer/personal/projects/ecosystem/sol/back
+# The "go back" button in Settings runs the same script through the engine (back --no-restart; the engine then exits
+# and its keeper brings the good build up). One script for the Mac (launchd) and the NucBox (systemd).
+#
+# What one step back means, each part its own rule, said in plain words as it goes:
+#   the face    an uncommitted edit under sol/mac or sol/design is set aside (git stash, nothing is lost); with none,
+#               the newest "mutate:" commit not yet undone is reverted with sol/undo. --keep-face leaves the face alone.
+#   the engine  engine/dist.good (the keeper's copy of the last build that stayed up a minute) is put back as
+#               engine/dist; the one running now waits in engine/dist.bad; dist/.reverted tells the next engine.
+#   then        the engine and its build watcher are started again (launchctl here, systemctl on the NucBox), unless
+#               --no-restart (the engine calling this ends itself).
+# --plan prints what a run would do and changes nothing (the button's line reads it):
+#   engine <iso time of dist.good> | engine none
+#   face dirty <n> | face mutate <hash> <subject> | face none
+# Exit 0 when something was put back or nothing needed to be, 1 when a step failed; every line says which.
+set -u
+cd "$(dirname "$0")"
+SOL=$(pwd)
+ROOT=$(cd .. && pwd)
+ENG=$SOL/engine
+plan=""; restart=1; keepface=""
+for a in "$@"; do
+  case $a in
+    --plan) plan=1 ;;
+    --no-restart) restart="" ;;
+    --keep-face) keepface=1 ;;
+    *) echo "back: unknown option $a (--plan, --no-restart, --keep-face)" >&2; exit 2 ;;
+  esac
+done
+
+# Sol may live in the other checkout of this repo (MY SOL, sol/mine/live, #116): the engine's job says which folder it
+# runs from, and back goes back there, so the same line works from either folder
+if [ "$(uname)" = Darwin ]; then
+  job=$HOME/Library/LaunchAgents/com.marco.sol-engine.plist
+  from=$([ -e "$job" ] && sed -n 's|.*<key>WorkingDirectory</key><string>\(.*\)/sol/engine</string>.*|\1|p' "$job")
+else
+  job=$HOME/.config/systemd/user/sol-engine.service
+  from=$([ -e "$job" ] && sed -n 's|^WorkingDirectory=\(.*\)/sol/engine[[:space:]]*$|\1|p' "$job" | sed "s|^%h|$HOME|")
+fi
+repo_of() { (cd "$1" 2>/dev/null && realpath "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null); }
+if [ -n "${from:-}" ] && [ -f "$from/sol/back" ] && [ "$(cd "$from" 2>/dev/null && pwd -P)" != "$(cd "$ROOT" && pwd -P)" ] \
+   && [ -n "$(repo_of "$ROOT")" ] && [ "$(repo_of "$from")" = "$(repo_of "$ROOT")" ]; then
+  echo "back: Sol runs from $from; going back there" >&2
+  exec bash "$from/sol/back" "$@"
+fi
+
+# the face's newest change: uncommitted edits first, else the newest mutate not yet undone (sol/undo's own rule)
+face_dirty() { (cd "$ROOT" && git status --porcelain -- sol/mac sol/design 2>/dev/null | wc -l | tr -d ' '); }
+face_mutate() {
+  (cd "$ROOT" || exit 0
+   undone="$(git log --format=%B --grep='^undo: ' 2>/dev/null | sed -n 's/^This reverts commit \([0-9a-f]*\)\..*/\1/p')"
+   for h in $(git log --format=%H --grep='^mutate: ' 2>/dev/null); do
+     if ! grep -q "^$h" <<<"$undone"; then echo "$h"; return; fi
+   done)
+}
+good_at() {
+  if [ -d "$ENG/dist.good" ]; then
+    if stat -f %m "$ENG/dist.good" >/dev/null 2>&1; then t=$(stat -f %m "$ENG/dist.good"); else t=$(stat -c %Y "$ENG/dist.good"); fi
+    date -u -r "$t" +%FT%TZ 2>/dev/null || date -u -d "@$t" +%FT%TZ
+  fi
+}
+
+if [ -n "$plan" ]; then
+  at=$(good_at); [ -n "$at" ] && echo "engine $at" || echo "engine none"
+  n=$(face_dirty)
+  if [ "${n:-0}" -gt 0 ]; then echo "face dirty $n"
+  else
+    h=$(face_mutate)
+    if [ -n "$h" ]; then echo "face mutate $(cd "$ROOT" && git rev-parse --short "$h") $(cd "$ROOT" && git log -1 --format=%s "$h" | sed 's/^mutate: *//')"
+    else echo "face none"; fi
+  fi
+  exit 0
+fi
+
+fail=""
+
+# 1. the face
+if [ -z "$keepface" ]; then
+  n=$(face_dirty)
+  if [ "${n:-0}" -gt 0 ]; then
+    if (cd "$ROOT" && git stash push -q -u -m "back: face edits set aside $(date -u +%FT%TZ)" -- sol/mac sol/design); then
+      echo "back: the face's $n uncommitted edit(s) are set aside in git stash (git stash pop brings them back)"
+    else echo "back: could not set the face's uncommitted edits aside"; fail=1; fi
+  else
+    h=$(face_mutate)
+    if [ -n "$h" ]; then
+      if out=$("$SOL/undo" 2>&1); then echo "back: the face's last change is taken back: ${out#undo: }"
+      else echo "back: could not take the face's last change back: ${out#undo: }"; fail=1; fi
+    else echo "back: the face has no change of Sol's to take back"; fi
+  fi
+fi
+
+# 2. the engine
+if [ -d "$ENG/dist.good" ]; then
+  if rm -rf "$ENG/dist.bad" && { [ ! -d "$ENG/dist" ] || mv "$ENG/dist" "$ENG/dist.bad"; } && rsync -a "$ENG/dist.good/" "$ENG/dist/"; then
+    date -u +%FT%TZ > "$ENG/dist/.reverted"
+    echo "back: the engine's last good build ($(good_at)) is back; the one that was running waits in engine/dist.bad (engine/src still has the change: the next edit there builds it again)"
+  else echo "back: could not put the engine's last good build back"; fail=1; fi
+else
+  echo "back: the engine has no good build to go back to (engine/dist.good is missing); it stays as it is"
+fi
+
+# 3. start again
+if [ -n "$restart" ]; then
+  if [ "$(uname)" = Darwin ]; then
+    uid=$(id -u)
+    for job in com.marco.sol-engine-build com.marco.sol-engine; do
+      if launchctl kickstart -k "gui/$uid/$job" 2>/dev/null; then echo "back: $job started again"
+      elif launchctl bootstrap "gui/$uid" "$ENG/launchd/$job.plist" 2>/dev/null; then echo "back: $job loaded and started"
+      else echo "back: could not start $job (launchctl); try: launchctl bootstrap gui/$uid $ENG/launchd/$job.plist"; fail=1; fi
+    done
+  elif command -v systemctl >/dev/null; then
+    if systemctl --user restart sol-engine; then echo "back: sol-engine started again (systemd)"
+    else echo "back: could not start sol-engine (systemctl --user restart sol-engine)"; fail=1; fi
+  else echo "back: no launchd and no systemd here; start the engine by hand: bash $ENG/keep"; fi
+  for _ in $(seq 1 40); do
+    if curl -sf -m 1 "http://127.0.0.1:${SOL_PORT:-7777}/health" >/dev/null; then echo "back: the engine answers; open Sol"; break; fi
+    sleep 0.5
+  done
+fi
+[ -z "$fail" ]

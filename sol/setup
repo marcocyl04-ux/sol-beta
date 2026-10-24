@@ -1,0 +1,604 @@
+#!/usr/bin/env bash
+# Setup (#22, 2026-10-20): a new teammate's own Sol, up and joined to the team, in one run after cloning:
+#   bash sol/setup
+# In order: what this machine is missing, the engine built and tested, the face's packages, the browser, the sol skill
+# linked for Claude and Codex (~/.claude/skills/sol, ~/.codex/skills/sol, sol/home/.claude/skills/sol), your keys
+# (sol/engine/.env), your team settings (sol/engine/team.json), the engine under launchd, then the face.
+# On Linux and on Windows under WSL (since 2026-10-20, for a tester): the same steps, the engine as systemd user
+# units (engine/systemd/user) and the face as Vite in the browser (http://localhost:1420, no Rust, no Tauri).
+# Below, "launchd" in an option or a message means the engine's service: launchd on the Mac, systemd on Linux.
+# Run it again any time: every step that is already done says so and is skipped. Nothing here touches a NucBox,
+# ~/sol-live, the live or stable branches, or a value already in .env / team.json.
+# It asks for keys, so the person runs it in their own Terminal. Run with no terminal (by an agent, say), it asks
+# nothing, does every other step, names the values still needed and exits 0.
+#   --check        only report, change nothing; exit 0 when everything is green
+#   --no-launchd   start the engine in the background without installing its service (also when SOL_NO_KEEP is set
+#                  or SOL_PORT is not 7777: a spare engine, DESIGN-GUIDE A12, never takes the real one's jobs)
+#   --launchd      install the service even with no terminal (otherwise only a run in your own terminal does)
+# The service is touched only when all three hold: a terminal or --launchd, SOL_PORT unset or 7777, and the jobs either
+# not installed or installed from this very checkout. Otherwise: "another Sol's engine is installed from <path>; not
+# touching it". --check only reads. On Linux without a systemd user session, the engine runs in the background instead.
+#   --no-face      do not offer to open the face at the end
+#   --dev          a dev's second door (#124), after the rest: your Sol on its own `<login>/mine` branch with
+#                  sol/mine/setup (made from stable, when it is on stable or main), the workshop beside it (a second
+#                  clone of sol-dev on main, where take, brief and PRs happen; SOL_WORKSHOP=<folder> picks another),
+#                  the stage started once (sol/mine/stage, when this Sol has it), then the one rule. A checkout on a
+#                  work branch is a workshop already, and the step stops there. With --check it only reports.
+set -u
+# umask stays the person's: every file with a secret in it (.env, team.json) is written with its own mode, 0600
+HERE=$PWD
+cd "$(dirname "$0")"
+SOL=$(pwd -P)
+ROOT=$(cd .. && pwd)
+ENG=$SOL/engine
+MAC=$SOL/mac
+PORT="${SOL_PORT:-7777}"
+# the team's relay (team/relay.ts, path /relay): the team gives you its address, SOL_RELAY=wss://HOST/relay. No address
+# is written here (#169: a copy of Sol names no private machine); with none, this Sol runs on its own.
+RELAY="${SOL_RELAY:-}"
+mac=""; linux=""; wsl=""; machine="machine"
+case $(uname -s) in
+  Darwin) mac=1; machine="Mac" ;;
+  Linux) linux=1; grep -qi microsoft /proc/version 2>/dev/null && wsl=1 ;;
+  *) echo "setup: Sol runs on macOS, Linux and Windows under WSL, not on $(uname -s)" >&2; exit 2 ;;
+esac
+check=""; nolaunchd=""; uselaunchd=""; noface=""; restart=""; dev=""
+tty=""; [ -t 0 ] && tty=1   # a person at a terminal: only then are keys asked for (never into an agent's chat)
+needed=()
+for a in "$@"; do
+  case $a in
+    --check) check=1 ;;
+    --no-launchd) nolaunchd=1 ;;
+    --launchd) uselaunchd=1 ;;
+    --no-face) noface=1 ;;
+    --dev) dev=1 ;;
+    *) echo "setup: unknown option $a (--check, --no-launchd, --launchd, --no-face, --dev)" >&2; exit 2 ;;
+  esac
+done
+[ -n "${SOL_NO_KEEP:-}" ] || [ "$PORT" != 7777 ] && nolaunchd=1
+uid=$(id -u)
+if [ -n "$mac" ]; then
+  LA="$HOME/Library/LaunchAgents"
+  JOBS="com.marco.sol-engine-build com.marco.sol-engine"
+  ENGINE_JOB=com.marco.sol-engine
+  KICK="launchctl kickstart -k gui/$uid/com.marco.sol-engine"
+  ENGINE_LOG="~/Library/Logs/sol-engine.log"
+else
+  LA="$HOME/.config/systemd/user"
+  JOBS="sol-engine-build sol-engine"
+  ENGINE_JOB=sol-engine
+  KICK="systemctl --user restart sol-engine"
+  ENGINE_LOG="journalctl --user -u sol-engine -n 30"
+fi
+ROOTP=$(cd "$SOL/.." && pwd -P)
+# a dev checkout (its origin is sol-dev, or --dev): the team's tools are needed. A Sol from the public repo comes with
+# its app built and its own relay-less engine: gh, Codex, Rust, Tailscale and ffmpeg are optional there (#169)
+devco="$dev"
+case $(git -C "$ROOTP" remote get-url origin 2>/dev/null) in *sol-dev|*sol-dev.git|*sol-dev/) devco=1 ;; esac
+# the checkout a job is installed from, empty when it is not installed: the plist launchd loaded (or the one in
+# LaunchAgents), a link followed to its file, else read for its WorkingDirectory. On Linux: the unit systemd loaded
+# (or the one in ~/.config/systemd/user), read for its WorkingDirectory (%h is the home, as in the NucBox's live unit)
+installed_from() {
+  local p
+  if [ -n "$mac" ]; then
+    p=$(launchctl print "gui/$uid/$1" 2>/dev/null | sed -n 's/^[[:space:]]path = //p' | head -1)
+    [ -n "$p" ] || p="$LA/$1.plist"
+    [ -e "$p" ] || return 0
+    # a link into a checkout's tracked plists names that checkout; any other (sol/mine/live's, in sol/engine/.live/) is read
+    if [ -L "$p" ] && case $(readlink "$p") in */sol/engine/launchd/*) true ;; *) false ;; esac; then
+      perl -MCwd=abs_path -e 'print abs_path(shift)' "$p" | sed 's|/sol/engine/launchd/[^/]*$||'
+    else sed -n 's|.*<key>WorkingDirectory</key><string>\(.*\)/sol/engine</string>.*|\1|p' "$p"; fi
+  else
+    p=$(systemctl --user show -p FragmentPath --value "$1" 2>/dev/null)
+    [ -n "$p" ] || p="$LA/$1.service"
+    [ -e "$p" ] || return 0
+    sed -n 's|^WorkingDirectory=\(.*\)/sol/engine[[:space:]]*$|\1|p' "$p" | sed "s|^%h|$HOME|"
+  fi
+}
+launchd=""; nolaunchd_why=""; nosystemd=""
+# Linux without a systemd user manager (WSL before [boot] systemd=true in /etc/wsl.conf): the engine runs in the
+# background instead, and ends with the terminal that started it
+if [ -n "$linux" ] && [ -z "$nolaunchd" ] && ! systemctl --user show-environment >/dev/null 2>&1; then
+  nolaunchd=1; nosystemd="no systemd user session here, so the engine runs in the background instead${wsl:+ (WSL: put [boot] systemd=true in /etc/wsl.conf, then wsl --shutdown from PowerShell, and it is installed for good)}"
+fi
+if [ -z "$nolaunchd" ]; then
+  for job in $JOBS; do
+    from=$(installed_from "$job")
+    if [ -n "$from" ] && [ "$from" != "$ROOTP" ]; then nolaunchd_why="another Sol's engine is installed from $from; not touching it"; break; fi
+  done
+  if [ -z "$nolaunchd_why" ] && [ -z "$check" ] && [ -z "$tty" ] && [ -z "$uselaunchd" ]; then
+    nolaunchd_why="the engine is installed only by a run in your own Terminal (or with --launchd)"
+  fi
+  [ -z "$nolaunchd_why" ] && launchd=1
+fi
+# the guard alone, for sol/setup.d/guard-test
+if [ -n "${SOL_SETUP_GUARD_ONLY:-}" ]; then echo "launchd=${launchd:-no} spare=${nolaunchd:-no} ${nolaunchd_why}"; exit 0; fi
+
+bad=0
+ok()   { echo "  ok    $*"; }
+miss() { echo "  MISS  $*"; bad=$((bad + 1)); }
+skip() { echo "  skip  $*"; }
+# opt "what" "why it is optional" "what is missing": a MISS in a dev checkout, an ok line elsewhere
+opt()  { if [ -n "$devco" ]; then miss "$3"; else ok "$1: optional, $2"; fi; }
+say()  { echo "setup: $*"; }
+# ask "question" var [secret]: reads one line from the person; empty or no terminal means skipped
+ask() {
+  local q=$1 v=$2 s=${3:-} line=""
+  if [ -n "$s" ]; then read -r -s -p "$q " line || line=""; echo; else read -r -p "$q " line || line=""; fi
+  printf -v "$v" '%s' "$line"
+}
+# how to get a tool: Homebrew on the Mac (or how to get Homebrew first), apt or pacman on Linux
+# pkghint <name> [pacman name]
+pkghint() {
+  if [ -n "$linux" ]; then
+    if command -v apt-get >/dev/null; then echo "sudo apt install -y $1"
+    elif command -v pacman >/dev/null; then echo "sudo pacman -S --needed ${2:-$1}"
+    else echo "install $1 with your package manager"; fi
+  elif command -v brew >/dev/null; then echo "brew install $1"
+  else echo "install Homebrew first (https://brew.sh: one line to paste in Terminal), then brew install $1"; fi
+}
+nodehint() {
+  if [ -n "$mac" ]; then echo "$(pkghint node) (or the installer at https://nodejs.org)"
+  elif command -v apt-get >/dev/null; then echo "curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt install -y nodejs"
+  else echo "$(pkghint nodejs "nodejs npm")"; fi
+}
+health() { curl -sf -m 1 "http://127.0.0.1:$PORT/health" >/dev/null; }
+
+# ---- 6. the second door, for a dev (--dev, #124) ----
+# A user has one folder, their Sol. A dev adds a second, the workshop, a clone of sol-dev beside it: take, brief, the
+# harness, PRs and Try happen there, so the Sol they live in is never the dev checkout.
+DEV_REPO=marcocyl04-ux/sol-dev
+dev_step() {
+  echo "== the workshop (--dev)"
+  local br login="" base ws url top wbr out line was
+  g() { git -C "$ROOTP" "$@"; }
+  [ "$(cd "$(g rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null && pwd -P)" = "$ROOTP" ] || { miss "this Sol is not a git checkout, so it has no branch of its own"; return; }
+  br=$(g symbolic-ref --short -q HEAD)
+  # 1. your Sol: stable plus your own commits, on <login>/mine
+  case $br in
+    */mine) ok "your Sol is on $br: stable plus your own changes" ;;
+    main|stable)
+      login=$(gh api user --jq .login </dev/null 2>/dev/null)
+      [ -n "$login" ] || login=$(node -e 'try{process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).me.login||"")}catch{}' "${SOL_TEAM:-$ENG/team.json}" 2>/dev/null)
+      if [ -z "$login" ]; then miss "your Sol is on $br and there is no GitHub login to name its own branch: gh auth login, then run this again"; return; fi
+      if [ -n "$check" ]; then miss "your Sol is on $br, not on a branch of its own (bash sol/setup --dev makes $login/mine)"
+      elif [ -n "$(g status --porcelain --untracked-files=no)" ]; then miss "your Sol has changes not committed on $br; commit or stash them, then run this again"; return
+      elif g show-ref --verify -q "refs/heads/$login/mine"; then
+        g switch -q "$login/mine" && ok "your Sol is on $login/mine again (it was on $br)" || { miss "could not switch your Sol to $login/mine (git said why above)"; return; }
+      else
+        g fetch -q origin '+refs/heads/stable:refs/remotes/origin/stable' </dev/null 2>/dev/null
+        if g rev-parse --verify -q refs/remotes/origin/stable >/dev/null; then base=origin/stable
+        elif g rev-parse --verify -q refs/heads/stable >/dev/null; then base=stable
+        else base=HEAD; fi
+        was=$(g rev-parse --short HEAD)
+        g switch -q --no-track -c "$login/mine" "$base" || { miss "could not make $login/mine in your Sol (git said why above)"; return; }
+        ok "your Sol is on $login/mine now, made from ${base#origin/} ($(g rev-parse --short HEAD))"
+        [ "$(g rev-parse --short HEAD)" != "$was" ] && echo "  note  it was on $br at $was; Sol renews itself onto the new code"
+      fi ;;
+    "") miss "your Sol is on a detached head (mid-rebase?); put it back on stable or your */mine branch first"; return ;;
+    *) miss "this checkout is on $br, a work branch: it is a workshop, not a Sol to live in. Run sol/setup --dev in your Sol's folder"; return ;;
+  esac
+  # 2. sol/mine/setup: every commit made in your Sol gets "mine: " in front
+  if [ ! -f "$ROOTP/sol/mine/setup" ]; then skip "sol/mine/setup is not in this Sol yet; after the next stable: bash sol/mine/rebase, then this again"
+  elif [ "$(g config --worktree --get core.hooksPath 2>/dev/null)" = sol/mine/hooks ]; then ok "your commits there get \"mine: \" in front (sol/mine/setup, done before)"
+  elif [ -n "$check" ]; then miss "sol/mine/setup has not run in your Sol (bash sol/setup --dev runs it)"
+  elif out=$(cd "$ROOTP" && bash sol/mine/setup 2>&1); then ok "your commits there get \"mine: \" in front (sol/mine/setup)"
+  else miss "sol/mine/setup said: $out"; fi
+  # 3. the workshop: SOL_WORKSHOP, else the checkout this Sol is a worktree of (Marco's: the folder beside MY SOL),
+  #    else a folder sol-dev beside your Sol
+  ws=${SOL_WORKSHOP:-}
+  if [ -z "$ws" ]; then
+    ws=$(g worktree list --porcelain 2>/dev/null | sed -n '1s/^worktree //p')
+    [ "$(cd "$ws" 2>/dev/null && pwd -P)" = "$ROOTP" ] && ws=""
+    [ -n "$ws" ] || ws="$(dirname "$ROOTP")/sol-dev"
+  fi
+  case $ws in /*) ;; *) ws="$HERE/$ws" ;; esac   # a relative folder is where you ran setup from
+  if [ "$(cd "$ws" 2>/dev/null && pwd -P)" = "$ROOTP" ]; then miss "the workshop would be your Sol itself; your own Sol is never the dev checkout (SOL_WORKSHOP=<another folder>)"; return; fi
+  if [ -e "$ws" ]; then
+    url=$(git -C "$ws" remote get-url origin 2>/dev/null); top=$(git -C "$ws" rev-parse --show-toplevel 2>/dev/null)
+    wbr=$(git -C "$ws" symbolic-ref --short -q HEAD)
+    if [ "$top" != "$(cd "$ws" && pwd -P)" ] || case $url in *sol-dev|*sol-dev.git|*sol-dev/) false ;; *) true ;; esac; then
+      miss "$ws is there but is not a checkout of sol-dev; not touching it (SOL_WORKSHOP=<folder> picks another)"; return
+    fi
+    case $wbr in */mine) miss "$ws is on $wbr, someone's Sol, not a workshop; not touching it (SOL_WORKSHOP=<folder> picks another)"; return ;; esac
+    ok "the workshop is $ws, on ${wbr:-a detached head}"
+  elif [ -n "$check" ]; then miss "no workshop yet (bash sol/setup --dev clones sol-dev to $ws)"
+  else
+    url=$(g remote get-url origin 2>/dev/null)
+    say "cloning sol-dev into $ws, on main (the workshop)"
+    case $url in
+      *sol-dev|*sol-dev.git|*sol-dev/) git clone -q --branch main "$url" "$ws" </dev/null ;;
+      *) gh repo clone "$DEV_REPO" "$ws" -- -q --branch main </dev/null ;;
+    esac && ok "the workshop is $ws, a clone of sol-dev on main" \
+      || { miss "could not clone sol-dev into $ws (your GitHub account needs access to $DEV_REPO; ask Marco)"; return; }
+  fi
+  # 4. the stage: a second engine and face from your Sol's own code (7779 and 1422), so a change is tried before the
+  #    window you live in takes it. Started once here; bash sol/mine/stage down stops it.
+  if [ ! -f "$ROOTP/sol/mine/stage" ]; then skip "no stage in this Sol yet (sol/mine/stage, #114); nothing to start"
+  elif [ -n "$check" ]; then
+    (cd "$ROOTP" && bash sol/mine/stage status 2>&1) | head -2 | sed 's/^mine\/stage: /  note  the stage: /'
+  elif out=$(cd "$ROOTP" && bash sol/mine/stage up 2>&1 </dev/null); then
+    line=$(printf '%s\n' "$out" | grep -m1 -E 'up|Open' | sed 's/^mine\/stage: //')
+    ok "the stage: ${line:-up} (bash sol/mine/stage down stops it)"
+  else miss "the stage did not come up: $(printf '%s\n' "$out" | tail -1 | sed 's/^mine\/stage: //')"; fi
+  # the one rule
+  tilde() { case $1 in "$HOME"/*) echo "~${1#"$HOME"}" ;; *) echo "$1" ;; esac; }
+  echo "  rule  your own Sol is never the dev checkout."
+  echo "        your Sol       $(tilde "$ROOTP")"
+  echo "                       you live in it and make it yours; after a new stable, bash sol/mine/rebase"
+  echo "        the workshop   $(tilde "$ws")"
+  echo "                       issues, branches, PRs and Try: cd there, then bash sol/take <issue>"
+}
+if [ -n "${SOL_SETUP_DEV_ONLY:-}" ]; then dev_step; [ "$bad" -eq 0 ]; exit; fi   # the step alone, for engine/test/setup-dev
+
+# ---- the sol skill (#133, docs/beta/PRD.md section 9) ----
+# sol/skills/sol, the map an agent reads before changing Sol for its person, linked into ~/.claude/skills/sol and
+# ~/.codex/skills/sol (Work sessions and Codex chats), and into sol/home/.claude/skills/sol for Claude chats, whose seat
+# reads only the project's settings from sol/home (SOL_HOME, as the engine). Only this step makes those links, when a
+# person runs setup. A link to this checkout is kept; anything else there (a link elsewhere, a copy of their own) is the
+# person's and never touched.
+skill_step() {
+  echo "== the sol skill"
+  local d dst name home="${SOL_HOME:-$SOL/home}"
+  for d in "$HOME/.claude" "$HOME/.codex" "$home/.claude"; do
+    dst="$d/skills/sol"
+    if [ "$d" = "$home/.claude" ]; then name="sol/home/.claude/skills/sol"; else name="~/${d#"$HOME"/}/skills/sol"; fi
+    if [ -L "$dst" ] && [ "$(readlink "$dst")" = "$SOL/skills/sol" ]; then ok "$name is linked"
+    elif [ -e "$dst" ] || [ -L "$dst" ]; then skip "$name is there already ($(readlink "$dst" || echo "a copy of its own")); not touching it"
+    elif [ -n "$check" ]; then miss "$name is not linked (bash sol/setup links it)"
+    elif mkdir -p "$d/skills" && ln -s "$SOL/skills/sol" "$dst"; then ok "$name linked to sol/skills/sol"
+    else miss "could not link $name"; fi
+  done
+}
+if [ -n "${SOL_SETUP_SKILL_ONLY:-}" ]; then skill_step; [ "$bad" -eq 0 ]; exit; fi   # the step alone, for sol/setup.d/skill-test
+
+# ---- 1. what this machine needs ----
+echo "== what this $machine needs"
+node_ok=""
+if command -v node >/dev/null; then
+  nv=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+  if [ "$nv" -ge 22 ]; then ok "Node $(node -v)"; node_ok=1
+  else miss "Node is $(node -v), Sol needs 22 or newer: $(nodehint)"; fi
+else miss "Node is not installed: $(nodehint), version 22 or newer"; fi
+if [ -n "$mac" ]; then
+  if xcode-select -p >/dev/null 2>&1; then ok "Xcode command line tools"
+  else miss "Xcode command line tools: xcode-select --install (a window opens; click Install)"; fi
+  if command -v cargo >/dev/null || [ -x "$HOME/.cargo/bin/cargo" ]; then ok "Rust (cargo), for the face's native shell"
+  elif [ -n "$noface" ]; then ok "Rust: optional, the face is not built here"
+  else opt "Rust" "the app comes built" "Rust is not installed (the face's native shell needs it): curl https://sh.rustup.rs -sSf | sh"; fi
+else
+  # no Rust and no Tauri here: the face is Vite in the browser. The engine's keeper needs curl and rsync, setup lsof
+  # and perl, and node-pty (the terminal pane) compiles with make, g++ and python3
+  gone=""; for t in git curl lsof rsync perl; do command -v $t >/dev/null || gone="$gone $t"; done
+  [ -z "$gone" ] && ok "git, curl, lsof, rsync, perl" || miss "missing:${gone}: $(pkghint "${gone# }")"
+  gone=""; for t in make g++ python3; do command -v $t >/dev/null || gone="$gone $t"; done
+  [ -z "$gone" ] && ok "build tools (make, g++, python3)" || miss "build tools missing (${gone# }; the terminal's node-pty compiles with them): $(pkghint "build-essential python3" "base-devel python")"
+fi
+if ! command -v gh >/dev/null; then
+  if [ -n "$mac" ]; then opt "the GitHub CLI" "no GitHub account is needed" "the GitHub CLI is not installed: $(pkghint gh), then gh auth login"
+  else opt "the GitHub CLI" "no GitHub account is needed" "the GitHub CLI is not installed: $(pkghint github-cli github-cli) (Ubuntu 23.04 or newer: sudo apt install -y gh; older: https://github.com/cli/cli/blob/trunk/docs/install_linux.md), then gh auth login"; fi
+elif gh auth status </dev/null >/dev/null 2>&1; then ok "GitHub CLI, signed in"
+else opt "the GitHub CLI" "no GitHub account is needed" "the GitHub CLI is not signed in: gh auth login"; fi
+if ! command -v claude >/dev/null; then
+  if [ -n "$mac" ]; then miss "Claude Code is not installed: https://claude.com/claude-code, then claude (it asks you to sign in)"
+  else miss "Claude Code is not installed: curl -fsSL https://claude.ai/install.sh | bash, then claude (it asks you to sign in)"; fi
+elif claude auth status </dev/null 2>/dev/null | grep -q '"loggedIn": *true'; then ok "Claude Code, signed in"
+else miss "Claude Code is not signed in: run claude once and sign in"; fi
+if ! command -v codex >/dev/null; then opt "Codex" "a second agent for later" "Codex is not installed: npm install -g @openai/codex, then codex login"
+elif codex login status </dev/null >/dev/null 2>&1; then ok "Codex, signed in"
+else opt "Codex" "a second agent for later" "Codex is not signed in: codex login"; fi
+TS=$(command -v tailscale || { [ -n "$mac" ] && [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ] && echo /Applications/Tailscale.app/Contents/MacOS/Tailscale; })
+team_only="(only to join Marco's team; a Sol on its own runs without it)"
+if [ -z "$TS" ] && [ -n "$mac" ]; then opt "Tailscale" "only a team's relay needs it" "Tailscale is not installed: https://tailscale.com/download (then accept Marco's invite to his tailnet)"
+elif [ -z "$TS" ]; then opt "Tailscale" "only a team's relay needs it" "Tailscale is not installed $team_only: curl -fsSL https://tailscale.com/install.sh | sh, then sudo tailscale up, signed in with the account Marco invited"
+elif "$TS" status </dev/null >/dev/null 2>&1; then ok "Tailscale, up"
+elif [ -n "$mac" ]; then opt "Tailscale" "only a team's relay needs it" "Tailscale is installed but not up: open Tailscale and sign in (with the account Marco invited)"
+else opt "Tailscale" "only a team's relay needs it" "Tailscale is installed but not up $team_only: sudo tailscale up, signed in with the account Marco invited"; fi
+if command -v ffmpeg >/dev/null; then ok "ffmpeg"
+else opt "ffmpeg" "dictation converts clips with it" "ffmpeg (dictation converts clips with it): $(pkghint ffmpeg)"; fi
+if [ -n "$linux" ]; then
+  # chromium's shared libraries, which playwright installs only with sudo (install-deps); three stand for the set
+  gone=""; for l in libnss3.so libgbm.so.1 libasound.so.2; do ldconfig -p 2>/dev/null | grep -q "$l" || gone="$gone $l"; done
+  [ -z "$gone" ] && ok "the browser's system libraries" || miss "the browser's system libraries (${gone# }): in your own terminal, cd sol/engine && sudo npx --yes playwright install-deps chromium"
+fi
+if [ -z "$check" ] && [ -z "$node_ok" ]; then say "nothing can be built without Node 22+; install it and run this again"; exit 1; fi
+if [ -n "${SOL_SETUP_NEEDS_ONLY:-}" ]; then [ "$bad" -eq 0 ]; exit; fi   # the step alone, for engine/test/setup-needs
+
+# ---- 2. the engine, the face's packages, the browser ----
+echo "== build"
+# where playwright keeps its browsers (its own default on each system)
+if [ -n "$mac" ]; then PWC="$HOME/Library/Caches/ms-playwright"; else PWC="${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright"; fi
+[ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ] && PWC="$PLAYWRIGHT_BROWSERS_PATH"
+if [ -n "$check" ]; then
+  [ -d "$ENG/node_modules" ] && ok "engine packages" || miss "engine packages (npm ci in sol/engine)"
+  [ -f "$ENG/dist/index.js" ] && ok "engine built" || miss "engine not built (npm run build in sol/engine)"
+  [ -d "$MAC/node_modules" ] && ok "face packages" || miss "face packages (npm ci in sol/mac)"
+  ls -d "$PWC"/chromium-* >/dev/null 2>&1 && ok "browser (playwright chromium)" || miss "browser (npx playwright install chromium in sol/engine)"
+else
+  # npm ci empties node_modules first: never under a Sol that runs from this checkout (its engine, its build watch)
+  live=""
+  pid=$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | head -1)
+  [ -n "$pid" ] && [ "$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" = "$ENG" ] && live=1
+  for job in $JOBS; do [ "$(installed_from "$job")" = "$ROOTP" ] && live=1; done
+  # packages: [dir] [name]; installed from the lockfile (npm ci leaves the tracked package-lock.json as it is)
+  packages() {
+    if [ -d "$1/node_modules" ] && [ "$1/node_modules/.package-lock.json" -nt "$1/package-lock.json" ]; then ok "$2 packages already installed"
+    elif [ -d "$1/node_modules" ] && [ -n "$live" ]; then
+      miss "$2 packages are older than package-lock.json, but Sol runs from this copy; with Sol stopped: cd ${1#$ROOTP/} && npm ci"
+    else say "installing the $2's packages (a minute or two)"; (cd "$1" && npm ci </dev/null --no-audit --no-fund --loglevel=error) && ok "$2 packages" || { miss "npm ci in ${1#$ROOTP/} failed (the lines above say why)"; return 1; }; fi
+  }
+  packages "$ENG" engine || exit 1
+  packages "$MAC" face
+  # built already, nothing changed since and the last tests passed: no build, no tests
+  if [ -f "$ENG/dist/index.js" ] && [ ! -f "$ENG/.setup-test.log" ] && [ -z "$(find "$ENG/src" "$ENG/package-lock.json" "$ENG/tsconfig.json" -newer "$ENG/dist/index.js" 2>/dev/null | head -1)" ]; then
+    ok "engine already built, nothing changed since (tests skipped too)"
+  else
+    say "building the engine"
+    (cd "$ENG" && npm run build --silent </dev/null) && ok "engine built" || { miss "npm run build in sol/engine failed (the lines above say why)"; exit 1; }
+    say "running the engine's tests (about a minute)"
+    # the tests start their own engines and keepers: a spare engine's settings must not leak into them
+    if (cd "$ENG" && env -u SOL_PORT -u SOL_STATE -u SOL_NO_KEEP -u SOL_NO_RENEW npm test --silent </dev/null >"$ENG/.setup-test.log" 2>&1); then ok "engine tests pass"; rm -f "$ENG/.setup-test.log"
+    else miss "some engine tests failed; the output is in sol/engine/.setup-test.log (setup goes on: Sol may still run)"; fi
+  fi
+  if ls -d "$PWC"/chromium-* >/dev/null 2>&1; then ok "browser (playwright chromium) already installed"
+  else say "installing the browser Sol drives (playwright chromium)"; (cd "$ENG" && npx --yes playwright install chromium </dev/null) && ok "browser installed" || miss "npx playwright install chromium failed"; fi
+fi
+skill_step
+
+# ---- 3. your keys: sol/engine/.env ----
+echo "== your keys (sol/engine/.env)"
+has() { grep -q "^$1=." "$ENG/.env" 2>/dev/null; }
+# setenv KEY value: the one line in .env, made or replaced; the value never passes through a command line
+setenv() {
+  K="$1" V="$2" node -e 'const f=process.argv[1],fs=require("fs"),{K,V}=process.env;
+    let t=fs.existsSync(f)?fs.readFileSync(f,"utf8"):"# Sol\x27s keys on this machine (sol/engine/.env.example says what each is). Never commit this file.\n";
+    const re=new RegExp("^"+K+"=.*$","m"); t=re.test(t)?t.replace(re,()=>K+"="+V):t.replace(/\n?$/,"\n")+K+"="+V+"\n";
+    fs.writeFileSync(f,t,{mode:0o600}); fs.chmodSync(f,0o600);' "$ENG/.env"
+}
+# a key handed in the environment (the install, the welcome page: no terminal there) is written when .env has none
+if [ -z "$check" ]; then
+  for k in GEMINI_API_KEY SOL_OWNER; do
+    [ -n "${!k:-}" ] && ! has "$k" && setenv "$k" "${!k}" && ok "$k saved (from the environment)"
+  done
+fi
+if has GEMINI_API_KEY && has SOL_OWNER; then ok "GEMINI_API_KEY is set"; ok "SOL_OWNER is set"
+elif [ -n "$check" ]; then
+  for k in GEMINI_API_KEY SOL_OWNER; do has $k && ok "$k is set" || miss "$k is not set yet (run sol/setup in Terminal; sol/engine/.env.example says what it is)"; done
+elif [ -z "$tty" ]; then
+  for k in GEMINI_API_KEY SOL_OWNER; do has $k && ok "$k is set" || { needed+=("$k"); skip "$k: asked only in your own Terminal"; }; done
+else
+  echo "  Typed here, kept only in sol/engine/.env on this $machine (never shown, never committed). Return skips one;"
+  echo "  the next run of sol/setup asks again."
+  if has GEMINI_API_KEY; then ok "GEMINI_API_KEY is set"
+  else
+    ask "  Your Gemini API key (https://aistudio.google.com/apikey; calls and conversation names need it):" gem secret
+    if [ -n "$gem" ]; then setenv GEMINI_API_KEY "$gem" && ok "GEMINI_API_KEY saved"
+    else skip "GEMINI_API_KEY skipped: calls and conversation names will not work until it is set"; fi
+  fi
+  if has SOL_OWNER; then ok "SOL_OWNER is set"
+  else
+    tsl=""
+    [ -n "$TS" ] && tsl=$("$TS" status --json </dev/null 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log(j.User[j.Self.UserID].LoginName)}catch{}})' 2>/dev/null)
+    if [ -n "$tsl" ]; then ask "  Your Tailscale login (return = the one this Mac is signed in with):" own
+      [ -z "$own" ] && own=$tsl
+    elif [ -n "$devco" ]; then ask "  Your Tailscale login (the email you signed in to Tailscale with):" own
+    else ask "  What should we call you?" own; fi
+    if [ -n "$own" ]; then setenv SOL_OWNER "$own" && ok "SOL_OWNER saved"
+    else skip "SOL_OWNER skipped: the tailnet door (your phone, the away page) stays shut"; fi
+  fi
+fi
+
+# ---- 4. your team settings: sol/engine/team.json ----
+echo "== the team (sol/engine/team.json)"
+TEAM="${SOL_TEAM:-$ENG/team.json}"
+SKIPPED="$ENG/.setup-team-key-skipped"   # no key from Marco yet; the engine then makes up its own, which the relay refuses
+TYPED="$ENG/.setup-team-key-typed"       # the typed key's hash, never the key: until the engine has restarted with it
+# keystate: none (nothing typed here) | fresh (team.json holds the typed key and the engine started after, or is down)
+#   | stale (it holds it, the engine still runs on the one before) | other (the engine wrote its made-up key back)
+keystate() {
+  [ -f "$TYPED" ] && [ -f "$TEAM" ] || { echo none; return; }
+  H=$(curl -sf -m 1 "http://127.0.0.1:$PORT/health" 2>/dev/null) node -e '
+    const fs=require("fs"),c=require("crypto"),[f,m]=process.argv.slice(1);
+    const k=((JSON.parse(fs.readFileSync(f,"utf8")).relay)||{}).key||"";
+    if(c.createHash("sha256").update(k).digest("hex")!==fs.readFileSync(m,"utf8").trim()){console.log("other");process.exit()}
+    let since=0;try{since=Date.parse(JSON.parse(process.env.H).since)}catch{}
+    console.log(since&&since<fs.statSync(m).mtimeMs?"stale":"fresh")' "$TEAM" "$TYPED" 2>/dev/null || echo none
+}
+nokey() {
+  skip "no team key: Hand and the team relay (who is here, pings, Talk) will not reach the team."
+  echo "        Get the key from Marco and run sol/setup again in Terminal; it asks only for what is missing."
+  echo "        Settings → \"what leaves this machine\" shows whether a key is set."
+}
+if [ ! -f "$TEAM" ]; then
+  if [ -n "$check" ]; then miss "no sol/engine/team.json yet (run sol/setup)"
+  else
+    login=""; name=""
+    if gh auth status </dev/null >/dev/null 2>&1; then login=$(gh api user --jq .login </dev/null 2>/dev/null); name=$(gh api user --jq '.name // .login' </dev/null 2>/dev/null); fi
+    # the relay is a WebSocket address (wss://, path /relay): the engine drops an http(s) one (team/settings.ts)
+    TLOGIN="$login" TNAME="$name" TURL="$RELAY" node -e '
+      const e=process.env;
+      const t={me:{login:e.TLOGIN||"",name:e.TNAME||""},relay:{url:e.TURL,key:"",host:false}};
+      require("fs").writeFileSync(process.argv[1],JSON.stringify(t,null,2)+"\n",{mode:0o600});' "$TEAM" \
+      && touch "$SKIPPED" && ok "team.json written${RELAY:+, relay: $RELAY}${login:+, you are $login}"
+  fi
+fi
+if [ -f "$TEAM" ]; then
+  node -e 'const t=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const r=t.relay||{};
+    console.log(r.url?"  ok    relay: "+r.url:"  note  relay: this engine runs its own (no relay address)")' "$TEAM" 2>/dev/null || miss "sol/engine/team.json is not valid JSON"
+  haskey=$(node -e 'const r=(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).relay)||{};
+    process.stdout.write(r.key?"1":"")' "$TEAM" 2>/dev/null)
+  hasrelay=$(node -e 'const r=(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).relay)||{};
+    process.stdout.write(r.url?"1":"")' "$TEAM" 2>/dev/null)
+  ks=$(keystate)
+  if [ "$ks" = other ] && [ -z "$check" ]; then
+    rm -f "$TYPED"; touch "$SKIPPED"; skip "team.json no longer holds the key you typed: Sol put its own back before it restarted"
+  fi
+  if [ "$ks" = other ] && [ -n "$check" ]; then
+    miss "team.json no longer holds the key you typed (Sol put its own back before restarting): run sol/setup in Terminal and paste it again"
+  elif [ ! -f "$SKIPPED" ] && [ -n "$haskey" ] && [ "$ks" = stale ]; then
+    if [ -n "$check" ]; then miss "the team key is saved but not in use: Sol has not restarted since ($KICK)"
+    else ok "team key saved; Sol has not restarted since, so it restarts below"; restart=1; fi
+  elif [ ! -f "$SKIPPED" ] && [ -n "$haskey" ]; then ok "team key is set"; [ -z "$check" ] && [ "$ks" = fresh ] && rm -f "$TYPED"
+  elif [ -z "$hasrelay" ]; then skip "no team key needed without a relay (to join a team: SOL_RELAY=wss://HOST/relay bash sol/setup, with the key the team gives you)"
+  elif [ -n "$check" ]; then miss "no team key from Marco yet (run sol/setup again in Terminal to paste it)"
+  elif [ -z "$tty" ]; then needed+=("the team key"); skip "team key: asked only in your own Terminal"
+  else
+    echo "  The team key joins your Sol to the team's relay on Marco's NucBox. Marco gives it to you in person;"
+    echo "  it is never shown in Sol. Paste it here (it stays hidden), or press return to skip."
+    ask "  Team key:" key secret
+    if [ -n "$key" ]; then
+      TKEY="$key" node -e 'const [f,m]=process.argv.slice(1),fs=require("fs"),t=JSON.parse(fs.readFileSync(f,"utf8"));
+        t.relay={...(t.relay||{}),key:process.env.TKEY};fs.writeFileSync(f,JSON.stringify(t,null,2)+"\n",{mode:0o600});fs.chmodSync(f,0o600);
+        fs.writeFileSync(m,require("crypto").createHash("sha256").update(process.env.TKEY).digest("hex")+"\n",{mode:0o600});' "$TEAM" "$TYPED" \
+        && rm -f "$SKIPPED" && ok "team key saved" && restart=1
+    else nokey; fi
+  fi
+fi
+
+# ---- 5. the engine, running ----
+echo "== the engine (port $PORT)"
+if [ -n "$nolaunchd" ]; then
+  [ -n "$nosystemd" ] && echo "  note  $nosystemd"
+  if [ -n "${restart:-}" ] && health; then
+    pid=$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | head -1)
+    # only this checkout's engine, never another one on the port
+    [ -n "$pid" ] && [ "$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" = "$ENG" ] && kill "$pid" && sleep 1 && say "the engine stopped, to start again with the new key"
+  fi
+  if health; then ok "the engine answers on $PORT"
+  elif [ -n "$check" ]; then miss "nothing answers on $PORT"
+  else
+    say "starting the engine in the background, without launchd (log: sol/engine/.setup-engine.log)"
+    # its own session (Node undoes nohup, so closing the terminal would end it), every output to the log and no other
+    # open file of ours, so nothing reading this script's output (an agent, a pipe) waits on the engine
+    (cd "$ENG" && perl -MPOSIX -e 'setsid; POSIX::close($_) for 3..255; exec @ARGV' bash keep </dev/null >"$ENG/.setup-engine.log" 2>&1 &) </dev/null >/dev/null 2>&1
+    for _ in $(seq 1 60); do health && break; sleep 0.5; done
+    health && ok "the engine answers on $PORT" || miss "the engine did not answer in 30 s; read sol/engine/.setup-engine.log"
+  fi
+elif [ -z "$launchd" ]; then
+  skip "$nolaunchd_why"
+  if health; then ok "an engine answers on $PORT"
+  elif [ -n "$check" ] || [ -n "$tty" ]; then miss "nothing answers on $PORT"
+  else needed+=("starting the engine"); fi
+elif [ -n "$linux" ]; then
+  # systemd user units from engine/systemd/user, this checkout's paths filled in; the same rules as launchd below:
+  # a link is compared and never written, a unit this run did not write is restarted only with --launchd in a terminal
+  force=""; [ -n "$tty" ] && [ -n "$uselaunchd" ] && force=1
+  nodedir=$(dirname "$(command -v node)")
+  for job in $JOBS; do
+    dst="$LA/$job.service"; mine=""
+    want=$(sed -e "s|@ENG@|$ENG|g" -e "s|@ROOT@|$ROOTP|g" -e "s|@NODE@|$(command -v node)|g" \
+               -e "s|@PATH@|$nodedir:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin|g" "$ENG/systemd/user/$job.service")
+    if [ -L "$dst" ]; then
+      target=$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$dst")
+      if [ "$(cat "$dst")" = "$want" ]; then ok "$job installed (a link to $target), started and stopped by hand"
+      else skip "$job installed by hand from $target; not rewriting it"; fi
+      continue
+    elif [ -f "$dst" ] && [ "$(cat "$dst")" = "$want" ]; then ok "$job installed"
+    elif [ -n "$check" ]; then [ -f "$dst" ] && miss "$job is installed but out of date (run sol/setup --launchd in your terminal)" || miss "$job is not installed (run sol/setup in your terminal)"; continue
+    elif [ -f "$dst" ] && [ -z "$force" ]; then
+      miss "$job is installed but out of date; to replace it (this restarts it), run in your terminal: bash sol/setup --launchd"; continue
+    else
+      mkdir -p "$LA"
+      printf '%s\n' "$want" > "$dst"
+      systemctl --user daemon-reload 2>/dev/null
+      mine=1; ok "$job installed ($dst)"
+    fi
+    if [ "$(systemctl --user is-active "$job" 2>/dev/null)" = active ]; then
+      if [ -n "$check" ]; then ok "$job running"
+      elif [ -n "$mine" ]; then systemctl --user restart "$job" 2>/dev/null && ok "$job started again (new unit)" || miss "could not restart $job: systemctl --user restart $job"
+      elif [ -z "${restart:-}" ] || [ "$job" != "$ENGINE_JOB" ]; then ok "$job running"
+      elif [ -n "$force" ] && systemctl --user restart "$job" 2>/dev/null; then ok "$job started again (new key)"
+      else skip "$job keeps the old key until it restarts: $KICK (or bash sol/setup --launchd)"; fi
+    elif [ -n "$check" ]; then miss "$job is not running (systemctl --user enable --now $job)"
+    elif systemctl --user enable --now "$job" >/dev/null 2>&1; then ok "$job started"
+    else miss "could not start $job; try: systemctl --user enable --now $job, then journalctl --user -u $job -n 30"; fi
+  done
+  if [ -z "$check" ]; then for _ in $(seq 1 60); do health && break; sleep 0.5; done; fi
+  health && ok "the engine answers on $PORT" || miss "nothing answers on $PORT yet; the log: $ENGINE_LOG"
+else
+  # a job this run did not install is stopped or restarted only when asked for: --launchd, in a terminal
+  force=""; [ -n "$tty" ] && [ -n "$uselaunchd" ] && force=1
+  for job in $JOBS; do
+    dst="$LA/$job.plist"; mine=""
+    # the plists in sol/engine/launchd are Marco's Mac's; yours get your paths, and your node's folder first on
+    # PATH for both jobs (keep starts `node` from PATH), wherever it came from (Homebrew, nvm, the installer)
+    nodedir=$(dirname "$(command -v node)")
+    want=$(sed -e "s|/Users/marcol04/computer/personal/projects/ecosystem/sol/engine|$ENG|g" \
+               -e "s|/usr/local/bin/node|$(command -v node)|g" \
+               -e "s|<string>/Users/marcol04/.local/bin:|<string>$nodedir:/Users/marcol04/.local/bin:|" \
+               -e "s|/Users/marcol04|$HOME|g" "$ENG/launchd/$job.plist")
+    # a link is a hand-made install (Marco's points into his checkout's tracked plists): compared, never written
+    if [ -L "$dst" ]; then
+      target=$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$dst")
+      if [ "$(cat "$dst")" = "$want" ]; then ok "$job installed (a link to $target), started and stopped by hand"
+      else skip "$job installed by hand from $target; not rewriting it"; fi
+      continue
+    elif [ -f "$dst" ] && [ "$(cat "$dst")" = "$want" ]; then ok "$job installed"
+    elif [ -n "$check" ]; then [ -f "$dst" ] && miss "$job is installed but out of date (run sol/setup --launchd in Terminal)" || miss "$job is not installed (run sol/setup in Terminal)"; continue
+    elif [ -f "$dst" ] && [ -z "$force" ]; then
+      miss "$job is installed but out of date; to replace it (this restarts it), run in Terminal: bash sol/setup --launchd"; continue
+    else
+      mkdir -p "$LA" "$HOME/Library/Logs"
+      [ -f "$dst" ] && launchctl bootout "gui/$uid/$job" 2>/dev/null && say "$job stopped, to start again with the new settings"
+      printf '%s\n' "$want" > "$dst"
+      mine=1; ok "$job installed ($dst)"
+    fi
+    if launchctl print "gui/$uid/$job" >/dev/null 2>&1; then
+      if [ -n "$check" ] || [ -z "${restart:-}" ] || [ "$job" != com.marco.sol-engine ]; then ok "$job running"
+      elif { [ -n "$mine" ] || [ -n "$force" ]; } && launchctl kickstart -k "gui/$uid/$job" 2>/dev/null; then ok "$job started again (new key)"
+      else skip "$job keeps the old key until it restarts: launchctl kickstart -k gui/$uid/$job (or bash sol/setup --launchd)"; fi
+    elif [ -n "$check" ]; then miss "$job is not running (launchctl bootstrap gui/$uid $dst)"
+    elif launchctl bootstrap "gui/$uid" "$dst" 2>/dev/null; then ok "$job started"
+    else miss "could not start $job; try: launchctl bootstrap gui/$uid $dst"; fi
+  done
+  if [ -z "$check" ]; then for _ in $(seq 1 60); do health && break; sleep 0.5; done; fi
+  health && ok "the engine answers on $PORT" || miss "nothing answers on $PORT yet; the log is $ENGINE_LOG"
+fi
+
+[ -n "$dev" ] && dev_step
+
+# ---- the end ----
+echo
+if [ -n "$check" ]; then
+  [ "$bad" -eq 0 ] && say "all green" || say "$bad thing(s) to fix, each named above with how"
+  [ "$bad" -eq 0 ]; exit
+fi
+if [ "$bad" -gt 0 ]; then say "set up, with $bad thing(s) still to fix, each named above with how; run sol/setup again after"
+elif [ "${#needed[@]}" -gt 0 ]; then say "your Sol is set up, except the values only you can type (below)"
+else say "your Sol is set up${dev:+, and your workshop beside it}"; fi
+if [ "$(keystate)" = stale ]; then
+  say "the team key counts only once Sol restarts: $KICK (or quit Sol's engine and start it again)"
+fi
+if [ "${#needed[@]}" -gt 0 ]; then
+  say "still needed, from you in your own Terminal: $(printf '%s, ' "${needed[@]}" | sed 's/, $//')."
+  echo "  Keys are asked for, and the engine installed, only there, never through an agent. Open ${wsl:+Ubuntu (the WSL terminal)}${wsl:-${linux:+a terminal}}${mac:+Terminal} and run:"
+  echo "    cd $ROOT && bash sol/setup"
+  [ "$bad" -eq 0 ]; exit
+fi
+if [ -z "$noface" ] && health && [ -n "$mac" ]; then
+  echo "  The face: cd sol/mac && npm run tauri dev   (the first start compiles for a few minutes)"
+  echo "  Or build Sol.app once: cd sol/mac && npm run tauri build, then open src-tauri/target/release/bundle/macos/Sol.app"
+  if [ -n "$tty" ] && pgrep -f "$MAC/" >/dev/null; then echo "  The face is already open."
+  elif [ -n "$tty" ]; then
+    ask "  Open the face now? [Y/n]" yn
+    case $yn in n|N|no) ;; *) cd "$MAC" && exec npm run tauri dev ;; esac
+  fi
+elif [ -z "$noface" ] && health; then
+  # the face as Vite in the browser: ?ws= dials this engine straight (mac/src/engine.ts, dev only), instead of the
+  # NucBox-first pick waiting 12 s for a NucBox this machine cannot reach
+  FACE="http://localhost:1420/?ws=127.0.0.1:$PORT"
+  echo "  The face: cd sol/mac && npm run dev, then open $FACE"
+  [ -n "$wsl" ] && echo "  in your browser on Windows (Edge or Chrome): WSL forwards the port by itself."
+  if [ -n "$tty" ] && pgrep -f "$MAC/" >/dev/null; then echo "  The face is already running."
+  elif [ -n "$tty" ]; then
+    ask "  Start the face now? [Y/n]" yn
+    case $yn in n|N|no) ;; *)
+      # the browser, once Vite answers: the Windows one from WSL, else the desktop's
+      ( for _ in $(seq 1 60); do curl -sf -m 1 http://localhost:1420/ >/dev/null && break; sleep 0.5; done
+        if [ -n "$wsl" ] && command -v powershell.exe >/dev/null; then powershell.exe -NoProfile -Command "Start-Process '$FACE'"
+        elif command -v xdg-open >/dev/null; then xdg-open "$FACE"; fi ) >/dev/null 2>&1 &
+      cd "$MAC" && exec npm run dev ;;
+    esac
+  fi
+fi
+[ "$bad" -eq 0 ]

@@ -1,0 +1,54 @@
+@import "../palette.css";
+/* The welcome page (#169): the whiteboard look, black, white and pearl only, clean text, one column. No React: the
+   page is a form and four steps, and it must come up in an app whose face has nothing to run yet. */
+:root {
+  color-scheme: dark;
+  --page: var(--paper);
+  --surface: #222222;
+  --line: #303030;
+  --dim: #9a9a97;
+  --mute: #5c5c5a;
+  --r: 10px;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; background: var(--page); color: var(--ink); }
+body { -webkit-user-select: none; user-select: none; }
+.welcome { max-width: 440px; margin: 0 auto; padding: 72px 24px 48px; display: flex; flex-direction: column; gap: 18px; }
+.welcome h1 { margin: 0; font-size: 44px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.1; }
+.welcome .lead { margin: 0; color: var(--dim); }
+.welcome label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--dim); }
+.welcome input { width: 100%; padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); color: var(--ink); font: inherit; outline: 0; -webkit-user-select: text; user-select: text; }
+.welcome input:focus { border-color: var(--mute); }
+.welcome .hint { font-size: 12px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.welcome button { align-self: flex-start; padding: 9px 18px; background: var(--ink); border: 1px solid var(--ink); border-radius: 999px; color: var(--page); font: inherit; font-size: 14px; cursor: pointer; }
+.welcome button.quiet { background: none; color: var(--ink); border-color: var(--line); }
+.welcome button:disabled { opacity: .4; cursor: default; }
+.welcome .row { display: flex; gap: 10px; align-items: center; }
+/* the four steps: one plain line each; waiting, running, done or failed, told by the mark alone */
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; font-size: 14px; }
+.steps li { display: grid; grid-template-columns: 18px 1fr; gap: 10px; align-items: center; }
+.steps .mark { width: 12px; height: 12px; border-radius: 50%; display: inline-block; position: relative; }
+.steps .sub { color: var(--dim); }
+.steps .waiting .what { color: var(--mute); }
+.steps .waiting .mark { border: 1px solid var(--mute); }
+@keyframes turn { to { transform: rotate(360deg); } }
+.steps .running .mark { border: 1.5px solid var(--mute); border-top-color: var(--ink); animation: turn .9s linear infinite; }
+.steps .done .what { color: var(--dim); }
+.steps .done .mark::after { content: ""; position: absolute; left: 3.5px; top: 0.5px; width: 3px; height: 7px; border: solid var(--ink); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); }
+.steps .failed .what { color: var(--ink); }
+.steps .failed .mark { border: 1.5px solid var(--ink); }
+.wnote { font-size: 13px; color: var(--dim); margin: 0; }
+.wnote.failed { color: var(--ink); }
+/* the install's own lines, behind a toggle, closed unless a step fails */
+details { font-size: 12px; color: var(--mute); }
+details summary { cursor: pointer; list-style: none; }
+details summary::-webkit-details-marker { display: none; }
+details summary::before { content: "›"; display: inline-block; width: 12px; transition: transform .15s; }
+details[open] summary::before { transform: rotate(90deg); }
+details pre { margin: 8px 0 0; padding: 10px 12px; max-height: 200px; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); font: 11px/1.5 var(--mono); color: var(--dim); white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
+.hidden { display: none !important; }
+.welcome a { color: var(--dim); text-decoration-color: var(--mute); }

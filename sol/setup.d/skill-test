@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Skill test (#133, PRD section 12, check 11): sol/setup links sol/skills/sol into ~/.claude/skills/sol,
+# ~/.codex/skills/sol and sol/home/.claude/skills/sol (Claude chats), keeps its own link on a second run, never touches a
+# copy or a link of the person's own, and --check only reports. Runs the step alone against a scratch HOME and a scratch
+# SOL_HOME, never the real ones:  bash sol/setup.d/skill-test
+set -u
+cd "$(dirname "$0")/../.."
+SKILL="$(pwd -P)/sol/skills/sol"
+t=$(cd "$(mktemp -d)" && pwd -P); trap 'rm -rf "$t"' EXIT
+fails=0
+run() { HOME="$t/home" SOL_HOME="$t/sol-home" SOL_SETUP_SKILL_ONLY=1 bash sol/setup "$@" </dev/null; }
+# want "name" "pattern" output
+want() { case $3 in *"$2"*) echo "  ok    $1" ;; *) echo "  FAIL  $1: wanted \"$2\" in:"; printf '%s\n' "$3" | sed 's/^/        /'; fails=$((fails + 1)) ;; esac; }
+linked() { [ -L "$t/$1/skills/sol" ] && [ "$(readlink "$t/$1/skills/sol")" = "$SKILL" ]; }
+
+[ -f "$SKILL/SKILL.md" ] && echo "  ok    sol/skills/sol/SKILL.md is there" || { echo "  FAIL  no sol/skills/sol/SKILL.md"; fails=$((fails + 1)); }
+mkdir -p "$t/home" "$t/sol-home"
+out=$(run --check); want "--check on a fresh home: says not linked, makes nothing" "~/.claude/skills/sol is not linked" "$out"
+want "nor for Claude chats" "sol/home/.claude/skills/sol is not linked" "$out"
+[ -e "$t/home/.claude" ] || [ -e "$t/sol-home/.claude" ] && { echo "  FAIL  --check made a .claude"; fails=$((fails + 1)); }
+out=$(run); want "a run links Claude's" "~/.claude/skills/sol linked to sol/skills/sol" "$out"
+want "and Codex's" "~/.codex/skills/sol linked to sol/skills/sol" "$out"
+want "and Claude chats', in sol/home" "sol/home/.claude/skills/sol linked to sol/skills/sol" "$out"
+linked home/.claude && linked home/.codex && linked sol-home/.claude && echo "  ok    all three links point at sol/skills/sol" || { echo "  FAIL  the links are not there"; fails=$((fails + 1)); }
+out=$(run); want "a second run keeps them" "~/.codex/skills/sol is linked" "$out"
+out=$(run --check); want "--check then says linked" "~/.claude/skills/sol is linked" "$out"
+want "Claude chats' too" "sol/home/.claude/skills/sol is linked" "$out"
+rm "$t/sol-home/.claude/skills/sol"; ln -s "$t/elsewhere" "$t/sol-home/.claude/skills/sol"
+out=$(run); want "a link of the person's own in sol/home is not touched" "sol/home/.claude/skills/sol is there already ($t/elsewhere); not touching it" "$out"
+[ "$(readlink "$t/sol-home/.claude/skills/sol")" = "$t/elsewhere" ] && echo "  ok    their link is as it was" || { echo "  FAIL  their link changed"; fails=$((fails + 1)); }
+rm "$t/home/.codex/skills/sol"; mkdir "$t/home/.codex/skills/sol"; echo mine > "$t/home/.codex/skills/sol/SKILL.md"
+out=$(run); want "a copy of the person's own is not touched" "~/.codex/skills/sol is there already (a copy of its own); not touching it" "$out"
+[ "$(cat "$t/home/.codex/skills/sol/SKILL.md")" = mine ] && echo "  ok    the copy is as it was" || { echo "  FAIL  the copy changed"; fails=$((fails + 1)); }
+
+[ "$fails" -eq 0 ] && echo "skill-test: all pass" || echo "skill-test: $fails failed"
+[ "$fails" -eq 0 ]

@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Keep (2026-10-16). The engine is started through this script, not node directly, so a build that compiles but dies
+# at start cannot take Sol down for good: by launchd on the Mac (launchd/com.marco.sol-engine.plist), by systemd on
+# the NucBox (systemd/sol-engine.service), one script for both (bash, curl, rsync, find -newermt). Each start: run the
+# engine, wait up to 20 s for /health. Up: watch it for a minute more (SOL_KEEP_GOOD_MS; #16 blocker 3: a build that
+# answered /health once and crashed a minute later used to become the good build and crash-loop): only a build that
+# stays up that long is copied to dist.good/ (once dist/ has been quiet for 3 s, so a build mid-write is never the
+# copy); then wait for the engine to end (a renew exits 0; launchd's KeepAlive or systemd's Restart starts this script
+# again). Not up, or down again inside the minute: count the try in .keep; at the third in a row,
+# move dist/ to dist.bad/, put dist.good/ back and leave dist/.reverted for the engine to read at its next start, so
+# every window hears "engine went back to its last good build". The build watcher writes dist/ again only when src/
+# changes, so the good build stays until the next edit. SOL_NO_KEEP=1 runs node bare (tests).
+set -u
+cd "$(dirname "$0")"
+PORT="${SOL_PORT:-7777}"
+if [ -n "${SOL_NO_KEEP:-}" ]; then exec node dist/index.js; fi
+
+# a build still writing dist/ is not a build: wait until no file there is newer than 3 s (up to 30 s). Before the start
+# too (#39): an engine started mid-write loaded half a build, and renew took the finished one for what it ran.
+quiet_dist() {
+  for _ in $(seq 1 30); do
+    [ -z "$(find dist -type f -newermt '-3 seconds' 2>/dev/null | head -1)" ] && return
+    sleep 1
+  done
+}
+
+quiet_dist
+node dist/index.js &
+pid=$!
+up=""
+for _ in $(seq 1 40); do
+  kill -0 "$pid" 2>/dev/null || break
+  if curl -sf -m 1 "http://127.0.0.1:$PORT/health" >/dev/null; then up=1; break; fi
+  sleep 0.5
+done
+
+GOOD_MS="${SOL_KEEP_GOOD_MS:-60000}"
+if [ -n "$up" ]; then
+  # up, but good only once it has stayed up: a renew inside the minute (exit 0 by its own choice) counts as good too
+  t=0; code=""
+  while [ "$t" -lt "$GOOD_MS" ]; do
+    if ! kill -0 "$pid" 2>/dev/null; then wait "$pid"; code=$?; break; fi
+    sleep 1; t=$((t + 1000))
+  done
+  if [ -n "$code" ] && [ "$code" != 0 ]; then up=""; echo "keep: the engine came up and died within the minute ($code)"; fi
+fi
+
+if [ -n "$up" ]; then
+  rm -f .keep
+  if [ -n "$code" ]; then echo "keep: engine ended ($code) by its own choice; this build stays the good one"; fi
+  quiet_dist   # nor the build that is running
+  if rsync -a --delete dist/ dist.good.new/ 2>/dev/null && rm -rf dist.good && mv dist.good.new dist.good; then
+    # the commit this good build is, when nothing under the engine differs from it (Ship #33: a stamp of stable reads
+    # it instead of building again; engine/src/team/ship.ts)
+    if [ -z "$(git status --porcelain -- src package.json package-lock.json tsconfig.json 2>/dev/null)" ]; then
+      git rev-parse HEAD > dist.good/.commit 2>/dev/null || rm -f dist.good/.commit
+    fi
+    echo "keep: engine up (pid $pid), this build is the good one"
+  else
+    echo "keep: engine up (pid $pid), could not copy the build"
+  fi
+  if [ -z "$code" ]; then
+    wait "$pid"
+    code=$?
+    echo "keep: engine ended ($code)"
+  fi
+  exit 0
+fi
+
+kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+n=$(( $(cat .keep 2>/dev/null || echo 0) + 1 ))
+echo "$n" > .keep
+echo "keep: the engine did not come up (try $n of 3)"
+if [ "$n" -ge 3 ]; then
+  rm -f .keep
+  if [ -d dist.good ]; then
+    rm -rf dist.bad && mv dist dist.bad && rsync -a dist.good/ dist/ && date -u +%FT%TZ > dist/.reverted
+    echo "keep: went back to the last good build; the broken one is in dist.bad/"
+  else
+    echo "keep: no good build to go back to"
+  fi
+fi
+exit 1

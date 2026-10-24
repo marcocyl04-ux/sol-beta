@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-face-log"
+description = "Enables the face_log command without any pre-configured scope."
+commands.allow = ["face_log"]
+
+[[permission]]
+identifier = "deny-face-log"
+description = "Denies the face_log command without any pre-configured scope."
+commands.deny = ["face_log"]

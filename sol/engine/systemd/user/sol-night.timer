@@ -1,0 +1,13 @@
+# When the night job runs (#99): every day at @HOUR@:00, the hour from `night.hour` in sol/engine/team.json (default 3),
+# a team value (docs/how-we-work/PRD.md section 12). Persistent: a night the machine was off runs at the next start.
+# sol/promote fills the @BLANKS@ and installs it on the NucBox only. See: systemctl --user list-timers sol-night
+[Unit]
+Description=Sol night job, daily at @HOUR@:00 (@ROOT@)
+
+[Timer]
+OnCalendar=*-*-* @HOUR@:00:00
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

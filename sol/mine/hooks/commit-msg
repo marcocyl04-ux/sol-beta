@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# MY SOL's commit-msg (#76, installed by sol/mine/setup): on a `*/mine` branch, `mine: ` goes in front of the subject
+# when it is not there, so a personal commit is told apart by its subject wherever it ends up (the apart check on
+# PRs to main refuses it). On any other branch, a detached head (a rebase), a merge or a fixup!/squash!/amend!: nothing.
+set -eu
+case $(git symbolic-ref --short -q HEAD || true) in */mine) ;; *) exit 0 ;; esac
+[ -e "$(git rev-parse --git-path MERGE_HEAD)" ] && exit 0   # a merge commit is not his own work
+msg=$1
+first=$(grep -v -m1 -e '^#' -e '^[[:space:]]*$' "$msg" || true)
+case $first in ""|mine:*|fixup!*|squash!*|amend!*) exit 0 ;; esac
+awk 'done || /^#/ || /^[[:space:]]*$/ { print; next } { print "mine: " $0; done = 1 }' "$msg" > "$msg.mine" && mv "$msg.mine" "$msg"

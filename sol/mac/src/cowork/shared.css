@@ -1,0 +1,70 @@
+/* Shared with me (Share #36): the team's things, like a drive. Ink text, hairline capsules, no colour at rest; the
+   signature in amber; red only when a read went wrong. */
+
+.cshared { max-width: 1240px; }
+.shrepos { display: flex; flex-direction: column; gap: 34px; }
+.shrepo { border-top: 1px solid var(--line); padding-top: 14px; }
+.shrhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.shrhead h3 { margin: 0; font-size: 15px; font-weight: 500; color: var(--ink); }
+.shfrom { margin-left: auto; padding: 2px 10px; border: 1px solid var(--line); border-radius: var(--pill); font-size: 11px; color: var(--dim); white-space: nowrap; }
+.shcols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 0 36px; }
+.shcol .csub { margin-top: 22px; }
+.shcol .csub small { margin-left: 6px; color: var(--mute); font-variant-caps: normal; letter-spacing: 0; }
+.shwrong { margin: 8px 2px; font-size: 12px; color: var(--red-strong); }
+
+/* rows: a kind capsule, the title over its path, the signature, when */
+.shrows, .shgroups { list-style: none; margin: 0; padding: 0; }
+.shrow, .shghead { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 10px; border-radius: var(--r-s); cursor: pointer; }
+.shrow:hover, .shghead:hover { background: var(--raised); }
+.shrow.on { background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); }
+.sht { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.sht b { font-weight: 450; font-size: 13px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sht small { font-size: 11px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shk { flex: none; width: 44px; box-sizing: border-box; padding: 1px 0; text-align: center; border: 1px solid var(--line); border-radius: var(--pill);
+  font-size: 10px; letter-spacing: 0.04em; font-variant-caps: all-small-caps; color: var(--dim); }
+.shrow .cwhen, .shghead .cwhen { flex: none; min-width: 28px; text-align: right; color: var(--mute); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+/* a design folder: folds open; its images as tiles */
+.shgroup + .shgroup { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.shcaret { flex: none; width: 44px; text-align: center; color: var(--dim); font-size: 13px; }
+.shgbody { padding: 2px 0 12px 0; }
+.shgbody .shrows { padding-left: 0; }
+.shtiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 6px 10px 0 64px; }
+.shtile { display: flex; flex-direction: column; gap: 5px; padding: 0; background: none; border: 0; text-align: left; font: inherit; cursor: pointer; }
+.shtile img, .shnothumb { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top left; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--surface); display: block; box-sizing: border-box; }
+.shnothumb { display: grid; place-items: center; color: var(--mute); font-size: 11px; font-variant-caps: all-small-caps; }
+.shtile small { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shtile:hover img, .shtile.on img { border-color: var(--mute); }
+.shtile.on small { color: var(--ink); }
+
+/* the pane: a head that names it and who shared it, then the thing */
+.shhead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--page); }
+.shhead > .sht { flex-basis: 120px; }   /* a narrow pane: the name keeps its line, who and how go under it */
+.shby { flex: none; display: inline-flex; gap: 5px; align-items: baseline; font-size: 11px; color: var(--dim); }
+.shmode { flex: none; padding: 2px 9px; border: 1px solid var(--line); border-radius: var(--pill); font-size: 10.5px; color: var(--dim); }
+.shmode.mine { color: var(--ink); border-color: var(--mute); }
+.shpanebody { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.shpanebody > :not(.shhead) { flex: 1; min-height: 0; }
+.shmd { overflow: auto; padding: 20px 26px 40px; font-size: 13.5px; line-height: 1.6; color: var(--ink); }
+.shpre { overflow: auto; margin: 0; padding: 18px 22px; font-size: 12px; white-space: pre-wrap; }
+.shimage { overflow: auto; padding: 18px; display: grid; place-items: start center; }
+.shimage img { max-width: 100%; border: 1px solid var(--line); border-radius: var(--r-s); }
+
+/* a card or a page beside the list: the desk and the browser, read-only, under the same head */
+.shwrap { flex: none; position: relative; display: flex; flex-direction: column; min-width: 280px; max-width: var(--pane-max); border-left: 1px solid var(--line); background: var(--page); }
+.shwrap > .pane { flex: 1; min-height: 0; width: 100% !important; border-left: 0; }
+.shdesk .tabs .hint { display: none; }   /* nothing done here reaches Sol: the card is the team's, read-only */
+
+/* beside an open pane the stage is narrow: the two columns stack, so a title keeps its room */
+@container (max-width: 980px) {
+  .shcols { grid-template-columns: minmax(0, 1fr); }
+  .shcol + .shcol .csub { margin-top: 26px; }
+}
+/* narrower still: the kind capsule steps aside and the signature takes less, so the title is read */
+@container (max-width: 480px) {
+  .shk { display: none; }
+  .shcaret { width: auto; }
+  .shrow .csig, .shghead .csig { max-width: 26%; }
+  .shtiles { padding-left: 10px; }
+}
+.shrow .csig, .shghead .csig { max-width: 34%; overflow: hidden; text-overflow: ellipsis; }

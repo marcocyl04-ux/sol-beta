@@ -1,0 +1,257 @@
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fold, Turn } from "./MotionKit";
+import { CFG, stagger } from "./motion";
+import { ONE, FELL } from "./engine";
+import { ENGINE, WHICH, LIVE, NEXT, FAR_NAME, pickEngine, sameEngine, keptMachines, type Effort, type EngineInfo, type Health, type Models, type Seat, type Settings as S, type GoBackPlan } from "./useEngine";
+import { VOICES } from "./voices";
+import { ControlDrawers } from "./control/Control";
+import { CellRange, Status } from "./creature/indicators";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { useRenovation } from "./renovation";
+
+// Mutable mode (lib.rs, hot.rs): the app's windows load Vite's dev pages, so edits to sol/mac/src appear in place.
+// Only inside Sol.app; in a plain browser there is no shell to ask.
+type Face = { hot: boolean; state: string };
+const inApp = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+function useFace(): [Face | null, (hot: boolean) => void] {
+  const [face, setFace] = useState<Face | null>(null);
+  useEffect(() => {
+    if (!inApp) return;
+    let alive = true;
+    const ask = () => invoke<Face>("face_state").then((f) => { if (alive) setFace(f); }).catch(() => {});
+    void ask();
+    const un = listen<Face>("face-state", (e) => setFace(e.payload));
+    const t = window.setInterval(ask, 2000);
+    return () => { alive = false; window.clearInterval(t); void un.then((f) => f()); };
+  }, []);
+  const set = (hot: boolean) => { setFace((f) => (f ? { ...f, hot, state: hot ? "starting" : "bundled" } : f)); void invoke<Face>("face_mode", { hot }).catch(() => {}); };
+  return [face, set];
+}
+
+// Takes the place of the talk and the box. One drawer open at a time; the height animates with a grid row.
+export function Drawer({ name, open, onToggle, children }: { name: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  return (
+    <section className={`drawer ${open ? "open" : ""}`}>
+      <button className="drawer-h" onClick={onToggle} aria-expanded={open}>
+        <span>{name}</span>
+        <Turn to={open ? 180 : 0} cfg={{ k: 360, z: 0.5 }}><svg className="chev" viewBox="0 0 8 8" width="8" height="8" aria-hidden="true"><path d="M1 2.5 4 5.5 7 2.5" fill="none" stroke="currentColor" strokeWidth="1" /></svg></Turn>
+      </button>
+      <Fold open={open} from={{ y: 14 }} gap={40}>{children}</Fold>
+    </section>
+  );
+}
+
+export function Pick({ value, options, onChange, disabled }: { value: string; options: [string, string][]; onChange: (v: string) => void; disabled?: boolean }) {
+  return (
+    <span className="pick">
+      <select value={value} disabled={disabled} onChange={(ev) => onChange(ev.target.value)}>
+        {options.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+      </select>
+      <svg className="chev" viewBox="0 0 8 8" width="8" height="8" aria-hidden="true"><path d="M1 2.5 4 5.5 7 2.5" fill="none" stroke="currentColor" strokeWidth="1" /></svg>
+    </span>
+  );
+}
+
+const LANGS: [string, string][] = [["follow", "follow Marco"], ["english", "English"], ["cantonese", "Cantonese"], ["dutch", "Dutch"]];
+
+function uptime(since?: string, now = Date.now()) {
+  const t = since ? Date.parse(since) : NaN;
+  if (!isFinite(t)) return "";
+  const m = Math.max(0, Math.floor((now - t) / 60000));
+  return m < 1 ? "just started" : m < 60 ? `${m} min` : m < 1440 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 1440)} d ${Math.floor((m % 1440) / 60)} h`;
+}
+
+// What the engine starts with (engine/src/settings.ts DEFAULTS), for an engine too old to send its own:
+// shown read-only, so the page is honest about what is in force without pretending a change would land.
+// the Work modes' names, as the composer says them (#94)
+const MODE_NAMES: [string, string][] = [["auto", "auto"], ["default", "manual: ask for each"], ["acceptEdits", "accept edits"], ["plan", "plan"], ["bypassPermissions", "bypass permissions"]];
+const FALLBACK: S = {
+  voice: "Kore", patienceMs: 600, language: "follow",
+  defaults: { seat: "codex", model: { codex: "gpt-6.1-sol", claude: "claude-opus-5-5" }, effort: { codex: "medium", claude: "medium" }, mode: "default" },
+};
+
+// The way out, where every pane closes: the top right, under the bar. Escape is the same door: both apps' window
+// listeners already close a view that is not the chat, after a menu or a pane's own key has had its turn.
+function Shut({ onClose }: { onClose: () => void }) {
+  return <button className="barbtn settings-x" onClick={onClose} title="close (esc)" aria-label="close settings">×</button>;
+}
+
+export function Settings({ s: real, stale, info, up, health = null, goBack = null, send, models, efforts, sampling, onSet, onHear, first = "voice", more, onClose }: {
+  s: S | null; stale: boolean; info: EngineInfo | null; up: boolean; health?: Health | null; models: Models; efforts: Effort[]; sampling: boolean;
+  goBack?: GoBackPlan | null; send?: (o: object) => void;   // the Go back row (#18): what a click would do, and the wire to ask
+  onSet: (patch: object) => void; onHear: (voice: string) => void;
+  first?: string;   // the drawer open at first
+  more?: (open: string, toggle: (n: string) => void) => React.ReactNode;   // Work's own drawers, after the shared ones
+  onClose: () => void;   // back to the chat
+}) {
+  const [open, setOpen] = useState(up ? first : "engine");
+  const note = useRenovation().note;   // a compile or page error with no part to show it in (issue #15)
+  const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
+  const [now, setNow] = useState(Date.now());
+  const [patience, setPatience] = useState<number | null>(null); // while dragging, so the engine is told once
+  const [face, setFace] = useFace();
+
+  const look = () => navigator.mediaDevices?.enumerateDevices().then((d) => setMics(d.filter((x) => x.kind === "audioinput"))).catch(() => {});
+  useEffect(() => {
+    void look();
+    navigator.mediaDevices?.addEventListener("devicechange", look);
+    return () => navigator.mediaDevices?.removeEventListener("devicechange", look);
+  }, []);
+  useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(t); }, []);
+  // names only show once the window has had the microphone; ask once, let go at once
+  const allow = async () => {
+    try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach((t) => t.stop()); } catch { /* denied: the list stays as it is */ }
+    void look();
+  };
+
+  const col = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if (col.current) stagger(col.current.querySelectorAll(".drawer"), { y: 18, gap: 55, delay: 60, cfg: CFG.slide }); }, [!!real, up]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggle = (n: string) => setOpen((o) => (o === n ? "" : n));
+  // the Go back row asks the engine what one step back would do, each time the drawer opens with the engine up
+  useEffect(() => { if (open === "engine" && up && send) send({ type: "goback.plan" }); }, [open, up, send]);
+  const [sure, setSure] = useState(false);   // go back asks once more: it ends what is running
+  useEffect(() => { if (!sure) return; const t = window.setTimeout(() => setSure(false), 8000); return () => window.clearTimeout(t); }, [sure]);
+  // which Sol: my machines (Control, the copy this window keeps), or the old two when the list is empty
+  // one Sol (#62) comes first: the NucBox, this Mac when it does not answer; the rest are pins
+  const which = (() => {
+    const ONE_OPT: [string, string] = ["one", FELL ? `one Sol (on this Mac until ${FAR_NAME} answers)` : `one Sol: ${FAR_NAME}, this Mac as backup`];
+    const list = keptMachines() ?? [];
+    if (!list.length) return { value: ONE ? "one" : WHICH as string, options: [ONE_OPT, ["next", "this Mac only"], ["live", `${FAR_NAME} only`]] as [string, string][] };
+    const options = list.map((m): [string, string] => [m.url, m.name]);
+    const at = list.find((m) => sameEngine(m.url, ENGINE));
+    if (!at) options.unshift([ENGINE, sameEngine(ENGINE, NEXT) ? "next, this Mac" : sameEngine(ENGINE, LIVE) ? `live, ${FAR_NAME}` : ENGINE]);
+    options.unshift(ONE_OPT);
+    return { value: ONE ? "one" : at?.url ?? ENGINE, options };
+  })();
+  const BACK_LINE = "bash ~/computer/personal/projects/ecosystem/sol/back";
+  const [copied, setCopied] = useState(false);
+  const copyBack = () => { void navigator.clipboard?.writeText(BACK_LINE).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2000); }); };
+  // the engine drawer, the one part that must work with the engine down (#16 blocker 6): status, which engine, the
+  // face, the address, the last error; the controls that need the engine wait for it
+  const engineDrawer = (
+    <Drawer name="engine" open={open === "engine"} onToggle={() => toggle("engine")}>
+      <dl className="facts">
+        <dt>status</dt><dd><Status up={up} />{up ? "up" : "down"}{up && info?.since ? `, ${uptime(info.since, now)}` : ""}{!up && health?.reverted?.what === "engine" ? `; went back to its last good build at ${new Date(health.reverted.at).toLocaleTimeString()}` : ""}</dd>
+        <dt>which</dt><dd><Pick value={which.value} options={which.options} onChange={(v) => pickEngine(v)} /></dd>
+        {face && <><dt>face</dt><dd><Pick value={face.hot ? "hot" : "bundled"} options={[["bundled", "bundled"], ["hot", "hot, edits appear live"]]} onChange={(v) => setFace(v === "hot")} /></dd>
+          <dt /><dd className={`face-state ${face.state === "hot" ? "hot" : face.state === "dev server down" ? "down" : ""}`}>{face.state}</dd></>}
+        <dt>address</dt><dd className="mono">{ENGINE}</dd>
+        {health && <><dt>kept</dt><dd>{health.kept ? "by its keeper" : "not by its keeper"}{health.build ? `; build watcher ${health.build.alive ? "alive" : "dead"}${health.build.errors ? `, ${health.build.errors} error${health.build.errors > 1 ? "s" : ""}` : ""}` : ""}</dd></>}
+        {up && send && <><dt>go back</dt><dd className="goback">
+          {!sure
+            ? <button className="stop" disabled={!goBack || (!goBack.engine && !goBack.face)} onClick={() => setSure(true)}>go back</button>
+            : <button className="stop sure" onClick={() => { setSure(false); send({ type: "goback" }); }}>yes, go back now</button>}
+          <span className="goback-line">{goBack ? goBack.line : "…"}</span></dd></>}
+        {!up && <><dt>if it stays down</dt><dd><ol className="help-steps">
+          <li>wait a minute: the keeper restarts it, and after three bad starts puts the last good build back by itself</li>
+          <li>or pick the other engine above and keep working there</li>
+          <li>still down after two minutes: press Cmd-Space, type Terminal, and paste this line
+            <code className="mono">{BACK_LINE}</code>
+            <button className="link" onClick={copyBack}>{copied ? "copied" : "copy"}</button>
+            <span>it puts the last good build back, takes back the face's last change, starts the engine again, and says what it did</span></li>
+          <li>Sol.app itself will not open: the same line, then open Sol again</li>
+          <li>none of it helps: Claude Code in ~/computer/personal/projects/ecosystem, "Sol is down, read sol/HELP.md"</li>
+        </ol></dd></>}
+        {health?.reverted && <><dt>last take-back</dt><dd title={health.reverted.line}>{health.reverted.what === "engine" ? "the engine's last good build" : "a face edit"}, {new Date(health.reverted.at).toLocaleTimeString()}{health.reverted.line ? `: ${health.reverted.line}` : ""}</dd></>}
+        <dt>gemini key</dt><dd>{info ? (info.haveVoiceKey ? "set" : "not set") : "–"}</dd>
+        <dt>dictation</dt><dd>{info?.dictationModel || "–"}</dd>
+        {note && <><dt>last error</dt><dd className="mono" title={note}>{note}</dd></>}
+      </dl>
+    </Drawer>
+  );
+  if (!up || (!real && !stale)) {
+    return (
+      <div className="settings"><Shut onClose={onClose} /><div className="settings-col">
+        <p className="hint-line">{up ? "loading…" : "the engine is down; it comes back by itself under its keeper, or pick the other one"}</p>
+        {engineDrawer}
+      </div></div>
+    );
+  }
+  // no settings from this engine: its defaults, every control disabled until real ones arrive
+  const off = !real;
+  const seatDefault = (k: Seat) => models.seats.find((x) => x.seat === k)?.default;
+  const s: S = real ?? { ...FALLBACK, defaults: { ...FALLBACK.defaults,
+    model: { codex: seatDefault("codex") ?? FALLBACK.defaults.model.codex, claude: seatDefault("claude") ?? FALLBACK.defaults.model.claude } } };
+  const named = mics.some((m) => m.label);
+  const seatModels = (k: Seat) => models.seats.find((x) => x.seat === k)?.models ?? [];
+  const patience_ = patience ?? s.patienceMs;
+
+  return (
+    <div className={`settings ${off ? "off" : ""}`}>
+      <Shut onClose={onClose} />
+      <div className="settings-col" ref={col}>
+        {off && <p className="hint-line top stale">the engine is older than this window; restart it to change these</p>}
+        <ControlDrawers open={open} toggle={toggle} onSet={onSet} />
+        <Drawer name="voice" open={open === "voice"} onToggle={() => toggle("voice")}>
+          <div className="voices">
+            {VOICES.map(([name, word]) => {
+              const on = s.voice === name;
+              return (
+                <div key={name} className={`vcard ${on ? "on" : ""}`} role="button" tabIndex={off ? -1 : 0} aria-disabled={off}
+                  onClick={() => { if (!off) onSet({ voice: name }); }}
+                  onKeyDown={(ev) => { if (!off && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); onSet({ voice: name }); } }}>
+                  <b>{name.toLowerCase()}</b>
+                  <span>{word}</span>
+                  {on && (
+                    <button className={`hear ${sampling ? "playing" : ""}`} disabled={off || sampling || !up} onClick={(ev) => { ev.stopPropagation(); onHear(name); }}
+                      title="a real sample in this voice">{sampling ? "playing…" : "hear it"}</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="field-r">
+            <div className="lab"><span>patience</span><small>how long a pause before it answers</small></div>
+            <div className="range">
+              <CellRange min={200} max={1500} step={50} value={patience_} aria-label="patience" disabled={off}
+                onChange={(ev) => setPatience(Number(ev.target.value))}
+                onPointerUp={() => { if (patience !== null) { onSet({ patienceMs: patience }); setPatience(null); } }}
+                onKeyUp={() => { if (patience !== null) { onSet({ patienceMs: patience }); setPatience(null); } }} />
+              <span className="val">{patience_} ms</span>
+            </div>
+          </div>
+          <div className="field-r">
+            <div className="lab"><span>language</span></div>
+            <Pick value={s.language} options={LANGS} disabled={off} onChange={(v) => onSet({ language: v })} />
+          </div>
+        </Drawer>
+
+        <Drawer name="microphone" open={open === "microphone"} onToggle={() => toggle("microphone")}>
+          <div className="field-r">
+            <div className="lab"><span>input</span></div>
+            <Pick value={s.mic && mics.some((m) => m.deviceId === s.mic) ? s.mic : ""}
+              options={[["", "system default"], ...mics.filter((m) => m.deviceId && m.deviceId !== "default").map((m, i): [string, string] => [m.deviceId, m.label || `microphone ${i + 1}`])]}
+              onChange={(v) => onSet({ mic: v || null })} disabled={off} />
+          </div>
+          {!named && mics.length > 0 && <p className="hint-line">names appear once Sol is allowed the microphone. <button className="link" onClick={allow}>allow</button></p>}
+          <p className="hint-line">hold the mic to talk, tap to toggle</p>
+        </Drawer>
+
+        <Drawer name="defaults" open={open === "defaults"} onToggle={() => toggle("defaults")}>
+          <p className="hint-line top">for new conversations only; an open one keeps its own. Who answers a new chat is in my accounts</p>
+          {(["codex", "claude"] as Seat[]).map((k) => (
+            <div className="field-r" key={k}>
+              <div className="lab"><span>{k}</span></div>
+              <div className="pair">
+                <Pick value={s.defaults.model[k]} options={(seatModels(k).length ? seatModels(k) : [s.defaults.model[k]]).map((m): [string, string] => [m, m])}
+                  onChange={(v) => onSet({ defaults: { model: { [k]: v } } })} disabled={off} />
+                <Pick value={s.defaults.effort[k]} options={efforts.map((e): [string, string] => [e, e])}
+                  onChange={(v) => onSet({ defaults: { effort: { [k]: v } } })} disabled={off} />
+              </div>
+            </div>
+          ))}
+          <div className="field-r">
+            <div className="lab"><span>work may</span></div>
+            <Pick value={s.defaults.mode} options={MODE_NAMES}
+              onChange={(v) => onSet({ defaults: { mode: v } })} disabled={off} />
+          </div>
+          <p className="hint-line">what Claude does without asking in a session, and in every session a card starts</p>
+        </Drawer>
+
+        {engineDrawer}
+        {more?.(open, toggle)}
+      </div>
+    </div>
+  );
+}

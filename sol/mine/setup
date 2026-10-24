@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# MY SOL setup (#76): run once in the MY SOL checkout (a worktree on a `*/mine` branch):  bash sol/mine/setup
+# Points this worktree's hooks, and only this worktree's, at sol/mine/hooks, whose commit-msg puts `mine: ` in front
+# of every commit made on a `*/mine` branch. Worktrees share one .git, so the setting goes in this worktree's own
+# config (extensions.worktreeConfig, then `git config --worktree`); SOL's checkout and side copies keep theirs.
+# Run it again any time; it says when it is already done.
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+branch=$(git symbolic-ref --short -q HEAD || true)
+case $branch in
+  */mine) ;;
+  *) echo "mine/setup: this checkout is on ${branch:-a detached head}, not a */mine branch; run it in MY SOL" >&2; exit 1 ;;
+esac
+[ -x sol/mine/hooks/commit-msg ] || { echo "mine/setup: sol/mine/hooks/commit-msg is missing here; rebase on stable first (sol/mine/rebase)" >&2; exit 1; }
+if [ "$(git config --worktree --get core.hooksPath 2>/dev/null || true)" = sol/mine/hooks ]; then
+  echo "mine/setup: already done, commits on $branch get \"mine: \" in front"; exit 0
+fi
+git config extensions.worktreeConfig true
+git config --worktree core.hooksPath sol/mine/hooks   # relative: git runs hooks from this worktree's top
+echo "mine/setup: done, commits on $branch get \"mine: \" in front (this worktree only)"
