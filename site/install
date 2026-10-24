@@ -1,0 +1,246 @@
+#!/bin/sh
+# Sol's install (#169): one line in Terminal,  curl -fsSL https://sol.js.org/install | sh,  or the same file run by
+# Sol.app's welcome page (bundled as a resource, with SOL_SKIP_APP=1). Plain sh, readable top to bottom; the whole
+# script is one function called on its last line, so a download cut short runs nothing.
+#
+# What it does, one line printed per step (ok, or what is missing and the one thing to do; run again, a done step skips):
+#   1. stops, changing nothing, when a Sol is already here (a root file, an engine job, the folder holding a checkout)
+#   2. the folder, ~/Sol (SOL_DIR)
+#   3. Mac: Apple's developer tools when missing (git needs them); Linux: git
+#   4. your name (what should we call you?) and, optional, a Gemini key: asked on the terminal, or taken from the
+#      environment (SOL_OWNER, GEMINI_API_KEY: the app's welcome page passes them so); no terminal, the login name
+#   5. Node, one pinned version from nodejs.org into ~/.sol/node, its checksum checked before anything is unpacked
+#   6. the clone (SOL_REPO), on a branch of your own, <you>/mine, with sol/mine/setup
+#   7. Claude Code when missing, and its sign-in on the terminal (SOL_SKIP_CLAUDE=1 skips the step)
+#   8. bash sol/setup, with the install's node first on PATH: packages, the sol skill, your keys, the engine's job
+#   9. Mac, the line's door: Sol-mac.zip from the latest release (SOL_APP_URL), checked against its .sha256, into
+#      /Applications (SOL_APP_DIR), and opened (SOL_NO_OPEN=1 skips the open; SOL_SKIP_APP=1 skips the step)
+#  10. Linux and WSL: no app; the face is in the browser (sol/setup's own end)
+# Questions are asked on /dev/tty (piped from curl, stdin is this script). `--check` says what it finds and what it
+# would do, and changes nothing. Test overrides: SOL_NODE_SHA256 (the expected checksum), SOL_PORT (a spare engine,
+# no job; sol/setup's own rule).
+sol_install() {
+  set -u
+  NODE_V=24.22.1   # the LTS of 2026-10 (Krypton); the checksums are nodejs.org's SHASUMS256.txt for this version
+  SHA_darwin_arm64=89c682593d76cd44233fa53b1563264e7de9cbb189cad169135c5b4fadfbc0a7
+  SHA_darwin_x64=d132557e7ee2b85af08b0c8c34338e65c6430f2238d01f727728ef42dc83b035
+  SHA_linux_arm64=33c37be234ba8bee041961047b19160f4d7d0f164e8e246f78bdd10feff148b3
+  SHA_linux_x64=eb6728e77c576a35162c122c45ccadf224d89ff00abc8dae46cc2897c6002d7c
+  REPO="${SOL_REPO:-https://github.com/marcocyl04-ux/sol-beta.git}"
+  APP_URL="${SOL_APP_URL:-https://github.com/marcocyl04-ux/sol-beta/releases/latest/download/Sol-mac.zip}"
+  DIR="${SOL_DIR:-$HOME/Sol}"
+  NODE_DIR="$HOME/.sol/node"
+  CFG="$HOME/Library/Application Support/com.marcol04.sol"   # the app's folder (tauri's app config dir); the root file lives there
+
+  check=""
+  for a in "$@"; do
+    case $a in
+      --check) check=1 ;;
+      *) echo "install: unknown option $a (only --check)" >&2; return 2 ;;
+    esac
+  done
+  mac=""; linux=""; wsl=""; plat=""
+  case $(uname -s) in
+    Darwin) mac=1; plat=darwin ;;
+    Linux) linux=1; plat=linux; grep -qi microsoft /proc/version 2>/dev/null && wsl=1 ;;
+    *) echo "install: Sol runs on macOS, Linux and Windows under WSL, not on $(uname -s)" >&2; return 2 ;;
+  esac
+  case $(uname -m) in
+    arm64|aarch64) arch=arm64 ;;
+    x86_64|amd64) arch=x64 ;;
+    *) echo "install: no Node build for $(uname -m)" >&2; return 2 ;;
+  esac
+  tty=""; { : </dev/tty; } 2>/dev/null && [ -z "${SOL_NO_TTY:-}" ] && tty=1   # a person at a terminal: only then is anything asked
+
+  ok()   { echo "  ok    $*"; }
+  miss() { echo "  MISS  $*"; }
+  skip() { echo "  skip  $*"; }
+  say()  { echo "install: $*"; }
+  # ask "question" [secret]: one line from the person on the terminal, in $reply; empty when skipped
+  ask() {
+    reply=""
+    printf '%s ' "$1" >/dev/tty
+    if [ -n "${2:-}" ]; then stty -echo </dev/tty 2>/dev/null; read -r reply </dev/tty || reply=""; stty echo </dev/tty 2>/dev/null; echo >/dev/tty
+    else read -r reply </dev/tty || reply=""; fi
+  }
+  sha256() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1"; else sha256sum "$1"; fi | cut -d' ' -f1; }
+  fetch() { curl -fsSL --retry 2 -o "$2" "$1"; }   # fetch URL file
+  # the checkout a launchd job runs from, read from its plist (a link into a checkout's tracked plists, or WorkingDirectory)
+  # a link into a checkout's tracked plists names that checkout; any other plist (a link to sol/mine/live's copy in
+  # sol/engine/.live/, or a plain file) is read for its WorkingDirectory
+  job_root() {
+    [ -e "$1" ] || return 0
+    if [ -L "$1" ]; then
+      t=$(readlink "$1"); case $t in /*) ;; *) t=$(dirname "$1")/$t ;; esac
+      case $t in */sol/engine/launchd/*) printf '%s\n' "${t%/sol/engine/launchd/*}"; return 0 ;; esac
+    fi
+    sed -n 's|.*<key>WorkingDirectory</key><string>\(.*\)/sol/engine</string>.*|\1|p' "$1"
+  }
+  tilde() { case $1 in "$HOME"/*) echo "~${1#"$HOME"}" ;; *) echo "$1" ;; esac; }
+
+  echo "== Sol"
+  # ---- 1. a Sol already here: nothing moves ----
+  here=""; how=""
+  if [ -n "$mac" ] && [ -f "$CFG/root" ]; then
+    r=$(head -1 "$CFG/root")
+    [ -d "$r/sol/engine" ] && { here=$r; how="Sol.app runs it"; }
+  fi
+  if [ -z "$here" ] && [ -n "$mac" ]; then
+    r=$(job_root "$HOME/Library/LaunchAgents/com.marco.sol-engine.plist")
+    [ -n "$r" ] && { here=$r; how="its engine is installed as a login job"; }
+    [ -z "$r" ] && [ -e "$HOME/Library/LaunchAgents/com.marco.sol-engine.plist" ] && { here="(a folder this script cannot read from its job)"; how="its engine is installed as a login job"; }
+  fi
+  if [ -z "$here" ] && [ -n "$linux" ] && [ -f "$HOME/.config/systemd/user/sol-engine.service" ]; then
+    r=$(sed -n 's|^WorkingDirectory=\(.*\)/sol/engine[[:space:]]*$|\1|p' "$HOME/.config/systemd/user/sol-engine.service" | sed "s|^%h|$HOME|")
+    here="${r:-(a folder this script cannot read from its unit)}"; how="its engine is installed as a user service"
+  fi
+  [ -z "$here" ] && [ -f "$DIR/sol/setup" ] && { here=$DIR; how="the folder holds a checkout"; }
+  if [ -n "$here" ]; then
+    ok "Sol is already here: $(tilde "$here") ($how). Nothing to install."
+    echo "        to update it: cd $(tilde "$here") && bash sol/mine/rebase   (on a branch of your own; else git pull)"
+    echo "        then bash sol/setup, which says what else it needs"
+    return 0
+  fi
+  [ -n "$check" ] && say "no Sol here yet; --check only says what it would do"
+
+  # ---- 2. the folder ----
+  if [ -e "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null)" ]; then
+    miss "$(tilde "$DIR") is there and not empty, and is not a Sol; move it, or SOL_DIR=<another folder>"; return 1
+  fi
+  ok "Sol goes to $(tilde "$DIR")"
+
+  # ---- 3. what git needs ----
+  if [ -n "$mac" ]; then
+    if xcode-select -p >/dev/null 2>&1; then ok "Apple's developer tools"
+    elif [ -n "$check" ]; then miss "Apple's developer tools: xcode-select --install (a window opens; click Install), then this again"
+    else
+      say "git needs Apple's developer tools: click Install in the window Apple opened (a few minutes), this waits"
+      xcode-select --install >/dev/null 2>&1
+      while ! xcode-select -p >/dev/null 2>&1; do sleep 5; done
+      ok "Apple's developer tools"
+    fi
+  elif command -v git >/dev/null 2>&1; then ok "git"
+  else miss "git is not installed: sudo apt install -y git (or your package manager), then this again"; return 1; fi
+  command -v curl >/dev/null 2>&1 || { miss "curl is not installed"; return 1; }
+
+  # ---- 4. your name, and the key ----
+  name="${SOL_OWNER:-}"
+  if [ -z "$name" ] && [ -n "$tty" ] && [ -z "$check" ]; then ask "  What should we call you?"; name=$reply; fi
+  [ -n "$name" ] || name=$(id -un)
+  slug=$(printf '%s' "$name" | tr 'A-Z' 'a-z' | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-//' -e 's/-$//')
+  [ -n "$slug" ] || slug=me
+  ok "you are $name; your branch will be $slug/mine"
+  gemini="${GEMINI_API_KEY:-}"
+  if [ -z "$gemini" ] && [ -n "$tty" ] && [ -z "$check" ]; then
+    echo "  A Gemini API key (https://aistudio.google.com/apikey) gives Sol calls and conversation names; return skips it,"
+    echo "  sol/setup asks again another day. It is kept only in sol/engine/.env on this machine."
+    ask "  Gemini API key:" secret; gemini=$reply
+  fi
+  [ -n "$gemini" ] && ok "a Gemini key, for Sol's .env" || skip "no Gemini key yet"
+
+  # ---- 5. Node, Sol's own ----
+  if [ -x "$NODE_DIR/bin/node" ] && [ "$("$NODE_DIR/bin/node" -v 2>/dev/null)" = "v$NODE_V" ]; then ok "Node v$NODE_V in $(tilde "$NODE_DIR")"
+  elif [ -n "$check" ]; then miss "Node v$NODE_V would go to $(tilde "$NODE_DIR")"
+  else
+    want=$(eval "echo \"\$SHA_${plat}_${arch}\"")
+    [ -n "${SOL_NODE_SHA256:-}" ] && want=$SOL_NODE_SHA256
+    tgz="node-v$NODE_V-$plat-$arch.tar.gz"
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/sol-node.XXXXXX")
+    say "fetching Node v$NODE_V (nodejs.org, about 50 MB)"
+    fetch "https://nodejs.org/dist/v$NODE_V/$tgz" "$tmp/$tgz" || { miss "could not fetch $tgz from nodejs.org; is the network up?"; rm -rf "$tmp"; return 1; }
+    got=$(sha256 "$tmp/$tgz")
+    if [ "$got" != "$want" ]; then
+      miss "$tgz is not the file nodejs.org published (its checksum differs); nothing unpacked, nothing installed. Try again later."
+      rm -rf "$tmp"; return 1
+    fi
+    # unpacked beside, then swapped in: a Node already there (another version) stays until the new one is in place
+    mkdir -p "$HOME/.sol" && rm -rf "$NODE_DIR.new" "$NODE_DIR.old" && mkdir "$NODE_DIR.new" \
+      && tar -xzf "$tmp/$tgz" -C "$NODE_DIR.new" --strip-components 1 \
+      && { [ ! -e "$NODE_DIR" ] || mv "$NODE_DIR" "$NODE_DIR.old"; } && mv "$NODE_DIR.new" "$NODE_DIR" \
+      || { miss "could not unpack Node into $(tilde "$NODE_DIR")"; rm -rf "$tmp" "$NODE_DIR.new"; [ ! -e "$NODE_DIR.old" ] || [ -e "$NODE_DIR" ] || mv "$NODE_DIR.old" "$NODE_DIR"; return 1; }
+    rm -rf "$tmp" "$NODE_DIR.old"
+    ok "Node v$NODE_V in $(tilde "$NODE_DIR"), checksum verified"
+  fi
+  PATH="$NODE_DIR/bin:$PATH"; export PATH
+
+  # ---- 6. the clone, on your own branch ----
+  if [ -n "$check" ]; then miss "would clone $REPO into $(tilde "$DIR"), on $slug/mine"
+  else
+    say "cloning Sol into $(tilde "$DIR")"
+    git clone -q "$REPO" "$DIR" </dev/null || { miss "could not clone $REPO"; return 1; }
+    # the branch and its hook; a clone that did not get there is removed, so the next run starts clean (step 1 would
+    # otherwise stop at a folder that is not empty and not a Sol)
+    ( cd "$DIR" && git switch -q -c "$slug/mine" && bash sol/mine/setup >/dev/null ) \
+      || { miss "could not make your branch $slug/mine in $(tilde "$DIR"); the clone is removed, run the line again"; rm -rf "$DIR"; return 1; }
+    ok "Sol is in $(tilde "$DIR"), on $slug/mine (yours: commits there get \"mine: \" in front)"
+    # the root file: Sol.app finds its code here (sol/mac/src-tauri/src/root.rs), from either door
+    if [ -n "$mac" ]; then mkdir -p "$CFG" && printf '%s\n' "$DIR" >"$CFG/root" && ok "Sol.app will run this folder (the root file)"; fi
+  fi
+
+  # ---- 7. Claude Code ----
+  if [ -n "${SOL_SKIP_CLAUDE:-}" ]; then skip "Claude Code (SOL_SKIP_CLAUDE)"
+  elif command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ]; then
+    PATH="$HOME/.local/bin:$PATH"
+    if claude auth status </dev/null 2>/dev/null | grep -q '"loggedIn": *true'; then ok "Claude Code, signed in"
+    elif [ -n "$check" ]; then miss "Claude Code is not signed in: claude auth login"
+    elif [ -n "$tty" ]; then say "Claude Code: sign in (it opens the browser)"; claude auth login </dev/tty >/dev/tty 2>&1 && ok "Claude Code, signed in" || miss "Claude Code is not signed in yet: claude auth login, any time"
+    else skip "Claude Code is not signed in yet: Sign in to Claude, or in Terminal: claude auth login"; fi
+  elif [ -n "$check" ]; then miss "Claude Code would be installed (claude.ai/install.sh), then signed in"
+  else
+    say "installing Claude Code (Anthropic's installer)"
+    if curl -fsSL https://claude.ai/install.sh | bash >/dev/null 2>&1 && [ -x "$HOME/.local/bin/claude" ]; then
+      PATH="$HOME/.local/bin:$PATH"; ok "Claude Code installed"
+      if [ -n "$tty" ]; then say "Claude Code: sign in (it opens the browser)"; claude auth login </dev/tty >/dev/tty 2>&1 && ok "Claude Code, signed in" || miss "Claude Code is not signed in yet: claude auth login, any time"
+      else skip "Claude Code is not signed in yet: Sign in to Claude, or in Terminal: claude auth login"; fi
+    else miss "could not install Claude Code: https://claude.com/claude-code, then claude auth login"; fi
+  fi
+
+  # ---- 8. setup: packages, the skill, your keys, the engine ----
+  if [ -n "$check" ]; then miss "would run bash sol/setup in $(tilde "$DIR") (packages, the sol skill, your keys, the engine's job)"
+  else
+    say "bash sol/setup (a few minutes: packages, the engine built and tested, its job)"
+    noface=""; [ -n "$mac" ] && noface="--no-face"   # the Mac's face is the app; on Linux the face is Vite in the browser
+    job="--launchd"; [ -n "${SOL_PORT:-}" ] && job=""    # a spare engine for a test: no job (setup's own rule)
+    SOL_OWNER="$name" GEMINI_API_KEY="$gemini" bash "$DIR/sol/setup" $noface $job </dev/null
+    rc=$?
+    if [ "$rc" -eq 0 ]; then ok "sol/setup done"
+    else
+      # setup ends nonzero on any MISS line, some of them soft (a tool it would like). The engine decides: not
+      # answering, the install stops here (an app with no engine would only confuse); answering, the install goes
+      # on and ends with setup's code, so the line's caller still sees that something is missing
+      miss "sol/setup ended with $rc (its lines above say what is missing); run it again any time: cd $(tilde "$DIR") && bash sol/setup"
+      if ! curl -sf -m 2 "http://127.0.0.1:${SOL_PORT:-7777}/health" >/dev/null 2>&1; then miss "the engine does not answer on ${SOL_PORT:-7777}; nothing more is installed until it does"; return 1; fi
+    fi
+  fi
+
+  # ---- 9. the Mac app ----
+  if [ -n "$linux" ]; then
+    ok "no app on Linux: the face is in the browser, http://localhost:1420 (sol/setup opened it)"
+  elif [ -n "${SOL_SKIP_APP:-}" ]; then skip "Sol.app (SOL_SKIP_APP: it is already here)"
+  else
+    appdir="${SOL_APP_DIR:-}"
+    if [ -z "$appdir" ]; then if [ -w /Applications ]; then appdir=/Applications; else appdir="$HOME/Applications"; fi; fi
+    if [ -d "$appdir/Sol.app" ]; then ok "Sol.app is in $appdir already"
+    elif [ -n "$check" ]; then miss "would put Sol.app in $appdir (from $APP_URL)"
+    else
+      tmp=$(mktemp -d "${TMPDIR:-/tmp}/sol-app.XXXXXX")
+      say "fetching Sol.app"
+      fetch "$APP_URL" "$tmp/Sol-mac.zip" || { miss "could not fetch Sol-mac.zip from $APP_URL"; rm -rf "$tmp"; return 1; }
+      fetch "$APP_URL.sha256" "$tmp/Sol-mac.zip.sha256" || { miss "could not fetch its checksum, $APP_URL.sha256"; rm -rf "$tmp"; return 1; }
+      want=$(cut -d' ' -f1 <"$tmp/Sol-mac.zip.sha256")
+      got=$(sha256 "$tmp/Sol-mac.zip")
+      if [ "$got" != "$want" ]; then miss "Sol-mac.zip is not the file the release published (its checksum differs); not opened. Try again later."; rm -rf "$tmp"; return 1; fi
+      mkdir -p "$appdir" && ditto -xk "$tmp/Sol-mac.zip" "$appdir" && [ -d "$appdir/Sol.app" ] \
+        && ok "Sol.app in $appdir (checksum verified; the download sets no quarantine, so no Open Anyway)" \
+        || { miss "could not unpack Sol.app into $appdir"; rm -rf "$tmp"; return 1; }
+      rm -rf "$tmp"
+    fi
+    if [ -n "$check" ]; then :
+    elif [ -n "${SOL_NO_OPEN:-}" ]; then skip "not opening Sol (SOL_NO_OPEN)"
+    else open -a "$appdir/Sol.app" && ok "Sol is opening" || miss "could not open $appdir/Sol.app; open it from Finder"; fi
+  fi
+  [ -n "$check" ] && say "that is what the install would do; without --check it does it"
+  return "${rc:-0}"
+}
+
+sol_install "$@"

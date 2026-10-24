@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sol</title>
+<meta name="description" content="Sol: one window for all your AI. Install with one line, or one download.">
+<!-- sol.js.org (#169): the page people are sent to. The line with a copy button, the download, the one Open Anyway
+     picture, the Linux line. One file, no build; the colours are Sol's own (sol/design/palette.json: paper, ink). -->
+<style>
+  :root { color-scheme: dark; --page: #1a1a1a; --ink: #ebebe8; --dim: #9a9a97; --mute: #5c5c5a; --surface: #222; --line: #303030; --ok: #70df45; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--page); color: var(--ink); font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 88px 24px 64px; display: flex; flex-direction: column; gap: 28px; }
+  h1 { margin: 0; font-size: 52px; font-weight: 500; letter-spacing: -.02em; line-height: 1.05; }
+  h2 { margin: 0; font-size: 13px; font-weight: 500; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+  p { margin: 0; }
+  .lead { color: var(--dim); font-size: 18px; }
+  section { display: flex; flex-direction: column; gap: 10px; }
+  .line { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+  .line code { flex: 1; font: 14px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); user-select: all; overflow-x: auto; white-space: nowrap; }
+  button, .btn { padding: 8px 16px; background: var(--ink); color: var(--page); border: 1px solid var(--ink); border-radius: 999px; font: inherit; font-size: 14px; cursor: pointer; text-decoration: none; white-space: nowrap; }
+  button.quiet { background: none; color: var(--ink); border-color: var(--line); }
+  button.done { color: var(--ok); border-color: var(--ok); background: none; }
+  .note { color: var(--dim); font-size: 14px; }
+  .note a { color: var(--ink); }
+  figure { margin: 6px 0 0; display: flex; flex-direction: column; gap: 8px; }
+  figure .frame { padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; font-size: 14px; color: var(--dim); }
+  figure .frame b { color: var(--ink); font-weight: 500; }
+  figure .frame .open { display: inline-block; margin-top: 8px; padding: 4px 12px; border: 1px solid var(--mute); border-radius: 6px; color: var(--ink); }
+  figcaption { font-size: 13px; color: var(--mute); }
+  footer { color: var(--mute); font-size: 13px; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <h1>Sol</h1>
+    <p class="lead">One window for all your AI, on your own Mac. Your chats, your coding agents, your browser, a desk, your voice, and the tools you make, in one place that is yours.</p>
+  </div>
+
+  <section>
+    <h2>Mac, the line</h2>
+    <div class="line"><code id="line">curl -fsSL https://sol.js.org/install | sh</code><button id="copy" class="quiet" type="button">copy</button></div>
+    <p class="note">Paste it in Terminal. It asks what to call you, puts Sol in <code>~/Sol</code> and opens it. A few minutes, once. No GitHub account, no Homebrew.</p>
+  </section>
+
+  <section>
+    <h2>Mac, the download</h2>
+    <div><a class="btn" href="https://github.com/marcocyl04-ux/sol-beta/releases/latest/download/Sol-mac.zip">download Sol for Mac</a></div>
+    <p class="note">Unzip, open Sol. It asks the same question and sets itself up. Sol is not yet signed with Apple, so the first time macOS stops and asks once:</p>
+    <figure>
+      <div class="frame"><b>"Sol" Not Opened</b><br>Apple could not verify "Sol" is free of malware.<br><span class="open">Open Anyway</span> &nbsp;<span style="font-size:12px">in System Settings → Privacy &amp; Security, under the message</span></div>
+      <figcaption>one click, one time; the line above needs none</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Linux, and Windows under WSL</h2>
+    <div class="line"><code>curl -fsSL https://sol.js.org/install | sh</code></div>
+    <p class="note">The same line; no app there, Sol opens in your browser. Windows: inside Ubuntu under WSL (<code>wsl --install</code> once in PowerShell).</p>
+  </section>
+
+  <footer>Sol is in beta. The code: <a href="https://github.com/marcocyl04-ux/sol-beta">github.com/marcocyl04-ux/sol-beta</a>. Something wrong, or a thought: open an issue there.</footer>
+</main>
+<script>
+  const b = document.getElementById("copy");
+  b.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(document.getElementById("line").textContent); b.textContent = "copied"; b.className = "done"; }
+    catch { b.textContent = "select and copy"; }
+    setTimeout(() => { b.textContent = "copy"; b.className = "quiet"; }, 2000);
+  });
+</script>
+</body>
+</html>

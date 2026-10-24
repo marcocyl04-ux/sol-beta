@@ -1,0 +1,48 @@
+# The Mac app, built by GitHub (#169): only in the public beta repo (the guard below), on every push to its main (each
+# push there is one export of a stable). A macOS runner builds Sol.app for both Mac chips, zips it with ditto, writes
+# its SHA-256, and publishes a release named after the export, marked latest, so sol/install and the site's download
+# button find it at releases/latest/download/Sol-mac.zip. Actions pinned by commit; no secrets; contents: write on
+# the release job only. In sol-dev this file is carried but never runs.
+name: release
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  app:
+    if: github.repository == 'marcocyl04-ux/sol-beta'
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24.22.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: the face's packages
+        working-directory: sol/mac
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Sol.app, both chips
+        working-directory: sol/mac
+        run: npm run tauri build -- --target universal-apple-darwin --bundles app
+      - name: the zip and its checksum
+        run: |
+          set -eu
+          app=sol/mac/src-tauri/target/universal-apple-darwin/release/bundle/macos/Sol.app
+          ditto -c -k --keepParent "$app" Sol-mac.zip
+          shasum -a 256 Sol-mac.zip > Sol-mac.zip.sha256
+          cat Sol-mac.zip.sha256
+      - name: the release, named after the export
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag=$(git log -1 --format=%s | sed -n 's/^Sol \(stable-[0-9]*-[0-9]*\)$/\1/p')
+          [ -n "$tag" ] || tag="build-$(date -u +%Y%m%d-%H%M)"
+          gh release create "$tag" Sol-mac.zip Sol-mac.zip.sha256 --latest --title "Sol $tag" \
+            --notes "Sol.app for the Mac, built by GitHub from this export. Not yet signed with Apple: the first time, Open Anyway once (System Settings, Privacy & Security). The one line, curl -fsSL https://sol.js.org/install | sh, needs no click." \
+            || gh release upload "$tag" Sol-mac.zip Sol-mac.zip.sha256 --clobber
