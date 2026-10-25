@@ -35,7 +35,8 @@ const calls = (): string[][] => (existsSync(LOG) ? readFileSync(LOG, "utf8").tri
 const clear = () => writeFileSync(LOG, "");
 
 const H = await import("../src/team/hand.ts");
-const { briefOf, handBody, takenBody, passedBody, parseRecord, pendingFor, handWord, heardWord, hand, answer, readRecord, ghCli, gitCli, WORD_FIELDS, day } = H;
+const { briefOf, handBody, takenBody, passedBody, parseRecord, pendingFor, handWord, heardWord, hand, answer, readRecord, gitCli, WORD_FIELDS, day } = H;
+const ghCli = (await import("../src/team/record.ts")).runners.hand;   // hand's gh, moved into the record (#152)
 type Hand = import("../src/team/hand.ts").Hand;
 type Item = import("../src/work/items.ts").Item;
 const { cardOf, keyAction, LABEL, TINT } = await import("../../mac/src/notch/answer.ts");

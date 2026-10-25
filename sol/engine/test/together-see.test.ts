@@ -20,7 +20,9 @@ type PR = import("../src/team/board.ts").PR;
 // ---- settings ----
 test("team settings: defaults, cleaning and merging", () => {
   const d = cleanTeam(undefined);
-  assert.deepEqual(d, { ...TEAM_DEFAULTS, machines: [THIS_MACHINE] });   // no rows on disk and no relay: this Mac alone (Control)
+  // no rows on disk and no relay: this Mac alone (Control, #169); no rooms: one, "team", of the default repo (#154)
+  const team = { id: "team", name: "sol-dev", provider: "github", org: "", repos: TEAM_DEFAULTS.repos, hub: "", key: "", code: "", gate: "key", folder: "", mine: false, joined: false };
+  assert.deepEqual(d, { ...TEAM_DEFAULTS, machines: [THIS_MACHINE], rooms: [team], room: "team" });
   const s = cleanTeam({ me: { login: "frank", name: " Frank " }, repos: ["a/b", "nope", "a/b"], relay: { url: "http://x" }, speak: { discord: "loud" }, seats: { life: "claude" }, extra: 1 });
   assert.equal(s.me.name, "Frank");
   assert.deepEqual(s.repos, ["a/b"]);
@@ -28,7 +30,8 @@ test("team settings: defaults, cleaning and merging", () => {
   assert.equal(s.speak.discord, "builds");
   assert.equal(s.seats.life, "claude");
   assert.equal("extra" in s, false);
-  const m = cleanTeam(mergeTeam(s, { speak: { whatsapp: true }, repos: ["c/d"] }));
+  // a bare merge does not translate the old words into the active room (patchTeam does, #154): repos go by the room
+  const m = cleanTeam(mergeTeam(s, { speak: { whatsapp: true }, rooms: [{ id: "cd", repos: ["c/d"] }] }));
   assert.equal(m.speak.whatsapp, true);
   assert.equal(m.speak.github, true);             // merged, not replaced
   assert.deepEqual(m.repos, ["c/d"]);             // arrays replace

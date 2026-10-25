@@ -4,8 +4,11 @@
 // a new stable is out → Update · Later; Return does nothing (an update is not the safe answer), Escape closes.
 // And two from Hand (#34, design/together/4-hand/PRD.md): a teammate hands me work → Take · Pass · Later, a review
 // asked → Open · Later; Return does nothing (a take starts a session).
-// And one from File it (#119): the plain card, nothing to answer, offers File it; the press takes the window's shot
-// and the window's line asks the words (the notch cannot type). Return does nothing: filing is never a key's answer.
+// And Grab and Shelf (#200, sol/README.md "Grab and Shelf"; it replaces File it's button, #119): the plain card,
+// nothing to answer, offers Shelf · Grab. Grab turns the row into Page · Shot · Sol (what to grab: a whole page of any
+// window, scrolled and stitched in the sheet; a piece of the screen; or a part of Sol in the sheet); Shelf turns it into All, beside the shelf's last three things (Notch.tsx draws the thumbs).
+// These six are icons (ICONED: Card.tsx draws them as round discs whose name unfurls on hover). Return does nothing on
+// these rows: grabbing is never a key's answer.
 // Escape only closes, on every card, the hand card too (polish two, 2026-10-20): a key that puts work off is an answer,
 // and Escape is the key one presses to get a card out of the way. Later stays a button.
 // An ask outranks a ping (polish two): Allow · Deny stays under the pointer while a ping rings; the ping waits as "+1 ping"
@@ -22,9 +25,10 @@ export type HandIn = { id: string; from: string; issue: number; title: string; r
 // --- end Hand
 export type Btn = "allow" | "deny" | "open" | "stop" | "hangup" | "start" | "update" | "later"
   | "take" | "pass"   // Hand (#34)
-  | "file";            // File it (#119)
+  | "shelf" | "grab" | "page" | "shot" | "sol" | "all";   // Grab and Shelf (#200)
 export type CardKind = "ask" | "question" | "turn" | "call" | "ping" | "unplugged" | "stable" | "plain"
-  | "handed";   // Hand (#34)
+  | "handed"                // Hand (#34)
+  | "grabbing" | "shelf";   // Grab and Shelf: their own kinds, so a row changing re-arms the buttons (ARM_MS)
 export type Card = { kind: CardKind; buttons: Btn[]; meta: string; line?: string; ask?: Ask; turn?: Turn; ping?: PingIn; stable?: StableIn
   hand?: HandIn };   // Hand (#34)
 export type CardIn = {
@@ -37,14 +41,21 @@ export type CardIn = {
   turn: Turn | null;        // the conversation the notch follows (creature.turn)
   stable?: StableIn | null; // a new stable is out and this checkout is behind it, not put off with Later
   hand?: HandIn | null;     // Hand (#34): a teammate handed me work, not put off with Later
-  filing?: string | null;   // File it (#119): what the press is doing ("taking the picture…", "say it in the window"), no button meanwhile
+  grabbing: boolean;        // Grab was pressed: the row asks what to grab (Page · Shot · Sol)
+  shelfOpen: boolean;       // Shelf was pressed (or a shot just landed): the last three things and All
 };
 
 // these need the window's choices (a question's options, a plan's modes): the notch opens them instead
 export const OPEN_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
-export const LABEL: Record<Btn, string> = { allow: "Allow", deny: "Deny", open: "Open", stop: "Stop", hangup: "Hang up", start: "Start", update: "Update", later: "Later", take: "Take", pass: "Pass", file: "File it" };
+export const LABEL: Record<Btn, string> = { allow: "Allow", deny: "Deny", open: "Open", stop: "Stop", hangup: "Hang up", start: "Start", update: "Update", later: "Later", take: "Take", pass: "Pass",
+  shelf: "Shelf", grab: "Grab", page: "Page", shot: "Shot", sol: "Sol", all: "All" };
 // the press takes the state's functional tint (palette.css): yellow waiting on Marco, red stopping, green starting
-export const TINT: Record<Btn, "yellow" | "red" | "green" | ""> = { allow: "yellow", deny: "yellow", open: "", stop: "red", hangup: "red", start: "green", update: "green", later: "", take: "green", pass: "", file: "" };
+export const TINT: Record<Btn, "yellow" | "red" | "green" | ""> = { allow: "yellow", deny: "yellow", open: "", stop: "red", hangup: "red", start: "green", update: "green", later: "", take: "green", pass: "",
+  shelf: "", grab: "", page: "", shot: "", sol: "", all: "" };
+/** the buttons drawn as icons (a round disc, the name unfurling on hover); every other button keeps its word capsule */
+export const ICONED: ReadonlySet<Btn> = new Set<Btn>(["shelf", "grab", "page", "shot", "sol", "all"]);
+/** the shelf row's small text: how many things wait, and that they leave by themselves */
+export const shelfMeta = (n: number) => n ? `${n} ${n === 1 ? "thing" : "things"} · cleans itself after a week` : "nothing yet";
 
 const base = (p: string) => p.split("/").filter(Boolean).pop() ?? "";
 // about what the island's line holds beside two buttons (360 px, the buttons take a third) at 13 px
@@ -112,9 +123,10 @@ export function cardOf(c: CardIn): Card {
     const s = c.stable, buttons: Btn[] = s.failed ? ["later"] : s.updating || s.said ? [] : ["update", "later"];
     return { kind: "stable", buttons, meta: "", line: stableLine(s), stable: s };
   }
-  // --- File it (#119): nothing to answer, so the card offers to file what is wrong; once pressed, its words
-  if (c.filing) return { kind: "plain", buttons: [], meta: "", line: c.filing };
-  return { kind: "plain", buttons: ["file"], meta: "" };
+  // --- Grab and Shelf: nothing to answer, so the card offers the shelf and a grab; each press opens its own row
+  if (c.grabbing) return { kind: "grabbing", buttons: ["page", "shot", "sol"], meta: "", line: "Grab what?" };
+  if (c.shelfOpen) return { kind: "shelf", buttons: ["all"], meta: "" };
+  return { kind: "plain", buttons: ["shelf", "grab"], meta: "" };
 }
 
 /** Return is the safe answer or nothing (never Deny, never Stop); Escape only closes the card */

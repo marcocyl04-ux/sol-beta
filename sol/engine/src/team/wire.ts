@@ -3,16 +3,16 @@
 //
 // A face is a Cowork face once it says team.hello; only those are sent team.state, team.board and team.changed.
 import { randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { dirname, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getTeam, patchTeam, forFace, onTeam, fillMe } from "./settings.js";
+import { getTeam, patchTeam, forFace, onTeam, fillMe, roomKey, activeRoom, sharedHub, type TeamSettings } from "./settings.js";
 import { accounts, signinCommand } from "./control.js";
 import { stamp, stables, update, offerNow, shipNow, answered } from "./ship.js";
 import { getBoard, onBoard, member, forgetOwners, type Board } from "./board.js";
 import { routeIssues } from "./leads.js";   // #118: routing on label
 import { pressLeads, candidates } from "./press.js";   // the owner's press (#117)
-import { onRelay, sendRelay, relayRoster, relayUp, onRelayStatus, restartRelay, setPresence, startRelayClient, type RelayMsg } from "./relay.js";
+import { onRelay, sendRelay, relayRoster, relayUp, onRelayStatus, restartRelay, setPresence, startRelayClient, hubTicket, type RelayMsg } from "./relay.js";
 import { teamMembers, refreshMembers, onMembers } from "./members.js";   // #102: who is on the team
 import { onCreature } from "../creature.js";
 import { mark } from "../work/state.js";
@@ -20,22 +20,31 @@ import { workSessions } from "../work/sessions.js";
 import { handleWork, nameWhenWritten } from "../work/wire.js";
 import { typed, history, threadsWithLines, onTalkLine, hearRelay, watchBridges, threadOf } from "./talk.js";   // Talk (#37)
 // --- Hand (#34)
-import { startHand, heard, handNow, answerNow, handsNow, boardRead, ghCli, gitCli } from "./hand.js";
+import { startHand, heard, handNow, answerNow, handsNow, boardRead, gitCli } from "./hand.js";
 import { myLogin } from "./settings.js";
 import { getRun } from "../work/runs.js";
 import { sessionItems, sessionInfo } from "../work/sessions.js";
 // --- end Hand
 import { startTry, stopTry, tryState, setTryBus, reviewTry, reviewItems, markReady, commentPr, okRepo, okPr } from "./try.js";
-import { getShared, openShared, onShared } from "./share.js";
+import { getShared, openShared, onShared, forgetShared } from "./share.js";
 // --- Pings and felt or silent (#100)
 import { pingOf, route, keepPing, absorbedLine, flipped, learnedLine, lastPing, kindOf, type Ping } from "./pings.js";
 import { flipBody } from "./mark.js";
 import { signature, mayAgentSpeak } from "./settings.js";
-import { teamNote, runGh, runGit } from "./note.js";
+import { teamNote, runGit } from "./note.js";
+import { record, runGh, runners, ghWithInput } from "./record.js";   // the room's record (#152)
 // --- end Pings
 import { shows, setShowBus } from "./show.js";   // Show to team (#101)
+// --- Share code (#157)
+import { shareRoom, joinRoom, makeRoom, shareOnArrival, shareAgain, forgetGone, type RoomsDeps } from "./rooms.js";
+import type { Registry } from "./registry.js";
+import { ghToken } from "./identity.js";
+// --- end Share code
+// --- Let in (#162)
+import { askIn, cloneRoom, hearRoom, gitQuiet, remoteOf, roomFolders, letIn, waitingNow, type LetInDeps } from "./letin.js";
+// --- end Let in
 // --- File it (#119)
-import { fileIt, takeShot, heldShot, drop as dropShot, ghWithInput, healthLine } from "./file.js";
+import { fileIt, takeShot, heldShot, drop as dropShot, healthLine } from "./file.js";
 import { healthNow } from "../health.js";
 // --- end File it
 
@@ -49,7 +58,7 @@ export function removeTeamFace(w: Wire) { faces.delete(w); }
 
 const stateMsg = () => {
   const s = getTeam();
-  return { type: "team.state", me: s.me, settings: forFace(s), roster: relayRoster(), members: teamMembers(), relay: { url: s.relay.url, up: relayUp() } };
+  return { type: "team.state", me: s.me, settings: forFace(s), roster: relayRoster(), members: teamMembers(), relay: { url: s.relay.url, up: relayUp() }, hub: sharedHub() };
 };
 let pending: NodeJS.Timeout | undefined;
 const sendState = () => { clearTimeout(pending); pending = setTimeout(() => everyoneTeam(stateMsg()), 100); };
@@ -57,27 +66,31 @@ const sendState = () => { clearTimeout(pending); pending = setTimeout(() => ever
 const boardMsg = (b: Awaited<ReturnType<typeof getBoard>>, folders: Record<string, string>, rid?: unknown) =>
   ({ type: "team.board", ...(rid ? { rid } : {}), repos: b.repos, cards: b.cards, prs: b.prs, branches: b.branches, stable: b.stable, main: b.main, leads: b.leads, owner: b.owner, at: b.at, folders, ...(b.error ? { error: b.error } : {}) });
 
-// ---- which folder on this machine holds each team repo (Work's folders, and this engine's own checkout) ----
+// ---- which folder on this machine holds each team repo (Work's folders and this engine's own checkout; then a room's
+// own clone, #162) ----
 const HERE = dirname(fileURLToPath(import.meta.url));
-const remoteOf = (dir: string) => new Promise<string>((ok) =>
-  execFile("git", ["-C", dir, "remote", "get-url", "origin"], { timeout: 5000 }, (err, out) => {
-    const m = /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\s*$/.exec(err ? "" : String(out));
-    ok(m ? m[1] : "");
-  }));
 const remotes = new Map<string, string>();   // folder -> "owner/name" ("" when it is not a GitHub repo)
-export async function teamFolders(): Promise<Record<string, string>> {
-  const repos = new Set(getTeam().repos.map((r) => r.toLowerCase()));
+/** the folders a person already works in that hold the wanted repos: Work's projects and this engine's own checkout */
+async function workFolders(wanted: string[] = getTeam().repos): Promise<Record<string, string>> {
+  const repos = new Set(wanted.map((r) => r.toLowerCase()));
   const { projects } = await workSessions().catch(() => ({ projects: [] as { path: string }[] }));
   const dirs = [resolve(HERE, "..", "..", "..", ".."), ...projects.map((p) => p.path)];   // .../sol/engine/dist/team -> the repo
   await Promise.all(dirs.filter((d) => !remotes.has(d)).map(async (d) => remotes.set(d, await remoteOf(d))));
   const out: Record<string, string> = {};
   for (const d of dirs) {
     const r = remotes.get(d) ?? "";
-    const want = getTeam().repos.find((x) => x.toLowerCase() === r.toLowerCase());
+    const want = wanted.find((x) => x.toLowerCase() === r.toLowerCase());
     if (want && repos.has(r.toLowerCase()) && !(want in out) && !d.includes("/.claude/worktrees/")) out[want] = d;
   }
-  for (const d of dirs) { const r = remotes.get(d) ?? ""; const want = getTeam().repos.find((x) => x.toLowerCase() === r.toLowerCase()); if (want && !(want in out)) out[want] = d; }
+  for (const d of dirs) { const r = remotes.get(d) ?? ""; const want = wanted.find((x) => x.toLowerCase() === r.toLowerCase()); if (want && !(want in out)) out[want] = d; }
   return out;
+}
+export async function teamFolders(): Promise<Record<string, string>> {
+  const out = await workFolders();
+  // #162: a room's own folder, the clone Sol made, for a repo no folder above holds: it is on disk and its origin is the
+  // room's repo (asked each time, never kept: a folder may be gone or moved since). The checkout a person works in wins
+  const rooms = await roomFolders(getTeam().rooms, getTeam().repos.filter((r) => !(r in out)), { exists: existsSync, remote: remoteOf });
+  return { ...out, ...rooms };
 }
 
 // --- Share (#36, PROTOCOL.md round 23): shared with me, sent again to every Cowork face whenever it is read anew
@@ -90,8 +103,16 @@ export function startTeam() {
   if (started) return;
   started = true;
   startRelayClient();
+  shareIfNew(null, getTeam());   // #157: a room in use on the shared hub that has no code yet
+  void claimRooms();   // #162: a room coded before rooms[].mine, registered again once to see whether it is mine
   onCreature((state, turn, cwd) => setPresence(state, turn, cwd));
   onRelayStatus(sendState);
+  // #162: each time the relay comes up, the rooms coded before rooms[].mine that were not registered again yet are (a
+  // hub that did not answer at start), then the room in use asks to be let into what I cannot write to yet
+  let wasUp = false;
+  onRelayStatus(() => { const up = relayUp(); if (up && !wasUp) void claimRooms().then(() => askIn(letInDeps())).catch(() => {}); wasUp = up; });
+  // and every ten minutes while it stays up, so an ask that was lost is asked again (askIn skips what is not due)
+  setInterval(() => { if (relayUp()) void askIn(letInDeps()).catch(() => {}); }, 10 * 60_000).unref();
   onTeam(sendState);
   onRelay("changed", (m) => { if (m.leads) forgetOwners(typeof m.repo === "string" ? m.repo : undefined); void getBoard(true).catch(() => {}); });
   // a ping to me heard live; one kept by the hub while I was away comes in `spooled` below, not here
@@ -112,6 +133,10 @@ onTalkLine((l) => everyoneTeam({ type: "team.talk.line", ...l }));
 onRelay("talk", hearRelay);
 // --- end Talk
 
+// --- Let in (#162): an ask in the room in use (I may be its maker), or an answer to me; live or kept by the hub
+onRelay("room", (m) => { void hearRoom(letInDeps(), m).catch(() => {}); });
+// --- end Let in
+
 // --- the spool (#102, PROTOCOL.md round 26)
 const pingedMsg = (m: RelayMsg) => ({ type: "team.pinged", from: m.from, line: String(m.line ?? "").slice(0, 300), at: m.at, ...(m.spooled ? { spooled: true } : {}) });
 /** the pings to me among what the hub kept: each one when 3 or fewer, else one card "while you were away: n pings".
@@ -128,6 +153,47 @@ export function missedPings(messages: unknown, me: string, card: (m: RelayMsg) =
 
 const RID = (v: unknown) => (typeof v === "string" || typeof v === "number" ? v : undefined);
 
+// What a change of room (or of what the room in use is) does on this engine (#154, #157): the relay meets the new
+// place (another hub, key, org, or room on the hub: the hello names the room's code), a new org's members are read at
+// once, and other repos are another board and other shared things, read anew
+function afterRoomChange(before: TeamSettings, after: TeamSettings) {
+  if (after.relay.url !== before.relay.url || after.relay.key !== before.relay.key || roomKey(after) !== roomKey(before)
+    || after.org !== before.org || activeRoom(after).code !== activeRoom(before).code) restartRelay();
+  if (after.org !== before.org) void refreshMembers(true);   // #102
+  if (after.repos.join(",") !== before.repos.join(",")) { forgetShared(); void getShared(true).catch(() => {}); void getBoard(true).catch(() => {}); }
+}
+
+// --- Share code (#157): this engine's own registry, when it is a hub (index.ts hands it in), and the deps of share and join
+let local: Registry | null = null;
+export const setRegistry = (r: Registry | null) => { local = r; };
+const roomsDeps = (): RoomsDeps => ({ team: getTeam, patch: patchTeam, local, fetch: globalThis.fetch, token: ghToken, ticket: hubTicket, record, clone: (id) => cloneRoom(letInDeps(), id) });
+// a room as a face may see it: its key said as "set" or ""
+const roomForFace = <R extends { key: string }>(r: R) => ({ ...r, key: r.key ? "set" : "" });
+// A room met as who I am on GitHub (gate "github": made on the shared hub with no key) has no key there, and an open hub
+// opens only rooms with a code (round 35): such a room is registered the moment it is the room in use, so its hello
+// names its code and the maker is let in before anyone presses "share". A room that cannot be registered stays as it
+// is; "share" says why
+function shareIfNew(before: TeamSettings | null, after: TeamSettings) {
+  const id = shareOnArrival(before, after);
+  if (!id) return;
+  void shareRoom(roomsDeps(), id).then((a) => { if ("code" in a) afterRoomChange(after, getTeam()); }).catch(() => {});
+}
+// #162: every room that has a code, is not mine, was not joined by a code and has no org, registered again once an engine
+// run: the hub gives the same code back only to its maker, so a room I shared before rooms[].mine becomes mine
+const claimRooms = () => shareAgain(roomsDeps()).catch(() => []);
+// --- end Share code
+
+// --- Let in (#162, PROTOCOL.md round 37): the friend's Sol asks the room to be let into its repository, the maker's
+// answers; a receipt to every face (the notch's too) says what came of it
+const letInDeps = (): LetInDeps => ({
+  team: getTeam, patch: patchTeam, record, send: sendRelay, git: gitQuiet, exists: existsSync, now: Date.now,
+  say: (lines) => everyFace({ type: "creature.receipt", lines }),
+  reread: () => { void getShared(true).catch(() => {}); void getBoard(true).catch(() => {}); },
+  have: async (repo) => (await workFolders([repo]))[repo] ?? "",
+  wait: (asks) => everyFace({ type: "team.letin", asks }),
+});
+// --- end Let in
+
 export async function handleTeam(w: Wire, m: any) {
   const me = faces.get(w);
   if (!me) return;
@@ -139,20 +205,54 @@ export async function handleTeam(w: Wire, m: any) {
       return w.send(stateMsg());
     case "team.settings": {
       if (m.patch && typeof m.patch === "object") {
-        const before = getTeam().relay, beforeOrg = getTeam().org;
+        const before = getTeam();
         // the face never sees the key, so it never sends it back; a new relay url reconnects
         const { relay, me: mine, ...rest } = m.patch as Record<string, any>;
         // the login is GitHub's word (fillMe), never the face's: a face edit of `me` may change the name only
-        if (mine && typeof mine === "object") rest.me = { ...mine, login: getTeam().me.login };
-        const dialsBefore = getTeam().dials;
-        const s = patchTeam({ ...rest, ...(relay && typeof relay === "object" ? { relay: { ...relay, key: typeof relay.key === "string" && relay.key !== "set" ? relay.key : before.key } } : {}) });
-        if (s.relay.url !== before.url || s.relay.key !== before.key || s.org !== beforeOrg) restartRelay();
-        if (s.org !== beforeOrg) void refreshMembers(true);   // #102: a new org, its members read at once
+        if (mine && typeof mine === "object") rest.me = { ...mine, login: before.me.login };
+        // #157: a code is the engine's word (share, join), never a face's: the stored one is kept (settings.ts keepKeys).
+        // A room's folder, `mine` and `joined` (#162) too: only the engine clones, so a face never points a room at a
+        // folder of its choosing, never makes a joined room's repos its own, which would let anyone into them, and never
+        // makes a joined room look like one of mine to register again
+        if (Array.isArray(rest.rooms)) rest.rooms = rest.rooms.map((r: unknown) => { if (!r || typeof r !== "object") return r; const { code: _c, folder: _f, mine: _m, joined: _j, ...x } = r as Record<string, unknown>; return x; });
+        const dialsBefore = before.dials;
+        const s = patchTeam({ ...rest, ...(relay && typeof relay === "object" ? { relay: { ...relay, key: typeof relay.key === "string" && relay.key !== "set" ? relay.key : before.relay.key } } : {}) });
+        afterRoomChange(before, s);
+        shareIfNew(before, s);   // #157: a new room on the shared hub gets its code at once
+        void forgetGone(roomsDeps(), before, s).catch(() => {});   // a room of mine forgotten here is forgotten on its hub
         const learned = flipped(dialsBefore, s.dials).map((f) => learnedLine(f.kind, f.was, f.now));
         if (learned.length) { void writeLearned(learned).catch(() => {}); return w.send({ type: "team.settings", rid, settings: forFace(s), learned }); }
       }
       return w.send({ type: "team.settings", rid, settings: forFace(getTeam()) });
     }
+    // --- Share code (#157, PROTOCOL.md round 35): a room's code (made on its hub when it has none), a room joined by one
+    case "team.room.share": {
+      const before = getTeam();
+      const r = await shareRoom(roomsDeps(), typeof m.id === "string" && m.id ? m.id : undefined);
+      afterRoomChange(before, getTeam());   // the room in use now has a code: its hello names it
+      return w.send({ type: "team.room.share", rid, ...r });
+    }
+    case "team.room.join": {
+      const before = getTeam();
+      const r = await joinRoom(roomsDeps(), m.code);
+      if ("error" in r) return w.send({ type: "team.room.join", rid, error: r.error });
+      afterRoomChange(before, getTeam());   // what team.settings does on a switch
+      void askIn(letInDeps(), r.room).catch(() => {});   // #162: let me into its repository (the relay may be down: then on connect)
+      return w.send({ type: "team.room.join", rid, room: roomForFace(r.room), ...(r.already ? { already: true } : {}) });
+    }
+    // the maker's one press (the review of #162): who waits to be let into a room of mine, and yes or not now
+    case "team.letin.get":
+      return w.send({ type: "team.letin", rid, asks: waitingNow() });
+    case "team.letin.answer":
+      return w.send({ type: "team.letin.answer", rid, ...(await letIn(letInDeps(), String(m.room ?? ""), String(m.login ?? ""), m.yes === true)) });
+    case "team.room.make": {   // #160: a room from a name alone
+      const before = getTeam();
+      const r = await makeRoom(roomsDeps(), { name: m.name, ...(typeof m.hub === "string" ? { hub: m.hub } : {}), ...(typeof m.key === "string" ? { key: m.key } : {}) });
+      if ("error" in r) return w.send({ type: "team.room.make", rid, error: r.error });
+      afterRoomChange(before, getTeam());   // what team.settings does on a switch
+      return w.send({ type: "team.room.make", rid, room: roomForFace(r.room), ...(r.warn ? { warn: r.warn } : {}) });
+    }
+    // --- end Share code
     case "team.board":
     case "team.board.get":
     case "team.board.refresh": {
@@ -286,7 +386,7 @@ export async function handleTeam(w: Wire, m: any) {
       if (mk !== "felt" && mk !== "silent") return reply({ error: "a mark is felt or silent" });
       if (!getTeam().repos.some((r) => r.toLowerCase() === repo.toLowerCase())) return reply({ error: `${repo} is not one of the team's repositories` });
       const by = signature(getTeam(), false);
-      try { await runGh(["pr", "comment", String(pr), "-R", repo, "--body", flipBody(mk, by)]); }
+      try { await record().notes.addOnPr(pr, flipBody(mk, by), repo); }
       catch (e) { return reply({ error: `GitHub did not take it: ${String((e as Error)?.message ?? e).slice(0, 200)}` }); }
       void getBoard(true).catch(() => {});
       return reply({ ok: true, mark: mk, by });
@@ -353,7 +453,7 @@ export async function handleTeam(w: Wire, m: any) {
 const everyFace = (m: object) => { for (const f of faces.keys()) f.send(m); };
 const quiet: Wire = { send() {} };
 startHand({
-  gh: ghCli,
+  gh: runners.hand,
   git: gitCli,
   send: (word) => sendRelay("hand", word),
   me: async () => getTeam().me.login || (await myLogin().catch(() => "")),
@@ -399,7 +499,7 @@ async function writeAbsorbed(p: Ping) {
   const s = getTeam();
   if (!p.issue || !p.repo || !s.me.login || !mayAgentSpeak(s, "github")) return;
   if (!s.repos.some((r) => r.toLowerCase() === p.repo!.toLowerCase())) return;
-  await runGh(["issue", "comment", String(p.issue), "-R", p.repo, "--body", absorbedLine(s.me.login, p)]);
+  await record().notes.add(p.issue, absorbedLine(s.me.login, p), p.repo);
 }
 // a flipped dial: written once on my plan (team_note's plan kind), on the issue of the last ping of that kind
 async function writeLearned(lines: string[]) {

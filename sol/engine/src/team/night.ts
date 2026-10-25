@@ -15,8 +15,9 @@ import { readFileSync, realpathSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanTeam, type TeamSettings } from "./settings.js";
-import { runGh, sign } from "./note.js";
+import { cleanTeam, readTeam as fromDisk, activeRoom, type TeamSettings } from "./settings.js";
+import { sign } from "./note.js";
+import { makeGithubRecord, runGh } from "./record.js";
 import { owners, type Owners } from "./claims.js";
 import { leads, routeIssues, mergeFlag, flagText, FLAG, type Leads, type MergedPr, type OpenIssue } from "./leads.js";
 import type { PingKind } from "./pings.js";
@@ -122,19 +123,19 @@ export function digestText(o: {
 
 const lines = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
 const json = <T>(s: string): T[] => lines(s).map((l) => JSON.parse(l) as T);
+const rec = (d: NightDeps) => makeGithubRecord(d.gh);
 
 async function comments(d: NightDeps, n: number): Promise<Comment[]> {
-  return json<Comment>(await d.gh(["api", "--paginate", `repos/{owner}/{repo}/issues/${n}/comments?per_page=100`,
-    "--jq", ".[] | {body, at: .created_at, login: .user.login} | tojson"]));
+  return json<Comment>(await rec(d).notes.lines(n));
 }
 async function post(d: NightDeps, n: number, body: string) {
   if (d.dryRun) { d.say(`would post on #${n}:\n${body.replace(/^/gm, "    ")}`); return; }
-  await d.gh(["api", "-X", "POST", `repos/{owner}/{repo}/issues/${n}/comments`, "-f", `body=${body}`]);
+  await rec(d).notes.post(n, body);
   d.say(`posted on #${n}`);
 }
 
 export async function openPrs(d: NightDeps): Promise<Pr[]> {
-  const raw = JSON.parse(await d.gh(["pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,author,title,body,isDraft"]) || "[]") as
+  const raw = JSON.parse(await rec(d).code.openPrs() || "[]") as
     { number: number; headRefName: string; author?: { login?: string }; title: string; body?: string; isDraft?: boolean }[];
   return raw.map((p) => ({ number: p.number, branch: p.headRefName, login: p.author?.login ?? "?", title: p.title, body: p.body ?? "", isDraft: !!p.isDraft }));
 }
@@ -176,7 +177,7 @@ export async function postClashes(d: NightDeps, clashes: Clash[]): Promise<numbe
 }
 
 export async function staleClaims(d: NightDeps, days: number): Promise<{ dropped: Claim[]; holds: Claim[] }> {
-  const issues = JSON.parse(await d.gh(["issue", "list", "--state", "open", "--label", "now", "--limit", "100", "--json", "number,title,assignees"]) || "[]") as
+  const issues = JSON.parse(await rec(d).cards.held() || "[]") as
     { number: number; title: string; assignees?: { login: string }[] }[];
   const refs = lines((await d.git(["for-each-ref", "--format=%(refname:short) %(committerdate:iso-strict)", "refs/remotes/origin"])).out)
     .map((l) => { const [ref, at] = l.split(" "); return { ref, at }; });
@@ -186,11 +187,10 @@ export async function staleClaims(d: NightDeps, days: number): Promise<{ dropped
     if (!people.length) continue;
     const claim: Claim = { issue: i.number, title: i.title, login: people.join(", ") };
     const words = (await comments(d, i.number)).filter((c) => !c.body.includes("(night job)")).map((c) => c.at);
-    const taken = lines(await d.gh(["api", "--paginate", `repos/{owner}/{repo}/issues/${i.number}/events?per_page=100`,
-      "--jq", `.[] | select(.event == "assigned" or (.event == "labeled" and .label.name == "now")) | .created_at`]));
+    const taken = lines(await rec(d).cards.takenAt(i.number));
     if (!isStale([branchOf(i.number, refs)?.at, ...words, ...taken], d.now(), days)) { holds.push(claim); continue; }
     if (d.dryRun) d.say(`would take \`now\` off #${i.number}`);
-    else await d.gh(["issue", "edit", String(i.number), "--remove-label", "now"]);
+    else await rec(d).cards.unlabel(i.number, "now");
     await post(d, i.number, `**Claim dropped**: no commit or word in ${days} days; Take it again when you pick it up.\n\n${nightSign(d.login)}`);
     dropped.push(claim);
   }
@@ -199,7 +199,7 @@ export async function staleClaims(d: NightDeps, days: number): Promise<{ dropped
 
 /** the digest issue and when the night job last spoke there: the last run (a day ago when there is none) */
 export async function lastRun(d: NightDeps): Promise<{ n: number; since: Date }> {
-  const found = JSON.parse(await d.gh(["issue", "list", "--state", "open", "--search", `"${TITLE}" in:title`, "--limit", "20", "--json", "number,title"]) || "[]") as
+  const found = JSON.parse(await rec(d).cards.find(TITLE) || "[]") as
     { number: number; title: string }[];
   const n = found.find((i) => i.title.trim() === TITLE)?.number ?? 0;
   const last = n ? (await comments(d, n)).filter((c) => c.body.includes("(night job)")).map((c) => c.at).sort().pop() : undefined;
@@ -211,8 +211,7 @@ const isoOf = (since: Date) => since.toISOString().replace(/\.\d+Z$/, "Z");
 export async function mergedSince(d: NightDeps, since: Date): Promise<MergedPr[]> {
   type P = { number: number; title: string; author?: { login?: string }; mergedBy?: { login?: string } | null;
     reviews?: { author?: { login?: string }; state?: string; submittedAt?: string }[]; files?: { path?: string }[] };
-  const raw = JSON.parse(await d.gh(["pr", "list", "--state", "merged", "--search", `merged:>=${isoOf(since)}`, "--limit", "100",
-    "--json", "number,title,author,mergedBy,reviews,files"]) || "[]") as P[];
+  const raw = JSON.parse(await rec(d).code.prSearch("merged", `merged:>=${isoOf(since)}`, "number,title,author,mergedBy,reviews,files") || "[]") as P[];
   return raw.map((p) => ({
     number: p.number, title: p.title, author: p.author?.login ?? "?", mergedBy: p.mergedBy?.login ?? "",
     files: (p.files ?? []).map((f) => String(f.path ?? "")).filter(Boolean),
@@ -229,13 +228,13 @@ export async function digest(d: NightDeps, o: { prs: Pr[]; clashes: Clash[]; dro
   type P = { number: number; title: string; author?: { login?: string } };
   const flat = (s: string) => (JSON.parse(s || "[]") as P[]).map((p) => ({ number: p.number, title: p.title, login: p.author?.login ?? "?" }));
   const merged = o.merged ? o.merged.map((p) => ({ number: p.number, title: p.title, login: p.author }))
-    : flat(await d.gh(["pr", "list", "--state", "merged", "--search", `merged:>=${iso}`, "--limit", "100", "--json", "number,title,author"]));
-  const opened = flat(await d.gh(["pr", "list", "--state", "all", "--search", `created:>=${iso}`, "--limit", "100", "--json", "number,title,author"]));
+    : flat(await rec(d).code.prSearch("merged", `merged:>=${iso}`, "number,title,author"));
+  const opened = flat(await rec(d).code.prSearch("all", `created:>=${iso}`, "number,title,author"));
   const body = digestText({ login: d.login, now, since, merged, opened, waiting: o.prs.filter((p) => !p.isDraft), clashes: o.clashes, dropped: o.dropped, holds: o.holds });
   if (!n) {
     if (d.dryRun) { d.say(`would open the issue "${TITLE}" (label cowork) and post there:\n${body.replace(/^/gm, "    ")}`); return body; }
-    const url = await d.gh(["issue", "create", "--title", TITLE, "--label", "cowork", "--body",
-      `One comment a night from the night job (sol/night, docs/how-we-work/PRD.md section 7): what landed, what clashes, who holds what.\n\n${nightSign(d.login)}`]);
+    const url = await rec(d).cards.open(TITLE, "cowork",
+      `One comment a night from the night job (sol/night, docs/how-we-work/PRD.md section 7): what landed, what clashes, who holds what.\n\n${nightSign(d.login)}`);
     n = Number(/\/issues\/(\d+)/.exec(url)?.[1] ?? 0);
     if (!n) throw new Error(`could not open the digest issue: ${url.trim()}`);
   }
@@ -252,7 +251,7 @@ export async function codeownersOnMain(d: NightDeps): Promise<{ own: Owners; lea
 
 /** routing: every open issue with one of the six labels gets its missing leads (leads.ts) */
 export async function routeAll(d: NightDeps, l: Leads): Promise<number> {
-  const raw = JSON.parse(await d.gh(["issue", "list", "--state", "open", "--limit", "200", "--json", "number,title,labels,assignees"]) || "[]") as
+  const raw = JSON.parse(await rec(d).cards.openIssues() || "[]") as
     { number: number; title: string; labels?: { name: string }[]; assignees?: { login: string }[] }[];
   const issues: OpenIssue[] = raw.map((i) => ({ number: i.number, title: i.title, labels: (i.labels ?? []).map((x) => x.name), assignees: (i.assignees ?? []).map((a) => a.login) }));
   const done = await routeIssues({ gh: d.gh, repo: "{owner}/{repo}", dryRun: d.dryRun, say: d.say, ping: d.ping }, issues, l);
@@ -286,7 +285,7 @@ export async function night(d: NightDeps, o: { staleDays: number }): Promise<voi
   // the live checkout has no key of its own on GitHub: then fetch over https with gh's sign-in
   let f = await d.git(["fetch", "-q", "--prune", "origin"]);
   if (f.code !== 0) {
-    const repo = (await d.gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"])).trim();
+    const repo = (await rec(d).members.room()).trim();
     f = await d.git(["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential", "fetch", "-q", "--prune",
       `https://github.com/${repo}.git`, "+refs/heads/*:refs/remotes/origin/*"]);
     if (f.code !== 0) throw new Error(`could not fetch origin: ${f.out.trim().split("\n")[0]}`);
@@ -313,7 +312,7 @@ export async function night(d: NightDeps, o: { staleDays: number }): Promise<voi
 
 const ENGINE = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export function readTeam(): TeamSettings {
-  try { return cleanTeam(JSON.parse(readFileSync(process.env.SOL_TEAM ?? process.env.SOL_TEAM_FILE ?? join(ENGINE, "team.json"), "utf8"))); }
+  try { return fromDisk(JSON.parse(readFileSync(process.env.SOL_TEAM ?? process.env.SOL_TEAM_FILE ?? join(ENGINE, "team.json"), "utf8"))); }
   catch { return cleanTeam({}); }
 }
 
@@ -327,9 +326,9 @@ async function main(argv: string[]) {
   const git = (args: string[]) => new Promise<Run>((ok) =>
     execFile("git", args, { cwd: root, timeout: 120_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
       (err, out, errOut) => ok({ code: err ? (typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : 128) : 0, out: String(out) || String(errOut) })));
-  const login = team.me.login || (await gh(["api", "user", "--jq", ".login"])).trim();
+  const login = team.me.login || (await makeGithubRecord(gh).who.login()).trim();
   console.log(`night job${dryRun ? " (dry run: nothing is posted)" : ""}, ${new Date().toISOString()}, as ${login}'s agent, claims still after ${team.night.staleDays} days`);
-  const relay = dryRun ? null : relayPinger(login);
+  const relay = dryRun ? null : relayPinger(login, activeRoom(team).code);
   try {
     await night({ gh, git, login, now: () => new Date(), dryRun, say: (l) => console.log(l), ...(relay ? { ping: relay.ping } : {}) }, { staleDays: team.night.staleDays });
   } finally { await relay?.close(); }
@@ -337,11 +336,11 @@ async function main(argv: string[]) {
 
 /** the night's pings: one relay connection, opened at the first ping (the hub, this machine's engine, keeps a ping for
  * a person none of whose Sols is on), closed at the end of the run */
-function relayPinger(login: string) {
+function relayPinger(login: string, room = "") {   // room: the share code of the room it reads (#157), so a ping meets its person there
   let up: Promise<{ send: (p: Record<string, unknown>) => boolean; stop: () => void } | null> | null = null;
   const open = async () => {
     const { RelayClient, relayUrl, relayAuth } = await import("./relay.js");
-    const c = new RelayClient(() => relayUrl(), () => ({ login, state: "away" as const }), "night", () => relayAuth());
+    const c = new RelayClient(() => relayUrl(), () => ({ login, state: "away" as const, room }), "night", () => relayAuth());
     c.start();
     const ok = await new Promise<boolean>((done) => {
       if (c.up) return done(true);
@@ -349,7 +348,7 @@ function relayPinger(login: string) {
       const off = c.onStatus(() => { if (c.up) { clearTimeout(t); off(); done(true); } });
     });
     if (!ok) { c.stop(); console.log("the relay is not in sight: no pings tonight"); return null; }
-    const repo = (await runGh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], resolve(ENGINE, "..", "..")).catch(() => "")).trim();
+    const repo = (await makeGithubRecord((args) => runGh(args, resolve(ENGINE, "..", ".."))).members.room().catch(() => "")).trim();
     return { send: (p: Record<string, unknown>) => c.send("ping", { ...p, ...(repo ? { repo } : {}) }, true), stop: () => c.stop() };
   };
   return {

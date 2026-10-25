@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-permit-back"
+description = "Enables the permit_back command without any pre-configured scope."
+commands.allow = ["permit_back"]
+
+[[permission]]
+identifier = "deny-permit-back"
+description = "Denies the permit_back command without any pre-configured scope."
+commands.deny = ["permit_back"]

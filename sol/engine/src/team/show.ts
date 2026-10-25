@@ -6,7 +6,8 @@
 // or the session closed) one signed line goes on the issue with the session's commits.
 import { homedir } from "node:os";
 import { basename } from "node:path";
-import { sign, runGh, runGit } from "./note.js";
+import { sign, runGit } from "./note.js";
+import { makeGithubRecord, runGh } from "./record.js";
 import { sendRelay } from "./relay.js";
 import { getTeam, myLogin, mayAgentSpeak } from "./settings.js";
 
@@ -161,7 +162,7 @@ export class Shows {
     this.out(s.login, { issue: s.issue, repo: s.repo, session: s.session, event: "end" });
     if (!this.d.mayGitHub()) return "no longer shown; the line on the issue was not posted (Settings, my agent: GitHub is off)";
     const body = shownLine({ login: s.login, title: s.session.title, ms: this.d.now() - s.since, repo: s.repo, commits: await commitsIn(this.d.git, s.cwd) });
-    try { await this.d.gh(["issue", "comment", String(s.issue), "--body", body], s.cwd); }
+    try { await makeGithubRecord((args) => this.d.gh(args, s.cwd)).notes.add(s.issue, body); }
     catch (e) { return `no longer shown; the line on #${s.issue} could not be posted: ${String((e as Error)?.message ?? e).slice(0, 200)}`; }
     return `no longer shown; one line on #${s.issue} says what was done`;
   }

@@ -41,6 +41,20 @@
 .cside .crow .cnum { color: var(--mute); }
 .cside .crow .csig { font-size: 10.5px; }
 .cside .cnow { flex: none; font-size: 10px; padding: 0 5px; line-height: 14px; border: 1px solid var(--mute); border-radius: var(--pill); color: var(--ink); }
+/* a new room (#154), in place under the head where Home has "new session" */
+.cside .croomnew { display: flex; flex-direction: column; gap: 6px; margin: 2px 10px 8px; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.cside .croomnew .wfield { width: 100%; box-sizing: border-box; font-family: inherit; }
+.cside .croomnew .croommore { align-self: flex-start; }
+.cside .croomnew .cbad { margin: 0; font-size: 12px; color: var(--dim); }
+.cside .croomnew .cacts { display: flex; justify-content: flex-end; align-items: center; gap: 6px; }
+/* a share code (#157): "join a room" sits close under "new room"; the code in its field and in a room's row, monospace */
+.cside .newc.cjoin { margin-top: -2px; }
+.cside .croomnew .wfield.ccodein::placeholder { font-family: inherit; letter-spacing: normal; text-transform: none; }
+.cside .croomnew .wfield.ccodein { font-family: var(--mono); letter-spacing: 0.14em; text-transform: uppercase; }
+.cside .crow .ccode { flex: none; cursor: copy; color: var(--dim); }
+.cside .crow .ccode code { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; }
+.cside .crow .ccode:hover { color: var(--ink); }
+.cside .crow .cshare { padding: 0 4px; font-size: 11px; }
 
 /* ---- the stage ---- */
 .cface .main { display: flex; flex-direction: column; }

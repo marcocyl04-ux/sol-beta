@@ -14,7 +14,13 @@
 // buttons closes it after a 250 ms grace, so an overshoot reaching for the far button does not lose the click.
 // An ask peeks once per ask. Closed with an ask waiting, the notch stands ajar: the closed slab plus 26 x 9 px, no words,
 // no buttons, the window still letting the mouse through; the eye sees it before looking.
-// a dropped file goes to Sol as a say. The shortcut (Cmd+Shift+Space) arrives as the "notch-toggle" event.
+// a dropped file goes on the shelf. The shortcut (Cmd+Shift+Space) arrives as the "notch-toggle" event.
+//
+// Grab and Shelf (#200, sol/README.md "Grab and Shelf"): with nothing to answer the card offers Shelf · Grab. Grab
+// asks "Grab what?" (Page · Shot · Sol); Shot closes the notch for macOS's crosshair and, once the picture landed on the shelf,
+// says "On the shelf." with the shelf's last three things for 4 s; Page and Sol open the sheet (grab_sheet, the app's) and
+// closes; Shelf shows the last three things beside All, which opens the sheet's shelf. Both rows go when the card closes
+// or something with an answer outranks them. Over an icon the creature leans 3 px toward it.
 //
 // Motion. The native window never changes size (a resize mid-motion jerked everything; lib.rs keeps each window at
 // its open size, 36 x 16 px larger than the open slab, and ignores the mouse while closed). The slab inside does all
@@ -48,12 +54,11 @@ import { useNotch } from "./useNotch";
 import { pinLine } from "../useEngine";
 import { useRenovation, seen as seenPing, askOpen, pingLine, pingColour } from "../renovation";
 import { CrewCanvas, crewState, CLIMB_MS, type CrewMode } from "./Crew";
-import { Buttons, useCard, answer, onKey, DEV_CARD } from "./Card";
-import { armed, cardKey } from "./answer";
+import { Buttons, Thumbs, useCard, answer, onKey, DEV_CARD, DEV_SHELF, SHELF_DRAG } from "./Card";
+import { armed, cardKey, shelfMeta, type Btn } from "./answer";
 import { useStable, update as updateStable, later as stableLater } from "../cowork/stable";   // Ship (#33): a new stable is out
 // --- Hand (#34): a teammate hands me work
 import { useHands, take as takeHand, later as handLater, passing as handPassing } from "../cowork/handed";
-import { beginFromNotch } from "../fileit";   // File it (#119)
 // --- end Hand
 
 // events are listened to on this window only: a plain listen() hears what is sent to the other form too
@@ -95,6 +100,20 @@ export default function Notch() {
   const [drop, setDrop] = useState(false);
   const pill = useRef<HTMLDivElement>(null), say = useRef<HTMLDivElement>(null), markEl = useRef<HTMLDivElement>(null);
   const sp = useRef<{ w: Spring; h: Spring; press: Spring } | null>(null);
+  // Grab and Shelf: the creature leans toward the icon under the pointer (3 px, on the snap spring)
+  const lean = useRef<{ x: Spring; y: Spring } | null>(null);
+  if (!lean.current) {
+    const put = () => { const m = markEl.current, l = lean.current; if (m && l) m.style.translate = l.x.v || l.y.v ? `${l.x.v.toFixed(2)}px ${l.y.v.toFixed(2)}px` : ""; };
+    lean.current = { x: new Spring(0, CFG.snap, put), y: new Spring(0, CFG.snap, put) };
+  }
+  const leanTo = useCallback((_b: Btn | null, el: HTMLElement | null) => {
+    const l = lean.current!, m = markEl.current;
+    if (!el || !m) { l.x.to(0); l.y.to(0); return; }
+    const a = m.getBoundingClientRect(), b = el.getBoundingClientRect();
+    const dx = b.left + b.width / 2 - (a.left + a.width / 2), dy = b.top + b.height / 2 - (a.top + a.height / 2), d = Math.hypot(dx, dy) || 1;
+    l.x.to((3 * dx) / d); l.y.to((3 * dy) / d);
+  }, []);
+  useEffect(() => () => { lean.current?.x.stop(); lean.current?.y.stop(); }, []);
   const shut = useRef<number | undefined>(undefined);
   const openRef = useRef(false);
   const [g, setG] = useState(dims(null));
@@ -314,16 +333,38 @@ export default function Notch() {
   const peekedHand = useRef("");
   useEffect(() => { if (hs && !hs.doing && peekedHand.current !== `${hs.id}@${hs.at ?? ""}`) { peekedHand.current = `${hs.id}@${hs.at ?? ""}`; peekNow(); } }, [hs?.id, hs?.at, hs?.doing, peekNow]); // eslint-disable-line react-hooks/exhaustive-deps
   // --- end Hand
-  // --- File it (#119): the press takes the window's picture, then the window's line asks the words
-  const [filing, setFiling] = useState<string | null>(null);
-  useEffect(() => { if (!filing || filing.endsWith("…")) return; const t = window.setTimeout(() => setFiling(null), 4000); return () => window.clearTimeout(t); }, [filing]);
-  // --- end File it
+  // --- Grab and Shelf: the two rows are this page's own state; `note` is a line of their own ("On the shelf.") for a while
+  const [grabbing, setGrabbing] = useState(DEV_CARD === "grabbing");
+  const [shelfOpen, setShelfOpen] = useState(DEV_CARD === "shelf");
+  const [note, setNoteS] = useState<string | null>(null);
+  const noteT = useRef<number | undefined>(undefined), shelfT = useRef<number | undefined>(undefined);
+  const setNote = useCallback((t: string | null, ms = 0) => {
+    window.clearTimeout(noteT.current); setNoteS(t);
+    if (t && ms) noteT.current = window.setTimeout(() => setNoteS(null), ms);
+  }, []);
+  useEffect(() => () => { window.clearTimeout(noteT.current); window.clearTimeout(shelfT.current); }, []);
+  const shelfItems = DEV_SHELF && !n.shelf.length ? DEV_SHELF : n.shelf;
+  // --- end Grab and Shelf
   const { card, advance, liveAsk } = useCard({
     crew: crew !== "up", ping: pingShows && newest ? newest : null, unplugged: cr.state === "unplugged", starting,
     ask: cr.ask, call: n.callState !== "off", turn: cr.turn, stable,
     hand,   // Hand (#34)
-    filing,   // File it (#119)
+    grabbing, shelfOpen,   // Grab and Shelf
   });
+  // --- Grab and Shelf: the rows go when the card closes or something with an answer takes the card
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    if (wasOpen.current && !open) { setGrabbing(false); setShelfOpen(false); window.clearTimeout(shelfT.current); }
+    wasOpen.current = open;
+  }, [open]);
+  const outranked = crew !== "up" || !(card.kind === "plain" || card.kind === "grabbing" || card.kind === "shelf");
+  useEffect(() => { if (outranked) { setGrabbing(false); setShelfOpen(false); } }, [outranked]);
+  /** the sheet (the app's grab_sheet): the notch closes and the sheet carries the rest */
+  const sheet = (mode: "sol" | "page" | "shelf") => {
+    actRef.current.close();
+    void invoke("grab_sheet", { mode, open: true }).catch((e) => { log(`grab_sheet ${mode}: ${e}`); setNote("the sheet did not open", 5000); peekNow(); });
+  };
+  // --- end Grab and Shelf
   const act = {
     hangup: () => n.toggle(),
     start: () => { if (!starting) { setStarting(true); void invoke("engine_start").catch(() => setStarting(false)); } },
@@ -338,7 +379,25 @@ export default function Notch() {
     handLater: () => { if (hs) handLater(hs); },
     handOpen: () => { if (hs) { import("@tauri-apps/plugin-opener").then((o) => o.openUrl(`https://github.com/${hs.repo}/pull/${hs.issue}`)).catch(() => {}); handLater(hs); } },
     // --- end Hand
-    file: () => { setFiling("taking the window's picture…"); void beginFromNotch().then((ok) => setFiling(ok ? "now say it in the window" : "Sol could not keep it, try the window")); },   // File it (#119)
+    // --- Grab and Shelf
+    grab: () => { setNote(null); setShelfOpen(false); setGrabbing(true); },
+    shelf: () => { setNote(null); window.clearTimeout(shelfT.current); setGrabbing(false); setShelfOpen(true); },
+    shot: () => {
+      setGrabbing(false);
+      setNote("Pick it on the screen…");
+      actRef.current.close();   // macOS's crosshair owns the screen now
+      void n.grabShot().then((r) => {
+        if (r.item) {
+          setNote("On the shelf.", 4000); setShelfOpen(true); flashNow("done"); peekNow();
+          window.clearTimeout(shelfT.current); shelfT.current = window.setTimeout(() => setShelfOpen(false), 4000);
+        } else if (r.error === "cancelled") setNote(null);
+        else { log(`grab.shot: ${r.error}`); setNote("the shot did not land", 5000); peekNow(); }
+      });
+    },
+    page: () => sheet("page"),
+    sol: () => sheet("sol"),
+    all: () => sheet("shelf"),
+    // --- end Grab and Shelf
   };
   const actRef = useRef(act); actRef.current = act;
   // a new ask peeks once (the one waiting when the page starts is old news: the notch stands ajar for it)
@@ -410,9 +469,10 @@ export default function Notch() {
   // an ask outranks a ringing ping (answer.ts): its line, the ping waits in the meta
   const asking = card.kind === "ask" || card.kind === "question";
   const failNote = failed === key ? "Sol is restarting, try again in the window" : "";
+  const noteText = note && (card.kind === "plain" || card.kind === "grabbing" || card.kind === "shelf") ? note : "";   // Grab and Shelf
   const text = crew !== "up" ? (r.crew || "changing a part of me") : failNote || (asking && card.line ? card.line
-    : pingShows && newest ? pingLine(newest) : card.ping ? pingLine({ ...card.ping, at: 0 }) : st !== "unplugged" && card.line ? card.line : said);
-  const dim = crew === "up" && !pingShows && !urgent && !card.line && !card.ping && (n.working || (!n.sentence && !pinText));
+    : pingShows && newest ? pingLine(newest) : card.ping ? pingLine({ ...card.ping, at: 0 }) : noteText || (st !== "unplugged" && card.line ? card.line : said));
+  const dim = crew === "up" && !pingShows && !urgent && !card.line && !card.ping && !noteText && (n.working || (!n.sentence && !pinText));
   // a sentence that is still being written (the new one begins with the old) updates in place; anything else slides
   const prev = useRef({ key: 0, text: "" });
   if (prev.current.text !== text) {
@@ -422,21 +482,28 @@ export default function Notch() {
 
   return (
     <div
-      className={`notch ${g.form} shape-${g.shape}${open ? " open" : ""}${drop ? " drop" : ""}${crew !== "up" ? " crew" : ""}${pingShows ? " pinged" : ""}${hasBtns ? " btns" : ""}`}
+      className={`notch ${g.form} shape-${g.shape}${open ? " open" : ""}${card.kind === "shelf" ? " shelfed" : ""}${drop ? " drop" : ""}${crew !== "up" ? " crew" : ""}${pingShows ? " pinged" : ""}${hasBtns ? " btns" : ""}`}
       style={{ "--off": `${g.off}px`, "--tab-top": `${g.top}px` } as React.CSSProperties}
       onMouseDown={() => sp.current!.press.to(1)}
       onMouseUp={() => sp.current!.press.to(0, { cfg: CFG.pop })}
       onClick={onClick}
-      onDragEnter={(e) => { e.preventDefault(); setDrop(true); expand(true); }}
+      onDragEnter={(e) => { e.preventDefault(); if (e.dataTransfer.types.includes(SHELF_DRAG)) return; setDrop(true); expand(true); }}
       onDragOver={(e) => e.preventDefault()}
       onDragLeave={() => setDrop(false)}
-      onDrop={(e) => { e.preventDefault(); setDrop(false); sp.current!.press.set(1); sp.current!.press.to(0, { cfg: CFG.pop }); flashNow("done"); void n.sendFiles(Array.from(e.dataTransfer.files)); }}
+      onDrop={(e) => {
+        e.preventDefault(); setDrop(false);
+        const files = Array.from(e.dataTransfer.files);
+        if (e.dataTransfer.types.includes(SHELF_DRAG) || !files.length) return;   // its own thumb, or nothing to keep
+        sp.current!.press.set(1); sp.current!.press.to(0, { cfg: CFG.pop }); flashNow("done");
+        void n.shelfAdd(files).then((ok) => { if (ok) setNote("On the shelf.", 4000); else setNote("the shelf did not take it", 5000); });
+      }}
     >
       <div className="slab" ref={pill}>
         <div className="mark" ref={markEl} style={{ visibility: crew !== "up" ? "hidden" : undefined }}><Mark size={24} /></div>
         <div className="say-box" ref={say}>
           <div className="say-text"><Swap k={`${prev.current.key}:${card.ask?.id ?? ""}`} dist={18} cfg={CFG.arrive}><p className={`say${dim ? " dim" : ""}${card.line && text === card.line && card.kind !== "stable" ? " one" : ""}`} aria-live="polite">{text}</p></Swap></div>
-          <Buttons card={card} keys={keysLive} onPress={press} />
+          <Buttons card={card} keys={keysLive} onPress={press} onHover={leanTo}
+            lead={card.kind === "shelf" ? <Thumbs items={shelfItems} /> : undefined} meta={card.kind === "shelf" ? shelfMeta(shelfItems.length) : undefined} />
         </div>
       </div>
       <Ring pill={pill} call={n.callState !== "off"} drop={drop} />

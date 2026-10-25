@@ -26,6 +26,7 @@
 .ctl-machine:last-child { border-bottom: 0; }
 .ctl-machine .wfield, .ctl-mname { width: 160px; font-family: inherit; }
 .ctl-mname { padding: 7px 11px; font-size: 12.5px; color: var(--ink); }
+.ctl-mname .ctl-code { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; color: var(--dim); }   /* a room's share code (#157) */
 .ctl-addr { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--dim); }
 .ctl-here { flex: none; height: 22px; display: inline-flex; align-items: center; padding: 0 10px; border-radius: var(--pill); background: var(--ink); color: var(--page); font-size: 11.5px; }
 .ctl-add { display: flex; align-items: center; gap: 8px; margin-top: 10px; }

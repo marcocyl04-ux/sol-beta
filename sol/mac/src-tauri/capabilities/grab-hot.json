@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "grab-hot",
+  "description": "The grab sheet in mutable mode, its page served by Vite on localhost:1420",
+  "windows": [
+    "grab"
+  ],
+  "remote": {
+    "urls": [
+      "http://localhost:1420/*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "allow-engine-port",
+    "allow-face-log",
+    "allow-face-mode",
+    "allow-grab-sheet",
+    "allow-page-scroll",
+    "allow-permit-state",
+    "allow-permit-open",
+    "allow-permit-back",
+    "core:window:allow-set-ignore-cursor-events"
+  ]
+}

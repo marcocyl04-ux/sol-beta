@@ -93,18 +93,23 @@ import { servePaneAsset } from "./work/page.js";
 import { getRun, allRuns } from "./work/runs.js";
 import { renewOnBuild } from "./renew.js";
 import { addWorkFace, removeWorkFace, handleWork, setWorkChanging, broadcastSessions } from "./work/wire.js";
-import { addTeamFace, removeTeamFace, handleTeam, startTeam } from "./team/wire.js";
-import { relayServer, RelayHub } from "./team/relay.js";
+import { addTeamFace, removeTeamFace, handleTeam, startTeam, setRegistry } from "./team/wire.js";
+import { relayServer, relayRoutes, RelayHub } from "./team/relay.js";
 import { Spool } from "./team/spool.js";
-import { teamMembers } from "./team/members.js";
+import { Registry, Guesses } from "./team/registry.js";
+import { Proofs } from "./team/proof.js";
+import { ghVerify } from "./team/identity.js";
+import { hostedMembers } from "./team/members.js";
 import { startShip } from "./team/ship.js";
-import { getTeam, speakParagraph } from "./team/settings.js";
+import { getTeam, hostedRoom, speakParagraph, hubHosts } from "./team/settings.js";
 import { guardSpeak } from "./team/control.js";
 import { Changing } from "./changing.js";
 import { addPingFace, removePingFace, seenPing, ackPing, pingFaceIs } from "./ping.js";
 import { workState, STATE_DIR, mark } from "./work/state.js";
 import { addCreatureFace, removeCreatureFace, setRole, setPresence, setDictation, sent as creatureSent, lifeTurn, type Role } from "./creature.js";
 import { watchHealth, noteRevert, type Health } from "./health.js";
+import { setShelfHome, startSweep } from "./shelf.js";
+import { handleGrab } from "./grab.js";
 
 // Keys live in sol/engine/.env (gitignored): GEMINI_API_KEY for the call.
 try { process.loadEnvFile(resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env")); } catch { /* no .env: no call */ }
@@ -133,6 +138,8 @@ setBrowserProfile(process.env.SOL_PROFILE ?? browserProfileDir(HOME)); // SOL_PR
 setDeskHome(HOME);
 setWorkHome(HOME, reviewThreads);   // Work's side lists GPT talks in folders, not Sol's own chats nor the review seat's (#182)
 setArrangeHome(HOME, (m) => everyone(m));   // the arrangement (#133): its own file in the back room, told to every face
+// the shelf (Grab and Shelf, #200): home/shelf/, its items served by GET /file, the whole list told to every face
+setShelfHome(HOME, (abs) => `http://${HOST}:${PORT}/file?path=${encodeURIComponent(abs)}`, (items) => everyone({ type: "shelf.items", items }));
 // every edit a seat makes to Sol's face, and every mutate and undo, goes out to every window (src/changing.ts)
 const changing = new Changing(HOME, (m) => {
   const r = m as { type?: string; line?: string };
@@ -738,7 +745,21 @@ function serveDist(rel: string, res: import("node:http").ServerResponse) {
   }
 }
 
+// The hub's rooms (#157, team/registry.ts): the share codes and names of the rooms that meet here, one file beside the
+// spool. The routes under /relay/rooms and /relay/names (#160) have the relay's own gate, so they come before the
+// door, as the /relay upgrade does.
+const registry = new Registry(join(STATE_DIR, "relay", "rooms.json"));
+setRegistry(registry);
+const hostOrg = () => hostedRoom(getTeam()).org;   // #154: the room that meets here, whichever room I am in
+const hostKey = () => (getTeam().relay.host ? getTeam().relay.key : "");
+const hubOpen = () => getTeam().relay.open;        // #157: the beta's hub, anyone signed in to GitHub
+const hubVerify = ghVerify();                      // one cache of who a token is, for the socket and the routes alike
+const proofs = new Proofs(join(STATE_DIR, "relay", "proof.key"));   // the hub's tickets (proof.ts): nobody's token held
+const guesses = new Guesses();                     // codes tried that no room has, per caller, the routes' and the hellos' alike
+const rooms = relayRoutes(PORT, hostKey, registry, { org: hostOrg, open: hubOpen, verify: hubVerify, guesses, proofs, hosts: hubHosts });
+
 const http = createServer(async (req, res) => {
+  if (/^\/relay\/(rooms|names|proof)(\/|$|\?)/.test(req.url ?? "") && await rooms(req, res)) return;
   if (!tailnetOk(req.headers) || !solPage(req)) { res.writeHead(403); res.end(); return; }
   const path = (req.url ?? "").split("?")[0];
   if ((path === "/away" || path === "/away/") && req.method === "GET") return serveDist("away.html", res);
@@ -797,9 +818,10 @@ const wss = new WebSocketServer({ noServer: true });
 // and everything else, the faces' socket, through the door as before.
 // #102: the hub keeps talk and pings for whoever is away (its spool, under the state dir), and with an org in team.json
 // it knows people by their GitHub sign-in instead of the key
-const relayHub = relayServer(PORT, () => (getTeam().relay.host ? getTeam().relay.key : ""),
-  new RelayHub({ spool: new Spool(join(STATE_DIR, "relay", "spool")), people: () => (getTeam().org ? teamMembers() : []) }),
-  { org: () => getTeam().org });
+// #157: rooms shared by a code meet apart on this hub, and a hello in one is written down in the registry
+const relayHub = relayServer(PORT, hostKey,
+  new RelayHub({ spool: new Spool(join(STATE_DIR, "relay", "spool")), people: () => (hostOrg() ? hostedMembers() : []), registry, guesses, open: () => !hostOrg() && hubOpen() }),
+  { org: hostOrg, open: hubOpen, verify: hubVerify, proofs });
 http.on("upgrade", (req, socket, head) => {
   if ((req.url ?? "").split("?")[0] === "/relay") return relayHub.upgrade(req, socket, head);
   if (tailnetOk(req.headers) && solPage(req)) return wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
@@ -890,7 +912,7 @@ wss.on("connection", (ws, req) => {
       // a window just went back to the NucBox (One Sol, #62): nothing new starts on this Mac meanwhile
       const message = "Sol is moving to the NucBox; say it again there in a moment";
       const m = msg as any;
-      return send(ws, msg.type.startsWith("work.") ? { type: "work.error", sessionId: m.sessionId, message } : msg.type.startsWith("team.") ? { type: "team.error", rid: m.rid, message } : { type: "error", message });
+      return send(ws, msg.type.startsWith("work.") ? { type: "work.error", sessionId: m.sessionId, message } : msg.type.startsWith("team.") ? { type: "team.error", rid: m.rid, message } : /^(shelf|grab)\./.test(msg.type) ? { type: msg.type, rid: m.rid, error: message } : { type: "error", message });
     }
     if (typeof msg.type === "string" && msg.type.startsWith("work.")) {
       // work.handover: no face sends it since Home (#132) holds chats and sessions in one window; kept unused for one
@@ -907,6 +929,8 @@ wss.on("connection", (ws, req) => {
     } else if (typeof msg.type === "string" && msg.type.startsWith("team.")) {
       try { await handleTeam(face, msg); }
       catch (err) { send(ws, { type: "team.error", rid: (msg as any).rid, message: err instanceof Error ? err.message.split("\n")[0] : String(err) }); }
+    } else if (typeof msg.type === "string" && (msg.type.startsWith("shelf.") || msg.type.startsWith("grab."))) {
+      await handleGrab(face, msg);   // Grab and Shelf (grab.ts): answers with the same type and rid, or its error
     } else if (msg.type === "face.broken" || msg.type === "face.mended") {
       const m = msg as any;   // only Sol's own windows: a page elsewhere must not make the engine take edits back
       if (fromSol && typeof m.site === "string") m.type === "face.broken" ? changing.broke(m.site, String(m.error ?? "")) : changing.mended(m.site);
@@ -1136,6 +1160,7 @@ wss.on("connection", (ws, req) => {
 http.listen(PORT, HOST, () => {
   console.log(`engine up on ws://${HOST}:${PORT}`);
   startTeam();   // the team relay's client and presence (team/wire.ts)
+  startSweep();   // the shelf: what is not kept and older than a week goes, now and every hour (shelf.ts)
   // a new build of this engine goes live by itself, at a quiet moment (renew.ts); launchd brings it back
   renewOnBuild(resolve(HERE), engineIdle, everyone, busyLine);
   onBusy((jobs) => everyone({ type: "engine.busy", jobs }));

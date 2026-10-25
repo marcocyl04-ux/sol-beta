@@ -13,6 +13,7 @@
 // the review. Each label has one or two leads, people with access to the repo (no bots, no teams). A press rewrites
 // only the owners on that label's lines, never a path; the team is pinged (kind decision) once it has landed.
 import { owners, LABELS } from "./claims.js";
+import { makeGithubRecord } from "./record.js";
 
 export type PressDeps = {
   gh: (args: string[]) => Promise<string>;                 // the GitHub CLI (gh's own sign-in, never a token in Sol)
@@ -104,18 +105,18 @@ const why = (e: unknown) => String((e as Error)?.message ?? e).split("\n")[0].sl
 
 /** is this login the repo's owner? GitHub's own word: admin on the repo, for the person gh is signed in as */
 export async function isOwner(d: Pick<PressDeps, "gh">, repo: string): Promise<boolean> {
-  return (await d.gh(["api", `repos/${repo}`, "--jq", ".permissions.admin"]).catch(() => "")).trim() === "true";
+  return (await makeGithubRecord(d.gh).members.admin(repo).catch(() => "")).trim() === "true";
 }
 
 /** the people who may lead: the repo's collaborators who are users (no bots), sorted */
 export async function candidates(d: Pick<PressDeps, "gh">, repo: string): Promise<string[]> {
-  const out = await d.gh(["api", `repos/${repo}/collaborators`, "--paginate", "--jq", '.[] | select(.type == "User") | .login']);
+  const out = await makeGithubRecord(d.gh).members.people(repo);
   return [...new Set(out.split(/\s+/).filter((l) => LOGIN.test(l)))].sort((a, b) => a.localeCompare(b));
 }
 
 /** a file on main as it is now: its text and the blob sha a write must name */
 async function readMain(d: Pick<PressDeps, "gh">, repo: string, path: string) {
-  const j = JSON.parse(await d.gh(["api", `repos/${repo}/contents/${path}?ref=main`, "--jq", "{sha: .sha, content: .content}"]));
+  const j = JSON.parse(await makeGithubRecord(d.gh).files.readSha(repo, path, "main"));
   return { sha: String(j.sha ?? ""), text: Buffer.from(String(j.content ?? ""), "base64").toString("utf8") };
 }
 
@@ -123,8 +124,7 @@ async function readMain(d: Pick<PressDeps, "gh">, repo: string, path: string) {
  * it when main moved the file since, and the press says so) */
 export async function landOnMain(d: Pick<PressDeps, "gh">, repo: string, path: string, text: string, sha: string, message: string): Promise<string> {
   try {
-    return (await d.gh(["api", "-X", "PUT", `repos/${repo}/contents/${path}`, "-f", `message=${message}`, "-f", "branch=main",
-      "-f", `content=${Buffer.from(text).toString("base64")}`, "-f", `sha=${sha}`, "--jq", ".commit.sha"])).trim();
+    return (await makeGithubRecord(d.gh).files.put(repo, path, { message, branch: "main", content: Buffer.from(text).toString("base64"), sha }, true)).trim();
   } catch (e) {
     if (/\b409\b|does not match/i.test(why(e))) throw new Error(`${path} changed on main a moment ago; read the board again and press once more`);
     throw e;

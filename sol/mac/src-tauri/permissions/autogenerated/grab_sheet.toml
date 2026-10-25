@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-grab-sheet"
+description = "Enables the grab_sheet command without any pre-configured scope."
+commands.allow = ["grab_sheet"]
+
+[[permission]]
+identifier = "deny-grab-sheet"
+description = "Denies the grab_sheet command without any pre-configured scope."
+commands.deny = ["grab_sheet"]

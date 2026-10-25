@@ -19,6 +19,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Item } from "../work/items.js";
+import { makeGithubRecord } from "./record.js";
 
 const run = promisify(execFile);
 const ENV = () => ({ ...process.env, GIT_TERMINAL_PROMPT: "0" });
@@ -182,6 +183,7 @@ export async function hand(d: Hand, a: HandAsk): Promise<Handing> {
   if (!by) return { error: "who you are on GitHub is not known yet (sign in to GitHub in Settings, my accounts)" };
   if (to.toLowerCase() === by.toLowerCase()) return { error: "that is you" };
   const review = a.review === true;
+  const rec = makeGithubRecord(d.gh);
   let issue = numOf(a.issue) || numOf(a.pr), brief = oneLine(a.brief, 600), branch = String(a.branch ?? ""), session: string | undefined;
   const pr = review || (numOf(a.pr) > 0 && !numOf(a.issue));
 
@@ -206,7 +208,7 @@ export async function hand(d: Hand, a: HandAsk): Promise<Handing> {
     // a PR: its title and link are the brief (a review asked says only that), its head the branch
     if (!issue) return { error: "which PR?" };
     try {
-      const v = JSON.parse(await d.gh(["pr", "view", String(issue), "-R", repo, "--json", "title,url,headRefName"])) as { title?: string; url?: string; headRefName?: string };
+      const v = JSON.parse(await rec.cards.pr(repo, issue)) as { title?: string; url?: string; headRefName?: string };
       brief = review ? REVIEW_ASKED : `${oneLine(v.title, 200)}\n${v.url ?? ""}`.trim();
       branch = String(v.headRefName ?? "");
     } catch (e) { return { error: `GitHub did not show PR #${issue}: ${firstLine(e)}` }; }
@@ -219,11 +221,11 @@ export async function hand(d: Hand, a: HandAsk): Promise<Handing> {
   // the record: first who has it, then the signed line. Nothing goes on the relay unless both are written.
   const date = day(d.now());
   try {
-    if (review) await d.gh(["pr", "edit", String(issue), "-R", repo, "--add-reviewer", to]);
-    else await d.gh([pr ? "pr" : "issue", "edit", String(issue), "-R", repo, "--add-assignee", to]);
+    if (review) await rec.cards.addReviewer(repo, issue, to);
+    else await rec.cards.give(repo, issue, to, pr);
   } catch (e) { return { error: `GitHub did not take ${review ? "the reviewer" : "the assignee"}: ${firstLine(e)}` }; }
   try {
-    await d.gh(["issue", "comment", String(issue), "-R", repo, "--body", handBody({ from: by, to, date, brief, ...(branch ? { branch } : {}), ...(session ? { session } : {}) })]);
+    await rec.notes.add(issue, handBody({ from: by, to, date, brief, ...(branch ? { branch } : {}), ...(session ? { session } : {}) }), repo);
   } catch (e) { return { error: `${to} has it on GitHub, but the hand's comment was not written: ${firstLine(e)}` }; }
   const relayed = d.send(handWord({ issue, repo, to, brief, branch, by, review }));
   return { ok: true, issue, recorded: `#${issue}`, relayed, ...(relayed ? {} : { note: `written on #${issue}; ${to} sees it the next time their board is read (the team's line is down)` }) };
@@ -238,10 +240,11 @@ export async function answer(d: Hand, h: Handed, how: unknown, line?: unknown): 
   const me = await d.me();
   if (!me) return { error: "who you are on GitHub is not known yet" };
   const date = day(d.now());
+  const rec = makeGithubRecord(d.gh);
   if (how === "take") {
     const cwd = (await d.folders())[h.repo];
     if (!cwd) return { error: `no folder on this machine holds ${h.repo}; add it in Work first` };
-    try { await d.gh(["issue", "comment", String(h.issue), "-R", h.repo, "--body", takenBody(me, date)]); }
+    try { await rec.notes.add(h.issue, takenBody(me, date), h.repo); }
     catch (e) { return { error: `the take was not written on #${h.issue}: ${firstLine(e)}` }; }
     let note: string | undefined;
     if (h.branch) {
@@ -266,8 +269,8 @@ export async function answer(d: Hand, h: Handed, how: unknown, line?: unknown): 
     const why = oneLine(line, 300);
     if (!why) return { error: "say why in one line" };
     try {
-      await d.gh(["issue", "comment", String(h.issue), "-R", h.repo, "--body", passedBody(me, date, why)]);
-      await d.gh(["issue", "edit", String(h.issue), "-R", h.repo, "--remove-assignee", me, "--add-assignee", h.from]);
+      await rec.notes.add(h.issue, passedBody(me, date, why), h.repo);
+      await rec.cards.passBack(h.repo, h.issue, me, h.from);
     } catch (e) { return { error: `the pass was not written on #${h.issue}: ${firstLine(e)}` }; }
     const relayed = d.send(handWord({ issue: h.issue, repo: h.repo, to: h.from, brief: why, branch: h.branch, by: me }));
     return { ok: true, ...(relayed ? {} : { note: `written on #${h.issue}; ${h.from} sees it the next time their board is read` }) };
@@ -279,13 +282,12 @@ export async function answer(d: Hand, h: Handed, how: unknown, line?: unknown): 
 
 /** the hands lines of a repo: its issues' comments that start with **hand**, **taken** or **passed** */
 export async function readRecord(gh: Hand["gh"], repo: string): Promise<Comment[]> {
-  const raw = JSON.parse(await gh(["api", `repos/${repo}/issues/comments?sort=created&direction=desc&per_page=100`])) as any[];
+  const raw = await makeGithubRecord(gh).notes.recent(repo, "created");
   return raw
     .map((c) => ({ repo, number: Number(String(c.issue_url ?? "").split("/").pop()), at: String(c.created_at ?? ""), author: String(c.user?.login ?? ""), body: String(c.body ?? ""), url: String(c.html_url ?? "") }))
     .filter((c) => c.number > 0 && /^\*\*(hand|taken|passed)\*\*/.test(c.body.trim()));
 }
 
-export const ghCli: Hand["gh"] = (args) => run("gh", args, { env: ENV(), timeout: 30_000, maxBuffer: 16 << 20 }).then((r) => r.stdout);
 export const gitCli: Hand["git"] = (cwd, args) => run("git", args, { cwd, env: ENV(), timeout: 120_000, maxBuffer: 16 << 20 }).then((r) => r.stdout);
 
 // ---- the engine's side: the record, read and kept a minute; the hands heard on the relay since ----

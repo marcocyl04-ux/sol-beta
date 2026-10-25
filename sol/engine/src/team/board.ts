@@ -5,11 +5,11 @@
 // What ties a branch or PR to issue N: "#N" in the branch name, the PR's title or body ("Fixes #N", "Part of #N"), or a
 // branch whose last segment starts with "N-" (marco/31-see). An issue's column is the furthest any of its ties reached:
 // stable > main > pr > branch > waiting. Closed with nothing merged is "closed".
-import { execFile } from "node:child_process";
 import { getTeam } from "./settings.js";
 import { testNote, type Mark, type PrComment } from "./mark.js";
 import { areasOf, owners, type Owners } from "./claims.js";
 import { leadsOf, isOwner } from "./press.js";
+import { makeGithubRecord, runners } from "./record.js";
 
 export type Column = "waiting" | "branch" | "pr" | "main" | "stable" | "closed";
 export const COLUMNS: Column[] = ["waiting", "branch", "pr", "main", "stable", "closed"];
@@ -81,10 +81,8 @@ export function columns(issues: Issue[], prs: PR[], branches: Branch[], stableSh
   });
 }
 
-// ---- reading GitHub ----
-const gh = (args: string[]) => new Promise<string>((ok, no) =>
-  execFile("gh", args, { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }, (err, out) => (err ? no(err) : ok(String(out)))));
-const ghJson = async <T>(args: string[]): Promise<T> => JSON.parse(await gh(args)) as T;
+// ---- reading the record (record.ts; GitHub for now) ----
+const rec = makeGithubRecord(runners.board);
 
 const RECENT_DAYS = 14;   // closed issues older than this are history, not the board
 const contains = new Map<string, boolean>();   // `${repo}:${merge}:${stable}` -> stable contains merge
@@ -95,7 +93,7 @@ async function inStable(repo: string, merge: string, stable: string) {
   const k = `${repo}:${merge}:${stable}`;
   const had = contains.get(k);
   if (had !== undefined) return had;
-  const status = (await gh(["api", `repos/${repo}/compare/${merge}...${stable}`, "--jq", ".status"]).catch(() => "")).trim();
+  const status = (await rec.code.compare(repo, merge, stable).catch(() => "")).trim();
   const yes = status === "ahead" || status === "identical";
   if (status) contains.set(k, yes);
   return yes;
@@ -107,7 +105,7 @@ async function prComments(repo: string, n: number, updated: string): Promise<PrC
   const k = `${repo}#${n}@${updated}`;
   const had = talked.get(k);
   if (had) return had;
-  const raw = await ghJson<any[]>(["api", `repos/${repo}/issues/${n}/comments?per_page=100`]).catch(() => null);
+  const raw = await rec.notes.of(repo, n).catch(() => null);
   if (!raw) return [];
   const got = raw.map((c) => ({ author: String(c.user?.login ?? "") + (c.user?.type === "Bot" && !/\[bot\]$/.test(String(c.user?.login ?? "")) ? "[bot]" : ""), body: String(c.body ?? ""), at: String(c.created_at ?? "") }));
   talked.set(k, got);
@@ -124,8 +122,8 @@ async function repoOwners(repo: string): Promise<OwnersRead> {
   const had = ownersOf.get(repo);
   if (had && Date.now() - had.at < OWNERS_TTL) return had;
   const [text, owner] = await Promise.all([
-    gh(["api", `repos/${repo}/contents/.github/CODEOWNERS`, "-H", "Accept: application/vnd.github.raw"]).catch(() => ""),
-    isOwner({ gh }, repo),
+    rec.files.read(repo, ".github/CODEOWNERS").catch(() => ""),
+    isOwner({ gh: runners.board }, repo),
   ]);
   const got = { at: Date.now(), own: owners(text), leads: leadsOf(text), owner };
   ownersOf.set(repo, got);
@@ -139,11 +137,9 @@ type RepoRead = { issues: Issue[]; prs: PR[]; branches: Branch[]; stable: string
 async function readRepo(repo: string): Promise<RepoRead> {
   const since = Date.now() - RECENT_DAYS * 86_400_000;
   const [rawIssues, rawPrs, rawBranches, { own, leads, owner }] = await Promise.all([
-    ghJson<any[]>(["issue", "list", "-R", repo, "--state", "all", "--limit", "100", "--json", "number,title,state,labels,assignees,author,createdAt,closedAt,milestone,url"]),
-    // 40, not 50: with each PR's commits, 50 asks GitHub for more than its 500,000-node limit and the read fails.
-    // files rides in the same one request (#98): no request per PR
-    ghJson<any[]>(["pr", "list", "-R", repo, "--state", "all", "--limit", "40", "--json", "number,title,body,isDraft,state,headRefName,baseRefName,author,mergedAt,mergeCommit,reviewDecision,updatedAt,url,commits,files"]),
-    ghJson<any[]>(["api", `repos/${repo}/branches?per_page=100`]),
+    rec.cards.list(repo),
+    rec.cards.prs(repo),   // the last 40, with their commits and files in the one request (record/github.ts says why 40)
+    rec.code.branches(repo),
     repoOwners(repo),
   ]);
   const branches: Branch[] = rawBranches.map((b) => ({ repo, name: String(b.name), sha: String(b.commit?.sha ?? "") }));
@@ -187,22 +183,24 @@ export type Board = {
 
 const TTL = 60_000;
 let cache: Board | null = null;
-let reading: Promise<Board> | null = null;
+// the read under way, and the repos it reads: a room switch (#154) starts its own read rather than wait on the old room's
+let reading: { repos: string; p: Promise<Board> } | null = null;
 const subs = new Set<(b: Board) => void>();
+const reposNow = () => getTeam().repos.join(",");
 
 /** the board: the cached one at once when there is one (a stale one starts a fresh read behind it, told to onBoard, so a
  * face paints now and is corrected after); refresh waits for the read. Every fresh read is told to onBoard */
 export function getBoard(refresh = false): Promise<Board> {
-  if (!refresh && cache) {
+  if (!refresh && cache && cache.repos.join(",") === reposNow()) {
     if (Date.now() - cache.at >= TTL) void read().catch(() => {});
     return Promise.resolve(cache);
   }
   return read();
 }
 function read(): Promise<Board> {
-  if (reading) return reading;
-  const repos = getTeam().repos;
-  reading = (async () => {
+  const repos = getTeam().repos, key = repos.join(",");
+  if (reading?.repos === key) return reading.p;
+  const p: Promise<Board> = (async () => {
     const got = await Promise.allSettled(repos.map(readRepo));
     const ok = got.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
     const failed = got.flatMap((r, n) => (r.status === "rejected" ? [repos[n]] : []));
@@ -212,11 +210,13 @@ function read(): Promise<Board> {
     ok.forEach((r, n) => { const repo = repos.filter((x) => !failed.includes(x))[n]; stable[repo] = r.stable; main[repo] = r.main; leads[repo] = r.leads; owner[repo] = r.owner; });
     const cards = repos.flatMap((repo) => columns(issues.filter((i) => i.repo === repo), prs, branches, stable[repo] ?? "", main[repo] ?? ""));
     const b: Board = { repos, cards, prs, branches, stable, main, leads, owner, at: Date.now(), ...(failed.length ? { error: `could not read ${failed.join(", ")}` } : {}) };
-    if (ok.length || !cache) cache = b;
+    if (reposNow() !== key) return b;   // the room changed while this read: its asker gets it, nobody else, never cached
+    if (ok.length || !cache || cache.repos.join(",") !== key) cache = b;
     for (const f of subs) f(cache);
     return cache;
-  })().finally(() => { reading = null; });
-  return reading;
+  })().finally(() => { if (reading?.p === p) reading = null; });
+  reading = { repos: key, p };
+  return p;
 }
 
 export function onBoard(fn: (b: Board) => void) { subs.add(fn); return () => { subs.delete(fn); }; }
@@ -252,11 +252,11 @@ export async function member(login: string): Promise<{ plan?: string; log: LogLi
   const repos = board.repos;
   const home = getTeam().org ? repos.find((r) => r.startsWith(getTeam().org + "/")) ?? repos[0] : repos[0];
   const [plan, commits, comments] = await Promise.all([
-    gh(["api", `repos/${home}/contents/plan.md?ref=${encodeURIComponent(`${login}/plan`)}`, "-H", "Accept: application/vnd.github.raw"]).catch(() => undefined),
-    Promise.all(repos.map((repo) => ghJson<any[]>(["api", `repos/${repo}/commits?author=${login}&per_page=30`]).then(
+    rec.files.read(home, "plan.md", `${login}/plan`).catch(() => undefined),
+    Promise.all(repos.map((repo) => rec.changes.commitsBy(repo, login).then(
       (cs) => cs.map((c) => ({ repo, sha: String(c.sha), at: String(c.commit?.author?.date ?? ""), message: String(c.commit?.message ?? ""), url: String(c.html_url ?? "") })),
       () => []))).then((x) => x.flat()),
-    Promise.all(repos.map((repo) => ghJson<any[]>(["api", `repos/${repo}/issues/comments?sort=updated&direction=desc&per_page=100`]).then(
+    Promise.all(repos.map((repo) => rec.notes.recent(repo, "updated").then(
       (cs) => cs.map((c) => ({ repo, number: Number(String(c.issue_url ?? "").split("/").pop()), at: String(c.created_at ?? ""), author: String(c.user?.login ?? ""), body: String(c.body ?? ""), url: String(c.html_url ?? "") })),
       () => []))).then((x) => x.flat()),
   ]);

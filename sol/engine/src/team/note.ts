@@ -9,6 +9,7 @@
 // assignees, of the kind the note names in `ping` (default chat). The ping is a card or absorbed by their dials.
 import { execFile } from "node:child_process";
 import { kindOf, type PingKind } from "./pings.js";
+import { makeGithubRecord } from "./record.js";
 
 export type Kind = "change" | "decision" | "plan" | "heads-up";
 export const KINDS: Kind[] = ["change", "decision", "plan", "heads-up"];
@@ -27,9 +28,6 @@ export type NoteDeps = {
 export const sign = (login: string) => `— ${login || "<login>"}'s agent`;
 const clean = (s: string) => String(s ?? "").trim().split("\n").map((l) => l.trimEnd()).join("\n").slice(0, 4000);
 
-export const runGh = (args: string[], cwd?: string) => new Promise<string>((ok, no) =>
-  execFile("gh", args, { cwd, timeout: 30_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
-    (err, out, errOut) => (err ? no(new Error(String(errOut || err.message).trim().split("\n")[0])) : ok(String(out)))));
 export const runGit = (args: string[], cwd: string) => new Promise<string>((ok, no) =>
   execFile("git", args, { cwd, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }, (err, out) => (err ? no(err) : ok(String(out).trim()))));
 
@@ -51,8 +49,9 @@ export async function teamNote(d: NoteDeps, n: Note): Promise<string> {
   if (!d.mayGitHub()) throw new Error("my agent may not speak on GitHub (Settings, my agent); the note was not posted");
   const login = await d.login();
   const sig = sign(login);
+  const rec = makeGithubRecord((args) => d.gh(args, d.cwd));
   const comment = async (number: number, body: string) => {
-    await d.gh(["issue", "comment", String(number), "--body", body], d.cwd);
+    await rec.notes.add(number, body);
     return `#${number}`;
   };
 
@@ -60,9 +59,9 @@ export async function teamNote(d: NoteDeps, n: Note): Promise<string> {
     const went = [await comment(n.issue, `${lines}\n\n${sig}`)];
     const branch = await d.git(["symbolic-ref", "--short", "-q", "HEAD"], d.cwd).catch(() => "");
     if (branch && branch !== "main") {
-      const prs = await d.gh(["pr", "list", "--state", "open", "--head", branch, "--json", "number", "--jq", ".[].number"], d.cwd).catch(() => "");
+      const prs = await rec.code.prsOfBranch(branch).catch(() => "");
       for (const p of prs.split("\n").map((x) => x.trim()).filter(Boolean)) {
-        await d.gh(["pr", "comment", p, "--body", `${lines}\n\n${sig}`], d.cwd).catch(() => undefined);
+        await rec.notes.addOnPr(p, `${lines}\n\n${sig}`).catch(() => undefined);
         went.push(`PR #${p}`);
       }
     }
@@ -80,36 +79,35 @@ export async function teamNote(d: NoteDeps, n: Note): Promise<string> {
     return `posted on #${n.to} as a heads-up from #${n.issue}${pinged}`;
   }
   // plan: a dated entry at the end of the person's plan.md on their <login>/plan branch, made if it is not there
-  const repo = (await d.gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], d.cwd)).trim();
+  const repo = (await rec.members.room()).trim();
   if (!repo) throw new Error("no GitHub repository here");
   const ref = `${login}/plan`;
   const day = (d.now?.() ?? new Date()).toISOString().slice(0, 10);
   const entry = `\n## ${day}, #${n.issue}\n\n${lines}\n`;
-  const have = await d.gh(["api", `repos/${repo}/contents/plan.md?ref=${encodeURIComponent(ref)}`, "--jq", "{sha: .sha, content: .content}"], d.cwd).catch(() => "");
+  const have = await rec.files.readSha(repo, "plan.md", ref).catch(() => "");
   let sha = "", body = "";
   if (have.trim()) { const j = JSON.parse(have); sha = String(j.sha ?? ""); body = Buffer.from(String(j.content ?? ""), "base64").toString("utf8"); }
   else {
-    const exists = await d.gh(["api", `repos/${repo}/branches/${encodeURIComponent(ref)}`, "--jq", ".name"], d.cwd).catch(() => "");
+    const exists = await rec.code.branch(repo, ref).catch(() => "");
     if (!exists.trim()) {
-      const main = (await d.gh(["api", `repos/${repo}/git/ref/heads/main`, "--jq", ".object.sha"], d.cwd)).trim();
-      await d.gh(["api", "-X", "POST", `repos/${repo}/git/refs`, "-f", `ref=refs/heads/${ref}`, "-f", `sha=${main}`], d.cwd);
+      const main = (await rec.code.mainSha(repo)).trim();
+      await rec.code.makeBranch(repo, ref, main);
     }
     body = `# ${login}'s plan\n\nKept by ${login} and their agent; the board draws it.\n`;
   }
   const next = Buffer.from(body.replace(/\s*$/, "\n") + entry).toString("base64");
-  const args = ["api", "-X", "PUT", `repos/${repo}/contents/plan.md`, "-f", `message=plan: #${n.issue}, ${day} (${sig})`, "-f", `branch=${ref}`, "-f", `content=${next}`];
-  if (sha) args.push("-f", `sha=${sha}`);
-  await d.gh(args, d.cwd);
+  await rec.files.put(repo, "plan.md", { message: `plan: #${n.issue}, ${day} (${sig})`, branch: ref, content: next, ...(sha ? { sha } : {}) });
   return `written to ${login}'s plan (plan.md on ${ref}); the board shows it`;
 }
 
 /** a ping to every assignee of the issue but me; says whom, in a tail for the note's answer */
 async function pingHolders(d: NoteDeps, me: string, issue: number, kind: PingKind, line: string): Promise<string> {
   if (!d.ping) return "";
-  const got = await d.gh(["issue", "view", String(issue), "--json", "assignees", "--jq", ".assignees[].login"], d.cwd).catch(() => "");
+  const rec = makeGithubRecord((args) => d.gh(args, d.cwd));
+  const got = await rec.cards.assignees(issue).catch(() => "");
   const who = got.split("\n").map((x) => x.trim()).filter((x) => x && x.toLowerCase() !== me.toLowerCase());
   if (!who.length) return "";
-  const repo = (await d.gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], d.cwd).catch(() => "")).trim();
+  const repo = (await rec.members.room().catch(() => "")).trim();
   const sent = who.filter((to) => d.ping!({ to, kind, line: line.split("\n")[0].slice(0, 300), issue, repo }));
   return sent.length ? `; pinged ${sent.join(", ")} (${kind})` : `; ${who.join(", ")} not in sight, no ping`;
 }

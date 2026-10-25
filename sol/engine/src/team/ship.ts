@@ -30,6 +30,7 @@ import { join } from "node:path";
 import { join as joinBusy } from "../busy.js";
 import { onRelay, sendRelay } from "./relay.js";
 import { myLogin } from "./settings.js";
+import { makeGithubRecord, runners } from "./record.js";
 
 const run = promisify(execFile);
 const ENV = () => ({ ...process.env, GIT_TERMINAL_PROMPT: "0" });   // never a password prompt nobody can answer
@@ -156,13 +157,14 @@ async function record(d: Ship, sha: string, line: string): Promise<{ recorded?: 
   const m = /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(url);
   if (!m) return { note: "the line on the record was not written: origin is not on GitHub" };
   const repo = m[1];
+  const rec = makeGithubRecord(d.gh);
   try {
-    const n = (await d.gh(["issue", "list", "-R", repo, "--label", "now", "--state", "open", "--limit", "1", "--json", "number", "--jq", ".[0].number // empty"])).trim();
+    const n = (await rec.cards.nowIn(repo)).trim();
     if (/^\d+$/.test(n)) {
-      await d.gh(["issue", "comment", n, "-R", repo, "--body", line]);
+      await rec.notes.add(n, line, repo);
       return { recorded: `a comment on #${n}` };
     }
-    await d.gh(["api", "-X", "POST", `repos/${repo}/statuses/${sha}`, "-f", "state=success", "-f", "context=sol/stable", "-f", `description=${line.slice(0, 140)}`]);
+    await rec.code.status(repo, sha, { state: "success", context: "sol/stable", description: line.slice(0, 140) });
     return { recorded: `a status on ${short(sha)}` };
   } catch (e) {
     return { note: `the line on the record was not written: ${firstLine(e)}` };
@@ -510,7 +512,7 @@ async function askOrigin() {
 export function startShip(root: string, everyone: (m: object) => void, over: Partial<Ship> = {}) {
   D = {
     root,
-    gh: (args) => run("gh", args, { cwd: root, env: ENV(), timeout: 30_000, maxBuffer: 8 << 20 }).then((r) => r.stdout),
+    gh: runners.ship(root),
     typecheck,
     send: (kind, payload) => { sendRelay(kind, payload); },
     me: myLogin,

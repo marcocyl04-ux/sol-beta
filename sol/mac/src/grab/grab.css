@@ -1,0 +1,173 @@
+/* The grab sheet (grab.html), fitted to Sol's face: the same tokens as face.css over palette.css (main.tsx imports it).
+   The line and the tools bar are the notch's voice, a black slab with hairline ink capsules; the panels (where to, the
+   tray, the folded card, the field) are the face's cards, --surface on a --line hairline. Red only for marks and the
+   text tool (--red-strong), green only for done (--green-strong). Things move on springs set from the components
+   (src/motion.ts); nothing here animates. The page itself is transparent: the desk shows through, the veil darkens it. */
+:root {
+  color-scheme: dark;
+  --page: var(--paper);
+  --side: #151515;
+  --surface: #222222;
+  --raised: #2a2a2a;
+  --line: #303030;
+  --dim: #9a9a97;
+  --mute: #5c5c5a;
+  --r-s: 6px;
+  --r: 10px;
+  --r-l: 14px;
+  --pill: 999px;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --slab: #000;                                  /* the notch's black */
+  --hair: color-mix(in srgb, var(--ink) 50%, transparent);   /* the notch's capsule hairline */
+  --veil: rgba(0, 0, 0, .74);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+}
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; background: transparent; }
+body { overflow: hidden; color: var(--ink); -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; cursor: default; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: default; }
+.sheet { position: fixed; inset: 0; overflow: hidden; }
+.shade { position: absolute; inset: 0; background: var(--veil); }
+
+/* the notch's capsule: ink text in a hairline, the primary one filled pearl on black */
+.tool, .thumb-acts button {
+  font: 600 12px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; letter-spacing: .01em; color: var(--ink);
+  border: 1px solid transparent; border-radius: var(--pill); transition: background-color .12s, border-color .12s, color .12s;
+}
+
+/* the line: one black pill at the top centre, the notch's slab; its words slide inside it */
+.line { position: absolute; z-index: 30; top: 52px; left: 50%; translate: -50% -60px; height: 34px; width: 0; overflow: hidden;
+  background: var(--slab); border-radius: var(--pill);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent), 0 8px 24px rgba(0, 0, 0, .4); }
+.line-text { position: absolute; left: 18px; top: 0; height: 34px; display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  font-size: 13px; line-height: 1; color: var(--ink); }
+.line-check { flex: none; fill: none; stroke: var(--green-strong); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+
+/* the creature: Sol's pixel creature on its own canvas (Bead.tsx); the box only travels */
+.bead { position: absolute; left: 0; top: 0; z-index: 40; width: 28px; height: 28px; pointer-events: none; will-change: transform; }
+.bead canvas.bead-c { position: absolute; display: block; image-rendering: pixelated; pointer-events: none; }
+
+/* the dark room */
+.room { position: absolute; inset: 0; }
+.room-svg { position: absolute; inset: 0; pointer-events: none; }
+.room .veil { position: absolute; inset: 0; background: var(--veil); opacity: 0; will-change: opacity; pointer-events: none; }
+.room .outline { fill: transparent; stroke: var(--ink); stroke-width: 1.5; stroke-opacity: .55; stroke-dasharray: 100; stroke-dashoffset: 100; stroke-linejoin: round; }
+.room .outline.lit { stroke-opacity: 1; stroke-width: 2; fill: color-mix(in srgb, var(--ink) 5%, transparent); }
+.room .outline.taking { fill: color-mix(in srgb, var(--ink) 10%, transparent); }
+.room .hit { position: absolute; cursor: pointer; }
+.room .tag { position: absolute; pointer-events: none; opacity: 0; font: 600 11px/1 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: .01em;
+  background: var(--ink); color: var(--slab); padding: 4px 8px; border-radius: var(--pill); }
+.room .page-tag { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shutter { position: absolute; background: #fff; opacity: 0; pointer-events: none; }
+
+/* markup */
+.markup { position: absolute; inset: 0; }
+.markup-scroll { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; }   /* a tall Page grab */
+.markup-scroll::-webkit-scrollbar { display: none; }
+.pic { position: absolute; transform-origin: 0 0; border-radius: var(--r); overflow: hidden; border: 1px solid var(--line);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
+.pic img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.pic canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+.pic canvas.tool-text { cursor: text; }
+.type-in { position: absolute; z-index: 2; height: 18px; margin: -1px 0 0 -3px; padding: 0 3px; border: 0; outline: 0; border-radius: 4px;
+  background: rgba(0, 0, 0, .55); color: var(--red-strong); font: 600 13px/18px -apple-system, BlinkMacSystemFont, sans-serif; caret-color: var(--red-strong); }
+.type-in::placeholder { color: color-mix(in srgb, var(--red-strong) 50%, transparent); }
+.tools { position: absolute; left: 0; right: 0; bottom: 40px; width: fit-content; margin: 0 auto; display: flex; align-items: center; gap: 6px; padding: 7px;
+  background: var(--slab); border-radius: var(--pill);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent), 0 10px 30px rgba(0, 0, 0, .5); }
+.tool { width: 38px; height: 30px; display: grid; place-items: center; border-color: var(--hair); }
+.tool svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tool:hover { background: color-mix(in srgb, var(--ink) 12%, transparent); }
+.tool.on { background: var(--ink); border-color: var(--ink); color: var(--slab); }
+.tool:disabled { color: var(--mute); border-color: color-mix(in srgb, var(--ink) 18%, transparent); background: none; }
+.tool.done { width: auto; padding: 0 16px; margin-left: 4px; }
+
+/* where to? the folded card and the list under it */
+.where { position: absolute; inset: 0; }
+.card { position: absolute; transform-origin: 0 0; border-radius: var(--r); overflow: hidden; background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .6); }
+.card img { width: 100%; height: 100%; object-fit: cover; object-position: top left; display: block; }
+.card-file, .thumb-file { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: var(--surface); color: var(--ink); padding: 8px; text-align: center; }
+.card-file span { font-size: 13px; line-height: 1.3; word-break: break-all; }
+.where-list { position: absolute; left: 50%; translate: -50% 0; width: 400px; padding: 12px 8px 8px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r-l); box-shadow: 0 20px 60px rgba(0, 0, 0, .55); }
+.where-head { margin: 0 10px 6px; font-size: 11px; line-height: 1.2; color: var(--mute); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.where-light { position: absolute; left: 0; top: 0; background: var(--ink); border-radius: var(--r); pointer-events: none; visibility: hidden; }
+.where-row { position: relative; display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: var(--r); font-size: 15px; line-height: 1; cursor: pointer; }
+.where-row:not(.on):hover { background: var(--raised); }
+.where-row .glyph { width: 12px; flex: none; color: var(--mute); font-size: 11px; text-align: center; }
+.where-row .glyph.dot::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; border: 1.4px solid currentColor; }
+.where-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.where-row .age { margin-left: auto; font-size: 13px; color: var(--dim); white-space: nowrap; }
+.where-row.on { color: var(--slab); } .where-row.on .glyph, .where-row.on .age { color: color-mix(in srgb, var(--slab) 55%, var(--ink)); }
+.where-field { padding: 8px 0 0; }
+.where-field input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--r); outline: 0;
+  background: var(--page); color: var(--ink); font: 15px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
+.where-field input:focus { border-color: var(--dim); }
+.where-field input::placeholder { color: var(--mute); }
+
+/* the shelf's tray */
+.tray { position: absolute; left: 50%; top: 12vh; margin-left: -360px; max-height: 76vh; display: flex; flex-direction: column; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r-l); box-shadow: 0 30px 80px rgba(0, 0, 0, .6); }
+.tray-head { display: flex; justify-content: space-between; align-items: baseline; padding: 18px 22px 6px; font-size: 15px; line-height: 1.3; font-weight: 600; }
+.tray .dim { color: var(--dim); font-size: 13px; font-weight: 400; }
+.tray-body { position: relative; overflow-y: auto; padding: 4px 22px 10px; scrollbar-width: none; }
+.tray-body::-webkit-scrollbar { display: none; }
+.tray-ring { position: absolute; left: 0; top: 0; border-radius: var(--r); box-shadow: 0 0 0 2px var(--ink); pointer-events: none; visibility: hidden; z-index: 2; margin: 0; }
+.tray-empty { padding: 30px 0 24px; color: var(--dim); font-size: 13px; text-align: center; }
+.day { padding-top: 10px; }
+.day-row { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0 8px; border-top: 1px solid var(--line); font-size: 13px; line-height: 1.3; font-weight: 600; }
+.day-row .dim { font-size: 11px; color: var(--mute); }
+.day:first-of-type .day-row { border-top: 0; }
+.thumbs { display: grid; grid-template-columns: repeat(5, 120px); justify-content: space-between; row-gap: 14px; }
+.thumb { position: relative; width: 120px; cursor: pointer; }
+.thumb-pic { position: relative; width: 120px; height: 84px; border-radius: var(--r); overflow: hidden; background: var(--page); border: 1px solid var(--line); }
+.thumb-pic img { width: 100%; height: 100%; object-fit: cover; object-position: top left; display: block; }
+.thumb-file { background: var(--raised); }
+.thumb-file b { font-size: 11px; line-height: 1.2; letter-spacing: .08em; color: var(--dim); }
+.thumb-file span { font-size: 11px; line-height: 1.25; max-width: 100%; padding: 0 8px; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kept { position: absolute; right: 5px; top: 5px; padding: 3px 7px; border-radius: var(--pill); background: var(--ink); color: var(--slab); font: 600 11px/1 -apple-system, BlinkMacSystemFont, sans-serif; }
+.thumb-acts { position: absolute; left: 3px; right: 3px; bottom: 3px; display: flex; gap: 0; padding: 2px; background: var(--slab); border-radius: var(--pill); }
+.thumb-acts button { flex: 1 1 auto; min-width: 0; height: 20px; padding: 0 3px; font-size: 10.5px; letter-spacing: 0; white-space: nowrap; }
+.thumb.on .thumb-file { justify-content: flex-start; padding-top: 12px; }
+.thumb-acts button:first-child { background: var(--ink); border-color: var(--ink); color: var(--slab); }
+.thumb-acts button:not(:first-child):hover { border-color: var(--hair); }
+.thumb-name { margin-top: 6px; font-size: 13px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.thumb-age { font-size: 11px; line-height: 1.3; color: var(--dim); }
+.tray-foot { padding: 10px 22px 14px; border-top: 1px solid var(--line); font-size: 11px; line-height: 1.3; color: var(--mute); letter-spacing: .02em; }
+
+/* the permissions guide (Permit.tsx): a where-to panel in the middle of the veil, the notch's two capsules under it */
+.permit { position: absolute; z-index: 20; left: 50%; top: 26vh; width: 400px; margin-left: -200px; padding: 14px 18px 16px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r-l); box-shadow: 0 20px 60px rgba(0, 0, 0, .55); }
+.permit-head { font-size: 11px; line-height: 1.2; color: var(--mute); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.permit-title { margin-top: 8px; font-size: 17px; line-height: 1.3; font-weight: 600; }
+.permit-why { margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--dim); }
+.permit-steps { list-style: none; margin: 14px 0 0; padding: 12px 0 0; border-top: 1px solid var(--line); display: grid; gap: 9px; }
+.permit-step { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 1.45; }
+.permit-n { flex: none; width: 20px; height: 20px; margin-top: -1px; display: grid; place-items: center; border: 1px solid var(--hair); border-radius: var(--pill);
+  font: 600 11px/1 -apple-system, BlinkMacSystemFont, sans-serif; }
+.permit-acts { display: flex; gap: 8px; margin-top: 16px; }
+.permit-btn { height: 30px; padding: 0 16px; font: 600 12px/1 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; letter-spacing: .01em; color: var(--ink);
+  border: 1px solid var(--hair); border-radius: var(--pill); cursor: pointer; transition: background-color .12s, border-color .12s, color .12s; }
+.permit-btn:hover { background: color-mix(in srgb, var(--ink) 12%, transparent); }
+.permit-btn.on { background: var(--ink); border-color: var(--ink); color: var(--slab); }
+.permit.thanks .permit-acts { display: none; }
+.permit.thanks .permit-steps { color: var(--mute); }
+.permit.thanks .permit-n { border-color: color-mix(in srgb, var(--ink) 18%, transparent); }
+
+/* the receipt: the card flashes the done green as it goes */
+.card.sent { border-color: var(--green-strong); }
+
+/* dev only: a desk behind the sheet */
+.dev-desk { position: absolute; inset: 0; background: radial-gradient(120% 80% at 50% 0%, #4a4a4a, #262626 70%); }
+.dev-bar { position: absolute; inset: 0 0 auto 0; height: 37px; background: #0c0c0c; }
+.dev-win { position: absolute; border-radius: var(--r); overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, .45); }
+.dev-web { background: #f1efe9; color: #333; }
+.dev-tb { height: 26px; background: #2a2a2a; display: flex; align-items: center; gap: 6px; padding: 0 10px; font-size: 11px; color: #999; }
+.dev-tb i { width: 9px; height: 9px; border-radius: 50%; background: #555; } .dev-tb span { margin-left: 6px; }
+.dev-web h4 { margin: 18px 22px 6px; font-size: 15px; color: #111; }
+.dev-web p { height: 7px; background: #d6d4cd; border-radius: 4px; margin: 9px 22px; }
+.dev-notch { position: absolute; background: #000; border-radius: 0 0 26px 26px; }

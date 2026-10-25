@@ -1,4 +1,6 @@
+mod grab;
 mod hot;
+mod permit;
 mod root;
 mod welcome;
 
@@ -440,7 +442,8 @@ pub fn run() {
         .manage(Spots::default())
         .manage(hot::Hot::default())
         .invoke_handler(tauri::generate_handler![engine_port, engine_phase, engine_start, idle_seconds, notch_expand, notch_geometry, face_log, face_mode, face_state,
-            welcome::install_run, welcome::claude_login, welcome::welcome_done])
+            welcome::install_run, welcome::claude_login, welcome::welcome_done, grab::grab_sheet, grab::page_scroll,
+            permit::permit_state, permit::permit_open, permit::permit_back])
         .setup(|app| {
             start_engine_if_needed(app.handle());
 
@@ -454,6 +457,7 @@ pub fn run() {
                 None::<&str>,
             )?;
             hot::init(app.handle());
+            grab::warm(app.handle());
             // no checkout to run (a downloaded app, before its install): the welcome page instead of the face (#169)
             if root::root(app.handle()).is_none() { welcome::show_page(app.handle(), "/welcome.html"); }
             let face_item = MenuItem::with_id(app, "face", hot::tray_text(hot::wanted(app.handle())), true, None::<&str>)?;

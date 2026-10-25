@@ -17,6 +17,7 @@ import { join as joinBusy } from "../busy.js";
 import { noteCopy, prefs } from "../work/state.js";
 import { review, markReview, withReviews } from "../work/review.js";
 import { getTeam, myLogin, signature, mayAgentSpeak } from "./settings.js";
+import { makeGithubRecord, runners } from "./record.js";
 
 export const TRY_ENGINE = 7778;
 export const TRY_FACE = 1421;
@@ -26,8 +27,7 @@ const run = promisify(execFile);
 const ENV = () => ({ ...process.env, GIT_TERMINAL_PROMPT: "0" });
 const git = (cwd: string, args: string[], timeout = 120_000) =>
   run("git", args, { cwd, env: ENV(), timeout, maxBuffer: 16 << 20 }).then((r) => r.stdout.trim());
-const gh = (args: string[], timeout = 60_000) =>
-  run("gh", args, { env: ENV(), timeout, maxBuffer: 16 << 20 }).then((r) => r.stdout.trim());
+const rec = makeGithubRecord(runners.try);
 const firstLine = (e: unknown) => {
   const x = e as { stderr?: unknown; message?: unknown };
   const s = String(x?.stderr || x?.message || e).trim().split("\n").map((l) => l.replace(/^(fatal|error|hint): /, "").trim()).filter(Boolean);
@@ -245,7 +245,7 @@ const fresh = (dir: string) => {
 
 export type PrInfo = { number: number; title: string; headRefName: string; headRefOid: string; isCrossRepository?: boolean; author?: { login?: string }; state?: string };
 export const prInfo = async (repo: string, pr: number): Promise<PrInfo> =>
-  JSON.parse(await gh(["pr", "view", String(pr), "--repo", repo, "--json", "number,title,headRefName,headRefOid,isCrossRepository,author,state"]));
+  JSON.parse(await rec.code.prHead(repo, pr));
 
 /** a whole try: the copy, the builds, the two programs, up. Refused while another is on. */
 export async function startTry(repo: string, pr: number, repoDir: string): Promise<{ ok: true; path: string; branch: string; engine: number; face: number } | { error: string; trying?: Trying }> {
@@ -328,7 +328,7 @@ export const reviewItems = (repo: string, pr: number) => withReviews(reviewId(re
 export async function markReady(repo: string, pr: number) {
   const login = await myLogin();
   if (!login) return { error: "who am I? sign in to GitHub (Settings, my accounts)" };
-  try { await gh(["pr", "ready", String(pr), "--repo", repo]); } catch (e) { return { error: firstLine(e) }; }
+  try { await rec.code.ready(repo, pr); } catch (e) { return { error: firstLine(e) }; }
   return { ok: true, by: signature(getTeam(), false) };
 }
 
@@ -345,14 +345,13 @@ export async function commentPr(a: { repo: string; pr: number; body: string; pat
   if (a.path && a.line && a.line > 0) {
     try {
       const sha = (await prInfo(a.repo, a.pr)).headRefOid;
-      url = JSON.parse(await gh(["api", "-X", "POST", `repos/${a.repo}/pulls/${a.pr}/comments`,
-        "-f", `body=${signed(text, by)}`, "-f", `commit_id=${sha}`, "-f", `path=${a.path}`, "-F", `line=${a.line}`, "-f", "side=RIGHT"])).html_url ?? "";
+      url = JSON.parse(await rec.code.lineComment(a.repo, a.pr, { body: signed(text, by), commit: sha, path: a.path, line: a.line })).html_url ?? "";
       inline = true;
     } catch { /* GitHub refuses a line outside the diff: a plain comment naming it */ }
   }
   if (!inline) {
     const where = a.path ? `\`${a.path}${a.line ? `:${a.line}` : ""}\`\n\n` : "";
-    try { url = lastLine(await gh(["pr", "comment", String(a.pr), "--repo", a.repo, "--body", signed(where + text, by)])); }
+    try { url = lastLine(await rec.code.prComment(a.repo, a.pr, signed(where + text, by))); }
     catch (e) { return { error: firstLine(e) }; }
   }
   if (a.remark) markReview(reviewId(a.repo, a.pr), a.remark, "sent", (m: any) => { if (m?.type === "work.item") bus({ type: "team.try.review.item", repo: a.repo, pr: a.pr, item: m.item }); });

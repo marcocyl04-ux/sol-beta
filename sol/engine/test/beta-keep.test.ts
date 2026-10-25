@@ -68,7 +68,8 @@ test("the export check: a private address, a key, a person's address or a privat
   const files = git(repo, "ls-tree", "-r", "--name-only", commit).split("\n");
   assert.ok(files.includes("sol/install") && files.includes("site/install"), "the install goes out, and the site serves the same file");
   assert.equal(git(repo, "cat-file", "-p", `${commit}:site/install`), git(repo, "cat-file", "-p", `${commit}:sol/install`));
-  assert.match(betaReadme("stable-x"), /curl -fsSL https:\/\/sol\.js\.org\/install \| sh/, "the README says the line");
+  // the github.io address until js.org approves sol.js.org (js-org/js.org#12847); either is the line
+  assert.match(betaReadme("stable-x"), /curl -fsSL https:\/\/(sol\.js\.org|marcocyl04-ux\.github\.io\/sol-beta)\/install \| sh/, "the README says the line");
   assert.ok(!/gh repo clone/.test(betaReadme("stable-x")), "and no longer asks for a GitHub account");
 });
 

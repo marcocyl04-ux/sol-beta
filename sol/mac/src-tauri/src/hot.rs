@@ -15,7 +15,7 @@ use tauri::menu::MenuItem;
 use tauri::{AppHandle, Emitter, Manager, Url, Wry};
 
 pub const DEV: &str = "http://localhost:1420";
-pub const LABELS: [&str; 3] = ["main", "notch", "island"];
+pub const LABELS: [&str; 4] = ["main", "notch", "island", "grab"];   // grab: the sheet, once it is made (grab.rs)
 const GRACE: Duration = Duration::from_secs(15); // a fresh Vite gets this long before Sol tries again
 
 #[derive(Default)]
@@ -39,6 +39,8 @@ pub fn tray_text(hot: bool) -> &'static str { if hot { "Use the bundled face" } 
 fn flag(app: &AppHandle) -> Option<std::path::PathBuf> {
     app.path().app_config_dir().ok().map(|d| d.join("face-hot"))
 }
+/// The windows are on the dev pages right now (a window made now should start there too: grab.rs).
+pub fn is_on(app: &AppHandle) -> bool { app.state::<Hot>().0.lock().unwrap().on }
 pub fn wanted(app: &AppHandle) -> bool { flag(app).map(|f| f.exists()).unwrap_or(false) }
 
 /// Vite listens on "localhost", which node may bind as ::1 only: ask both.

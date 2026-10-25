@@ -24,7 +24,8 @@ import { review, stopReview, markReview, withReviews } from "./review.js";
 import { changes, pathIn, readText, writeText, pullRequest, openTerm, getTerm, closeTerm, allTerms, termInfo } from "./panes.js";
 import { remote, changesSummary, createPr } from "./overview.js";
 import { withMine } from "./mine.js";
-import { brief, teamNote, runGh, runGit } from "../team/note.js";
+import { brief, teamNote, runGit } from "../team/note.js";
+import { runGh } from "../team/record.js";   // the room's record (#152)
 import { getTeam, myLogin, mayAgentSpeak } from "../team/settings.js";
 import { sendRelay, relayUp } from "../team/relay.js";
 import { takePings, pingsText } from "../team/pings.js";

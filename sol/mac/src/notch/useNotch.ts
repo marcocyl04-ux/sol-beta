@@ -1,14 +1,20 @@
 // The notch's wire: the page's one link to the engine (socket.ts), the call (same mic and speaker code as the main face),
-// Sol's last sentence, and a dropped file as a say. Modelled on away/useDoor.ts.
-// The notch is a door (engine/src/doors.ts): its calls and drops go to conversations of its own, never to the chat
+// Sol's last sentence, and the shelf (Grab and Shelf, #200): its things as the engine lists them
+// (shelf.list on every up, then every shelf.items it sends after a change), a dropped file put on it (shelf.add), and
+// a Shot (grab.shot: macOS's own crosshair, landing on the shelf). Asks carry a rid; the answer has the same type and
+// rid, or an error. Modelled on away/useDoor.ts.
+// The notch is a door (engine/src/doors.ts): its calls go to conversations of its own, never to the chat
 // open in the main window, and it continues its last one when that spoke less than 20 minutes ago. It shows only
 // what Sol says through it (Marco, 2026-10-14: the notch must not reflect what happens in a chat).
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ENGINE, type Card, type CallState, type FileOut } from "../useEngine";
+import { ENGINE, NEXT, sameEngine, type Card, type CallState, type FileOut } from "../useEngine";
 import { openMic, Player, base64ToInt16, int16ToBase64, type Capture } from "../voice";
 import { link, type Link } from "../socket";
 
 const sentence = (s: string) => s.replace(/\s+/g, " ").trim();
+/** a thing on the shelf (sol/README.md "Grab and Shelf"); `url` is the engine's /file address of it */
+export type ShelfItem = { id: string; kind: "shot" | "sol" | "page" | "file"; name: string; mime: string; at: number | string; kept: boolean; url: string; w?: number; h?: number };
+const SHOT_MS = 5 * 60_000, ADD_MS = 60_000;   // macOS's crosshair waits for Marco as long as he likes; five minutes is plenty
 
 const readFile = (f: File): Promise<FileOut> =>
   new Promise((ok) => {
@@ -35,6 +41,18 @@ export function useNotch() {
   const setCall = (s: CallState) => { callRef.current = s; setCallState(s); };
 
   const send = useCallback((o: object) => { ws.current?.send(o); }, []);
+  // ---- the shelf: its things, and the asks that wait for their answer by rid ----
+  const [shelf, setShelf] = useState<ShelfItem[]>([]);
+  const waits = useRef(new Map<string, (m: any) => void>());
+  // grab.* and shelf.* are this Mac's (the screen, home/shelf), so they go to this Mac's engine even when the pick is
+  // the NucBox; when the pick is this Mac it is the same socket (link() keeps one per address)
+  const here = useRef<Link | null>(null);
+  const ask = useCallback(<T extends object>(type: string, body: object, ms: number) => new Promise<Partial<T> & { error?: string }>((ok) => {
+    const rid = `${type}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    const t = window.setTimeout(() => { waits.current.delete(rid); ok({ error: "timeout" } as Partial<T> & { error?: string }); }, ms);
+    waits.current.set(rid, (m) => { window.clearTimeout(t); ok(m); });
+    if (!(here.current ?? ws.current)?.send({ type, rid, ...body })) { window.clearTimeout(t); waits.current.delete(rid); ok({ error: "offline" } as Partial<T> & { error?: string }); }
+  }), []);
 
   const hangUpLocal = useCallback(() => {
     void mic.current?.stop(); mic.current = null;
@@ -69,12 +87,24 @@ export function useNotch() {
   useEffect(() => {
     const L = link(ENGINE);
     ws.current = L;
+    const same = sameEngine(ENGINE, NEXT);
+    const Hl = same ? L : link(NEXT);
+    here.current = Hl;
+    const shelfList = () => Hl.send({ type: "shelf.list", rid: `shelf.list:${Date.now().toString(36)}` });
+    const offHere = same ? () => {} : Hl.onLink((isUp) => { if (isUp) shelfList(); });
+    const offHereMsg = same ? () => {} : Hl.on((m) => {
+      if (m.rid && waits.current.has(m.rid)) { const f = waits.current.get(m.rid)!; waits.current.delete(m.rid); f(m); }
+      if ((m.type === "shelf.items" || m.type === "shelf.list") && Array.isArray(m.items)) setShelf(m.items as ShelfItem[]);
+    });
     const offLink = L.onLink((isUp) => {
       upRef.current = isUp; setUp(isUp);
-      if (isUp) { send({ type: "list" }); return; }   // every up: the door's last conversation again
+      if (isUp) { send({ type: "list" }); if (same) shelfList(); return; }   // every up: the door's last conversation and the shelf again
       setWorking(false); texting.current = false; hangUpLocal();
+      for (const [rid, f] of [...waits.current]) { waits.current.delete(rid); f({ error: "offline" }); }   // nothing will answer them now
     });
     const offMsg = L.on((m) => {
+      if (m.rid && waits.current.has(m.rid)) { const f = waits.current.get(m.rid)!; waits.current.delete(m.rid); f(m); }
+      if ((m.type === "shelf.items" || m.type === "shelf.list") && Array.isArray(m.items)) { setShelf(m.items as ShelfItem[]); return; }
       if (m.type === "threads") {
         // the door's own newest conversation, for the last thing Sol said through it
         const t = (m.threads ?? []).find((x: any) => x.seat === "codex" && x.door === "notch");
@@ -112,7 +142,7 @@ export function useNotch() {
         texting.current = false; setWorking(false); setSaid(String(m.message ?? "Something went wrong."));
       }
     });
-    return () => { offLink(); offMsg(); ws.current = null; };
+    return () => { offLink(); offMsg(); offHere(); offHereMsg(); ws.current = null; here.current = null; };
   }, [send, hangUpLocal, callLive]);
 
   // Start or hang up. Audio contexts are made inside the click or shortcut that asks for them.
@@ -132,15 +162,23 @@ export function useNotch() {
     send({ type: "call", seat: "codex", door: "notch" });   // the engine continues the door's last conversation, or starts one
   }, [send, hangUpLocal]);
 
-  // A dropped file or image goes to Sol as a say; the reply shows as the sentence.
-  const sendFiles = useCallback(async (files: File[]) => {
-    if (!files.length || texting.current || callRef.current !== "off") return;
-    if (!upRef.current) { setSaid("The desk is not answering."); return; }
-    texting.current = true; raw.current = ""; setWorking(true);
+  // ---- Grab and Shelf: a Shot lands on the shelf; a dropped file goes on the shelf (no longer a say to Sol) ----
+  /** macOS's crosshair (a region or a window); the item once it landed, or error "cancelled" when Esc was pressed */
+  const grabShot = useCallback(async (): Promise<{ item?: ShelfItem; error?: string }> => {
+    if (!upRef.current) return { error: "offline" };
+    const r = await ask<{ item: ShelfItem }>("grab.shot", {}, SHOT_MS);
+    // the shelf.items that follows carries it too; this puts it in at once
+    if (r.item) { const it = r.item; setShelf((s) => (s.some((x) => x.id === it.id) ? s : [it, ...s])); }
+    return r;
+  }, [ask]);
+  /** put dropped files on the shelf; true once the engine kept them */
+  const shelfAdd = useCallback(async (files: File[]): Promise<boolean> => {
+    if (!files.length) return false;
+    if (!upRef.current) { setSaid("The desk is not answering."); return false; }
     const got = await Promise.all(files.map(readFile));
-    const text = files.length === 1 ? "Here is a file." : "Here are some files.";
-    send({ type: "say", text, seat: "codex", door: "notch", files: got });
-  }, [send]);
+    const r = await ask<{ items: ShelfItem[] }>("shelf.add", { files: got }, ADD_MS);
+    return !r.error;
+  }, [ask]);
 
-  return { up, callState, sentence: said, working, pin, toggle, sendFiles };
+  return { up, callState, sentence: said, working, pin, toggle, shelf, grabShot, shelfAdd };
 }

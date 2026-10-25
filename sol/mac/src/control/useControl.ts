@@ -7,9 +7,13 @@ import { link } from "../socket";
 // ?dev=control replaces only the data these drawers draw (signed-in accounts, three machines); nothing is sent.
 
 export type Speak = { github: boolean; cowork: boolean; discord: "never" | "builds" | "any"; whatsapp: boolean };
+/** a room (#154): its record's provider, the org or repos, where it meets ("" = this Mac), its key as the engine shows
+ *  it ("set" or ""; sent back as it came, the engine keeps the real one). org, repos and relay.url are the active room's */
+export type Room = { id: string; name: string; provider: "github" | "drive"; org: string; repos: string[]; hub: string; key: string; code?: string; gate?: "key" | "github"; folder?: string; mine?: boolean; joined?: boolean };   // code: its share code (#157), "" until shared; gate: how its hub knows me; folder: where Sol cloned its repository (#162), "" until it did; mine: its repos are my own words (#162); joined: a code I typed brought it (#162)
 export type Team = {
   me: { login: string; name: string }; org: string; repos: string[];
   relay: { url: string; key: string; host: boolean };
+  rooms: Room[]; room: string;
   speak: Speak;
   leaves: { prompts: boolean; memory: boolean; transcripts: boolean; audit: "ask" | "never" };
   seats: { life: "codex" | "claude"; work: "codex" | "claude" };
@@ -29,6 +33,11 @@ export const DEV = typeof location !== "undefined" && new URLSearchParams(locati
 const FAKE_TEAM: Team = {
   me: { login: "marcocyl04-ux", name: "Marco" }, org: "", repos: ["marcocyl04-ux/sol-dev"],
   relay: { url: "", key: "", host: false },
+  rooms: [
+    { id: "team", name: "sol-dev", provider: "github", org: "", repos: ["marcocyl04-ux/sol-dev"], hub: "", key: "" },
+    { id: "kao", name: "Kao", provider: "github", org: "kao-ai", repos: ["kao-ai/site"], hub: "wss://nucbox.example.ts.net/relay", key: "set" },
+  ],
+  room: "team",
   speak: { github: true, cowork: true, discord: "builds", whatsapp: false },
   leaves: { prompts: false, memory: false, transcripts: false, audit: "ask" },
   seats: { life: "codex", work: "claude" },
@@ -65,6 +74,10 @@ export function useControl() {
   useEffect(() => L?.on((m) => {
     const f = typeof m?.rid === "string" ? asks.current.get(m.rid) : undefined;
     if (f) { asks.current.delete(m.rid); f(m); }
+    // a room switched from Cowork's side (#154) comes as team.state: these drawers take its rooms and room only, so a
+    // team.state that lands between an edit and the engine's answer never undoes the edit on screen (review of #154)
+    else if (m?.type === "team.state" && Array.isArray(m.settings?.rooms) && !DEV)
+      setTeam((t) => (t ? { ...t, rooms: m.settings.rooms, room: m.settings.room } : t));
   }), [L]);
 
   const ask = useCallback(<T = any,>(type: string, body: object = {}, wait = 20_000) => new Promise<T>((ok) => {

@@ -3,7 +3,8 @@ import { Drawer } from "../Settings";
 import { Seg, OnOff, Field } from "../work/WorkSettings";
 import { Xterm } from "../work/TermPane";
 import { ENGINE, FAR_NAME, LIVE, NEXT, pickEngine, sameEngine, type Machine } from "../useEngine";
-import { useControl, DEV, DIAL_DEFAULTS, type Team, type Accounts, type PingKind, type Dial } from "./useControl";
+import { useControl, DEV, DIAL_DEFAULTS, type Team, type Room, type Accounts, type PingKind, type Dial } from "./useControl";
+import { meets } from "../cowork/rooms";
 import "./control.css";
 
 // Control (#32): settings in plain words, the person's own. Six drawers at the top of Settings, in every mode: me, my
@@ -89,6 +90,9 @@ export function ControlDrawers({ open, toggle, onSet, flash }: {
         <div className="lab"><span>GitHub org</span><small>when set, the team knows people by their GitHub sign-in; the key is no longer needed</small></div>
         <span className="ctl-namefield"><Field value={t?.org ?? ""} placeholder="none yet" onSave={(v) => void c.set({ org: v.trim() })} /></span>
       </div>
+      {/* --- Rooms (#154): the rooms I am in, the one I am in now, and a new one */}
+      <Rooms team={t} onSwitch={(id) => void c.set({ room: id })} onSave={(rooms) => void c.set({ rooms })} />
+      {/* --- end Rooms */}
       {c.err && <p className="hint-line stale">{c.err}</p>}
     </Drawer>
 
@@ -190,6 +194,36 @@ function Tools({ tools }: { tools: ReturnType<typeof useControl>["tools"] }) {
       <p className="hint-line">what Claude Code has, as the newest session loaded it. Change them in Claude Code; Sol adds no screen for it.</p>
     </div>
   );
+}
+
+// Rooms (#154): one line each, its name, what keeps its record, the org or the repos, where it meets; the one I am in
+// marked, a click on another goes there. Forget any room but the last. A new room is made from Cowork's side, not here
+// (Frank, 2026-10-23); no key is ever on screen.
+function Rooms({ team, onSwitch, onSave }: { team: Team | null; onSwitch: (id: string) => void; onSave: (rooms: Room[]) => void }) {
+  const list = team?.rooms ?? [];
+  const [sure, setSure] = useState<string | null>(null);
+  return (<>
+    <div className="ctl-sub">rooms</div>
+    <p className="hint-line top">each room is one group's work and the people in it; Cowork shows the one you are in</p>
+    <div className="ctl-machines">
+      {list.map((r) => {
+        const here = r.id === team?.room;
+        return (
+          <div key={r.id} className={`ctl-machine ${here ? "here" : ""}`}>
+            <span className="ctl-mname">{r.name}{r.code && <small className="ctl-code"> {r.code}</small>}</span>
+            <span className="ctl-addr" title={`${r.provider} · ${r.org || r.repos.join(", ")} · meets on ${meets(r.hub)}`}>
+              {r.provider === "drive" ? "drive" : "github"} · {r.org || r.repos.join(", ") || "nothing yet"} · {meets(r.hub)}
+            </span>
+            {here ? <span className="ctl-here">this one</span> : <button className="wlink" onClick={() => onSwitch(r.id)}>go there</button>}
+            {list.length > 1 && (sure === r.id
+              ? <span className="wsure"><button className="wlink danger" onClick={() => { setSure(null); onSave(list.filter((x) => x.id !== r.id)); }}>forget</button><button className="wlink" onClick={() => setSure(null)}>keep</button></span>
+              : <button className="wlink" aria-label={`forget ${r.name}`} onClick={() => setSure(r.id)}>forget</button>)}
+          </div>
+        );
+      })}
+    </div>
+    <p className="hint-line">a new room is made from Cowork's side</p>
+  </>);
 }
 
 // my machines: the Sols this window can pick. A row: its name (renamed in place), its address, use it, remove it.

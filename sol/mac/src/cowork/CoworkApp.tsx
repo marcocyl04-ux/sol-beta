@@ -155,6 +155,9 @@ export function CoworkApp({ e, onMode }: { e: ReturnType<typeof useEngine>; onMo
   const title = stage.k !== "session" ? "cowork"
     : live?.title ?? (raw.live ? raw.thread?.title ?? "" : issue ? `#${issue.number} ${issue.title}` : "new session");
   const cwd = stage.k === "session" ? raw.thread?.cwd ?? live?.cwd ?? folder : undefined;
+  // with more than one room (#154) the bar names the one you are in before its repos
+  const rooms = team.state?.settings.rooms ?? [];
+  const roomName = rooms.length > 1 ? rooms.find((r) => r.id === team.state?.settings.room)?.name ?? "" : "";
   const readme = file && folder ? file : null;
   // the rail: the same buttons Home can hold, drawn from the cowork rail of the arrangement, with this team in hand
   const ctx: ButtonCtx = { mode: "cowork", e, w: raw, team, talk: toHome, open: (id) => STAGE[id] && setStage({ k: STAGE[id] }), flash: e.flash,
@@ -170,7 +173,7 @@ export function CoworkApp({ e, onMode }: { e: ReturnType<typeof useEngine>; onMo
         <div className="wtitle" data-tauri-drag-region>
           <span className="tt">{title || "untitled"}</span>
           {cwd && <span className="where" title={cwd}>{base(cwd)}{raw.thread?.branch ? ` · ${raw.thread.branch}` : ""}</span>}
-          {stage.k !== "session" && <span className="where">{(team.board?.repos ?? []).map((r) => r.split("/")[1]).join(" · ")}</span>}
+          {stage.k !== "session" && <span className="where">{[...(roomName ? [roomName] : []), ...(team.board?.repos ?? []).map((r) => r.split("/")[1])].join(" · ")}</span>}
         </div>
         <div className="spacer" data-tauri-drag-region />
         {(stage.k === "dashboard" || stage.k === "actions") && <button className="cbtn ghost" onClick={() => void team.refresh()} title="read the board again">read again</button>}
@@ -185,6 +188,15 @@ export function CoworkApp({ e, onMode }: { e: ReturnType<typeof useEngine>; onMo
               <span className="from">{PING_WORD[p.kind] ?? "asked"}{p.issue ? ` #${p.issue}` : ""}</span>
               <span className="t"><b>{p.line}</b><small><Sig s={p.from} /></small></span>
               <button className="wlink" onClick={() => team.closePing(p.id)} aria-label="close">×</button>
+            </div>
+          ))}
+          {/* a friend who typed a room's code waits for my one press before Sol adds them to its repository */}
+          {team.waiting.map((a) => (
+            <div key={`${a.room} ${a.login}`} className="wcarry cping" role="status">
+              <span className="from">wants in</span>
+              <span className="t"><b>{a.login} wants into {a.name}</b><small>{a.repos.join(" · ")}</small></span>
+              <button className="cbtn" onClick={() => void team.letIn(a, true).then((r) => r.error && e.flash(r.error))}>let in</button>
+              <button className="cbtn ghost" onClick={() => void team.letIn(a, false).then((r) => r.error && e.flash(r.error))}>not now</button>
             </div>
           ))}
           {/* --- Hand (#34): a hand to me, Take · Pass · Later; Take opens the session it started here */}

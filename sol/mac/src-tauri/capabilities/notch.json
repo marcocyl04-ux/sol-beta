@@ -13,6 +13,7 @@
     "allow-notch-geometry",
     "allow-face-log",
     "allow-face-mode",
-    "allow-face-state"
+    "allow-face-state",
+    "allow-grab-sheet"
   ]
 }

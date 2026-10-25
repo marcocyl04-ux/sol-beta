@@ -4,6 +4,8 @@
 // over the next time one of their Sols says hello. One file a person, `<state dir>/relay/spool/<login>.json`, at most
 // 500 messages and 7 days, trimmed on every write. The spool holds only what the relay already carried: never a
 // prompt, a file or home data. The logins the hub has ever heard say hello are kept beside it, `relay/seen.json`.
+// Rooms on one hub (#157): a kept message carries the room it passed in (its share code, "" or none the common space)
+// and is handed back only on a hello in that room; the rest stay for a later hello in theirs.
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { RelayMsg } from "./relay.js";
@@ -53,10 +55,14 @@ export class Spool {
     this.write(this.file(login), trimSpool([...this.peek(login), m], this.now()));
   }
 
-  /** a Sol of theirs said hello: everything kept, and the file gone */
-  take(login: string): RelayMsg[] {
-    const out = this.peek(login);
-    try { rmSync(this.file(login), { force: true }); } catch { /* gone already */ }
+  /** a Sol of theirs said hello: everything kept (in that room, when one is named), and the file gone or what is left */
+  take(login: string, room?: string): RelayMsg[] {
+    const all = this.peek(login);
+    const inRoom = (m: RelayMsg) => (typeof m.room === "string" ? m.room : "") === room;
+    const out = room === undefined ? all : all.filter(inRoom), left = room === undefined ? [] : all.filter((m) => !inRoom(m));
+    if (!out.length && left.length) return out;   // nothing for this room: the file as it was
+    if (left.length) this.write(this.file(login), left);
+    else try { rmSync(this.file(login), { force: true }); } catch { /* gone already */ }
     return out;
   }
 

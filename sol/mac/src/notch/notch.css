@@ -59,3 +59,41 @@ html, body, #root { background: transparent !important; }
 .notch.island .cbtn { padding: 5px 10px; }
 /* the button Return would press, while Return is Sol's: a small ⏎ after its word, quieter than the word */
 .notch .cbtn .ret { margin-left: 5px; font-weight: 400; font-size: 11px; opacity: 0.55; }
+/* Grab and Shelf (Card.tsx IconRow, Thumbs; sol/README.md "Grab and Shelf"): the icon buttons are the capsule family
+   (.cbtn above) with an icon instead of a word: the same hairline, the same height (25 px) as a word capsule, round.
+   Hovered (class "on", set by the pointer: the webview's :hover sleeps while the window is not key) it fills pearl
+   like the first capsule and the icon goes black, and its name, a word capsule, unfurls above it (never over a
+   neighbour). Pressed it fills like a pressed capsule. The springs in Card.tsx move them (rise, sink, name, squash);
+   nothing here animates but the fill. */
+.notch .ib-row { position: relative; display: flex; gap: 6px; align-items: center; }
+.notch .ib-gone { position: absolute; top: 0; right: 0; display: flex; gap: 6px; pointer-events: none; }
+.notch .ibtn { position: relative; display: block; width: 25px; height: 25px; padding: 0; border: 0; background: none; cursor: default; }
+.notch .ib-disc {
+  position: absolute; inset: 0; box-sizing: border-box; display: grid; place-items: center; border-radius: 999px;
+  border: 1px solid rgba(233, 230, 223, 0.5); background: transparent; color: #e9e6df; transform-origin: 50% 100%;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+.notch .ib-disc svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.notch .ibtn.on .ib-disc { background: #e9e6df; border-color: #e9e6df; color: #000; }
+.notch .ib-name {
+  position: absolute; right: 0; bottom: calc(100% + 5px); box-sizing: border-box; padding: 6px 11px; border-radius: 999px;
+  background: #000; border: 1px solid rgba(233, 230, 223, 0.5); color: #e9e6df;
+  font: 600 12px/1 -apple-system, system-ui, sans-serif; letter-spacing: 0.01em; white-space: nowrap; opacity: 0; transform-origin: 100% 100%;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) { .notch .ib-disc { transition: none; } }
+/* the shelf row: the last three things left of All, the count under them; the line gives up its room to them */
+.notch .card-btns.wide { max-width: none; }
+.notch .card-btns.wide .card-row { align-items: center; gap: 10px; }
+.notch .thumbs { display: flex; gap: 6px; }
+.notch .thumb {
+  width: 50px; height: 34px; border-radius: 6px; overflow: hidden; background: #1a1a1a; display: grid; place-items: center;
+  box-shadow: inset 0 0 0 1px rgba(233, 230, 223, 0.14); color: #8a877f; font: 600 10px/1 -apple-system, system-ui, sans-serif;
+  text-transform: uppercase; letter-spacing: 0.04em; cursor: grab;
+}
+.notch .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; -webkit-user-drag: none; }
+.notch.shelfed .say { -webkit-line-clamp: 2; }
+.notch .card-btns.wide .card-meta { text-align: right; padding-right: 1px; }
+/* the smaller cards (tab, bar, lens, island: 84 tall) take smaller thumbs and no count */
+.notch:not(.shape-wings) .thumb { width: 44px; height: 30px; }
+.notch:not(.shape-wings) .card-btns.wide .card-meta { display: none; }

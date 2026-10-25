@@ -2,9 +2,10 @@
 // page, on the page's one socket (teamAsk, cowork/stable.ts). The press takes the window's shot at once (team.file.shot)
 // and opens the line over the composer for one line of words; Return files it (team.file) with the mode's label and
 // the screen; the number comes back as the line's receipt (and the creature's RECEIPT, creature.receipt).
-//   the notch   cannot type a line (as Hand's Pass): its File it takes the shot, then writes `sol.file.asking`, and the
-//               window's line opens its field with that shot; the `storage` event carries it across
 //   the window  its own "file it" (the button on the bar) does both here
+//   the notch   no longer has a File it (Grab and Shelf, #200: the tracker is one destination of a Sol grab, in the
+//               sheet). The window still takes up an ask left under `sol.file.asking` (takeAsk, the `storage` event):
+//               FileLine reads it on mount
 // Under ?dev=file (dev builds only) nothing is sent: the shot and the number are made up, for shots of each state.
 import { useSyncExternalStore } from "react";
 import { teamAsk } from "./cowork/stable";
@@ -35,13 +36,6 @@ export async function begin() {
   set({ open: true, shooting: true, said: null, shot: "" });
   const r = await shoot();
   set({ shooting: false, shot: r.shot, ...(r.error ? { said: { text: r.error, failed: true } } : {}) });
-}
-
-/** the notch's press: the shot of the window as it is, then the window's line asks the words */
-export async function beginFromNotch(): Promise<boolean> {
-  const r = await shoot();
-  try { localStorage.setItem(ASK_KEY, JSON.stringify({ at: Date.now(), shot: r.shot, ...(r.error ? { error: r.error } : {}) })); } catch { return false; }
-  return true;
 }
 
 /** the window takes up an ask the notch left (on mount, and on the storage event); stale ones are dropped */

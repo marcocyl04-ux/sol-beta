@@ -91,7 +91,7 @@ test("creature.turn: the busy session with the latest activity; null when idle",
 });
 
 // the notch page's own rules (mac/src/notch/answer.ts, pure): the button set, the keys, the id check
-import { cardOf, keyAction, stillShown, askLine, middle, armed, cardKey, ARM_MS, LINE_MAX } from "../../mac/src/notch/answer.ts";
+import { cardOf, keyAction, stillShown, askLine, middle, armed, cardKey, ARM_MS, LINE_MAX, ICONED, LABEL, TINT, shelfMeta } from "../../mac/src/notch/answer.ts";
 
 test("the card's buttons: the PRD table, Return safe or nothing, Escape only closes, a stale ask is dropped", () => {
   const none = { crew: false, ping: null, unplugged: false, starting: false, ask: null, call: false, turn: null };
@@ -105,16 +105,13 @@ test("the card's buttons: the PRD table, Return safe or nothing, Escape only clo
   assert.deepEqual(set({ ask: { ...ask, tool: "ExitPlanMode", of: 1 } }), ["question", "open", ""]);
   assert.deepEqual(set({ turn }), ["turn", "stop", "session · ecosystem"]);
   assert.deepEqual(set({ turn: { ...turn, kind: "life", title: "" } }), ["turn", "stop", "chat"]);
-  assert.deepEqual(set({ turn: { ...turn, kind: "call" } }), ["plain", "file", ""], "another face's call is not the notch's to end: nothing to answer, File it");
+  assert.deepEqual(set({ turn: { ...turn, kind: "call" } }), ["plain", "shelf+grab", ""], "another face's call is not the notch's to end: nothing to answer, Shelf · Grab");
   assert.deepEqual(set({ call: true, turn }), ["call", "hangup", ""]);
   assert.deepEqual(set({ ping }), ["ping", "open", ""]);
   assert.deepEqual(set({ unplugged: true }), ["unplugged", "start", ""]);
   assert.deepEqual(set({ unplugged: true, starting: true }), ["unplugged", "", ""]);
-  assert.deepEqual(set({}), ["plain", "file", ""], "File it (#119): nothing to answer, the card offers to file what is wrong");
-  assert.deepEqual(set({ filing: "now say it in the window" }), ["plain", "", ""], "once pressed: its words, no button");
-  assert.equal(cardOf({ ...none, filing: "now say it in the window" }).line, "now say it in the window");
+  assert.deepEqual(set({}), ["plain", "shelf+grab", ""], "Grab and Shelf: nothing to answer, the card offers the shelf and a grab");
   assert.deepEqual(set({ crew: true, ask }), ["plain", "", ""]);
-  assert.deepEqual(set({ ask, filing: "x" }), ["ask", "allow+deny", "1 of 3"], "an ask outranks File it");
   // keys
   const k = (c: object, key: string) => keyAction(cardOf({ ...none, ...c }), key);
   assert.equal(k({ ask }, "Return"), "allow");
@@ -123,7 +120,7 @@ test("the card's buttons: the PRD table, Return safe or nothing, Escape only clo
   assert.equal(k({ unplugged: true }, "Return"), "start");
   assert.equal(k({ turn }, "Return"), null, "never Stop");
   assert.equal(k({ call: true }, "Return"), null);
-  assert.equal(k({}, "Return"), null, "filing is never a key's answer");
+  assert.equal(k({}, "Return"), null, "grabbing is never a key's answer");
   assert.equal(k({}, "Escape"), "close");
   const hand = { id: "o/r#34", from: "frank", issue: 34, title: "" };
   for (const c of [{ ask }, { turn }, { call: true }, { ping }, { unplugged: true }, { hand }, { hand: { ...hand, review: true } }]) assert.equal(k(c, "Escape"), "close", "Escape only closes, the hand card too");
@@ -181,4 +178,45 @@ test("arming: a press within ARM_MS of the card changing is refused", () => {
   assert.equal(armed(changed, changed + ARM_MS - 1), false, "just before");
   assert.equal(armed(changed, changed + ARM_MS), true, "armed");
   assert.equal(ARM_MS, 400);
+});
+
+test("Grab and Shelf: plain is Shelf · Grab, Grab asks what (Shot · Sol), Shelf shows All; anything to answer outranks them", () => {
+  const none = { crew: false, ping: null, unplugged: false, starting: false, ask: null, call: false, turn: null, grabbing: false, shelfOpen: false };
+  const ask = { id: "perm:1", sessionId: "s1", seat: "claude", tool: "Edit", title: "Claude wants to edit App.tsx", path: "/x/App.tsx", n: 1, of: 1 };
+  const turn = { seat: "claude", sessionId: "w1", title: "ecosystem", kind: "work" as const };
+  const card = (c: object) => cardOf({ ...none, ...c });
+  const set = (c: object) => { const k = card(c); return [k.kind, k.buttons.join("+"), k.meta]; };
+  assert.deepEqual(set({}), ["plain", "shelf+grab", ""]);
+  assert.deepEqual(set({ grabbing: true }), ["grabbing", "page+shot+sol", ""], "Page · Shot · Sol");
+  assert.equal(card({ grabbing: true }).line, "Grab what?");
+  assert.deepEqual(set({ shelfOpen: true }), ["shelf", "all", ""]);
+  assert.deepEqual(set({ grabbing: true, shelfOpen: true }), ["grabbing", "page+shot+sol", ""], "a grab asked is the newer press");
+  assert.equal(card({}).line, undefined, "the plain card keeps Sol's own line");
+  // anything with an answer outranks the rows
+  for (const c of [{ ask }, { turn }, { call: true }, { unplugged: true }, { crew: true }, { ping: { id: "p1", seat: "work", line: "x" } }]) {
+    assert.ok(!["grabbing", "shelf"].includes(card({ ...c, grabbing: true }).kind), JSON.stringify(c));
+    assert.ok(!["grabbing", "shelf"].includes(card({ ...c, shelfOpen: true }).kind), JSON.stringify(c));
+  }
+  assert.deepEqual(set({ stable: { sha: "abc1234", tag: "", by: "" }, grabbing: true }), ["stable", "update+later", ""]);
+  assert.deepEqual(set({ hand: { id: "o/r#1", from: "frank", issue: 1, title: "" }, shelfOpen: true })[0], "handed");
+  // Return does nothing on these rows; Escape closes
+  for (const c of [{}, { grabbing: true }, { shelfOpen: true }]) {
+    assert.equal(keyAction(card(c), "Return"), null, JSON.stringify(c));
+    assert.equal(keyAction(card(c), "Enter"), null);
+    assert.equal(keyAction(card(c), "Escape"), "close");
+  }
+  // each row is its own key: changing rows re-arms the buttons, so an aim at Grab cannot land on Shot
+  const keys = [card({}), card({ grabbing: true }), card({ shelfOpen: true })].map(cardKey);
+  assert.equal(new Set(keys).size, 3, keys.join(" "));
+  // the icons, their names, no colour
+  for (const b of ["shelf", "grab", "page", "shot", "sol", "all"] as const) { assert.ok(ICONED.has(b)); assert.ok(LABEL[b]); assert.equal(TINT[b], ""); }
+  for (const b of ["allow", "deny", "open", "stop", "hangup", "start", "update", "later", "take", "pass"] as const) assert.ok(!ICONED.has(b), `${b} keeps its word capsule`);
+  assert.ok(!("file" in LABEL), "File it's button is gone");
+  assert.equal(stillShown(card({ grabbing: true }), null), true);
+});
+
+test("the shelf's meta: how many, singular for one, nothing yet when empty", () => {
+  assert.equal(shelfMeta(0), "nothing yet");
+  assert.equal(shelfMeta(1), "1 thing · cleans itself after a week");
+  assert.equal(shelfMeta(12), "12 things · cleans itself after a week");
 });

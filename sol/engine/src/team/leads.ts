@@ -12,6 +12,7 @@
 // Pure but for routeIssues, whose GitHub and relay are deps (the tests fake them).
 import { LABELS, areasOf, type Owners } from "./claims.js";
 import type { PingKind } from "./pings.js";
+import { makeGithubRecord } from "./record.js";
 
 export type Leads = Record<string, string[]>;
 const LOGIN = /^[A-Za-z0-9-]{1,39}$/;
@@ -64,18 +65,18 @@ export type RouteDeps = {
 /** routing: every lead an issue is missing is assigned and pinged; says each, returns the assignments */
 export async function routeIssues(d: RouteDeps, issues: OpenIssue[], l: Leads): Promise<{ issue: number; leads: string[] }[]> {
   const done: { issue: number; leads: string[] }[] = [];
+  const rec = makeGithubRecord(d.gh);
   for (const i of issues) {
     if (d.seen?.has(i.number) || !missingLeads(i, l).length) continue;
     // a lead who was ever taken off this issue let it go: the events say who, one read, only for an issue missing one
-    const letGo = (await d.gh(["api", "--paginate", `repos/${d.repo}/issues/${i.number}/events?per_page=100`,
-      "--jq", '.[] | select(.event == "unassigned") | .assignee.login']).catch(() => "")).split("\n").map((x) => x.trim()).filter(Boolean);
+    const letGo = (await rec.cards.letGo(d.repo, i.number).catch(() => "")).split("\n").map((x) => x.trim()).filter(Boolean);
     const want = missingLeads(i, l, letGo);
     d.seen?.add(i.number);
     if (!want.length) continue;
     const who = want.map((w) => w.login);
     if (d.dryRun) d.say(`would assign ${who.join(", ")} to #${i.number} (lead of ${[...new Set(want.map((w) => w.label))].join(", ")})`);
     else {
-      try { await d.gh(["api", "-X", "POST", `repos/${d.repo}/issues/${i.number}/assignees`, ...who.flatMap((x) => ["-f", `assignees[]=${x}`])]); }
+      try { await rec.cards.assign(d.repo, i.number, who); }
       catch (e) { d.say(`could not assign ${who.join(", ")} to #${i.number}: ${e instanceof Error ? e.message : String(e)}`); continue; }
       d.say(`assigned ${who.join(", ")} to #${i.number}`);
     }

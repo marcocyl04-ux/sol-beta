@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-page-scroll"
+description = "Enables the page_scroll command without any pre-configured scope."
+commands.allow = ["page_scroll"]
+
+[[permission]]
+identifier = "deny-page-scroll"
+description = "Denies the page_scroll command without any pre-configured scope."
+commands.deny = ["page_scroll"]

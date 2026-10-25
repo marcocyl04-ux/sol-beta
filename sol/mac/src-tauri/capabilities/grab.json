@@ -1,0 +1,20 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "grab",
+  "description": "The grab sheet (grab.rs): the full-screen window over the main screen for picking a part of Sol, a whole page of any app, and the shelf",
+  "windows": [
+    "grab"
+  ],
+  "permissions": [
+    "core:default",
+    "allow-engine-port",
+    "allow-face-log",
+    "allow-face-mode",
+    "allow-grab-sheet",
+    "allow-page-scroll",
+    "allow-permit-state",
+    "allow-permit-open",
+    "allow-permit-back",
+    "core:window:allow-set-ignore-cursor-events"
+  ]
+}

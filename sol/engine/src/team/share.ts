@@ -21,6 +21,7 @@ import { getTeam, signature, myLogin, mayAgentSpeak } from "./settings.js";
 import { agentMark, type Sign } from "./board.js";
 import { onRelay, sendRelay } from "./relay.js";
 import { join as joinBusy } from "../busy.js";
+import { makeGithubRecord, runners } from "./record.js";
 import type { Card } from "../desk.js";
 
 const run = promisify(execFile);
@@ -157,14 +158,11 @@ export function cardOfFile(text: string): Card | null {
 export const sharePath = (id: string) => `${SHARED_DIR}/${id}.json`;
 export const shareMessage = (title: string, sig: string) => `desk: share ${title.replace(/\s+/g, " ").slice(0, 72)}\n\nShared from the desk.\n\nSigned-by: ${sig}\n`;
 
-// ---- reading: gh and git ----
+// ---- reading: the record (record.ts; GitHub for now) and git ----
 
-const gh = (args: string[]) => run("gh", args, { timeout: 30_000, maxBuffer: 32 << 20 }).then((r) => String(r.stdout));
-const ghBytes = (args: string[]) => run("gh", args, { timeout: 30_000, maxBuffer: 48 << 20, encoding: "buffer" }).then((r) => r.stdout as Buffer);
+const rec = makeGithubRecord(runners.share, { bytes: runners.shareBytes });
 const git = (cwd: string, args: string[], timeout = 30_000, env: NodeJS.ProcessEnv = ENV()) =>
   run("git", args, { cwd, env, timeout, maxBuffer: 32 << 20 }).then((r) => String(r.stdout));
-const enc = (p: string) => p.split("/").map(encodeURIComponent).join("/");
-const raw = (repo: string, path: string, ref?: string) => ["api", `repos/${repo}/contents/${enc(path)}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`, "-H", "Accept: application/vnd.github.raw"];
 
 async function pool<T, R>(xs: T[], n: number, f: (x: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(xs.length);
@@ -177,25 +175,20 @@ const texts = new Map<string, string>();                              // blob sh
 const lasts = new Map<string, { by?: Sign; at?: string }>();          // repo\0ref\0path\0sha -> the last commit on it
 const textOf = async (repo: string, path: string, sha: string, ref?: string) => {
   if (texts.has(sha)) return texts.get(sha)!;
-  const t = await gh(raw(repo, path, ref)).catch(() => "");
+  const t = await rec.files.read(repo, path, ref).catch(() => "");
   if (t) texts.set(sha, t.slice(0, 200_000));
   return t;
 };
 
-/** the last commit on each path, in GraphQL batches; kept by blob sha, so an unchanged file is never asked again */
+/** the last commit on each path, in batches of 60; kept by blob sha, so an unchanged file is never asked again */
 async function lastCommits(repo: string, items: { path: string; sha: string; ref: string }[]) {
-  const [owner, name] = repo.split("/");
   const want = items.filter((x) => !lasts.has(`${repo}\0${x.ref}\0${x.path}\0${x.sha}`));
   for (let s = 0; s < want.length; s += 60) {
     const chunk = want.slice(s, s + 60);
-    const refs = [...new Set(chunk.map((x) => x.ref))];
-    const body = refs.map((ref, r) => `r${r}: object(expression: ${JSON.stringify(ref)}) { ... on Commit { ${chunk.map((x, i) => (x.ref === ref
-      ? `h${i}: history(first: 1, path: ${JSON.stringify(x.path)}) { nodes { committedDate message author { name email user { login } } } }` : "")).join(" ")} } }`).join(" ");
-    const query = `query { repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${body} } }`;
-    const got = await gh(["api", "graphql", "-f", `query=${query}`]).then((t) => JSON.parse(t)?.data?.repository ?? {}, () => null);
+    const got = await rec.files.lastCommits(repo, chunk);
     if (!got) continue;   // GitHub said no: the rows go without a signature this time, and are asked again next time
     chunk.forEach((x, i) => {
-      const n = got[`r${refs.indexOf(x.ref)}`]?.[`h${i}`]?.nodes?.[0];
+      const n = got[i];
       lasts.set(`${repo}\0${x.ref}\0${x.path}\0${x.sha}`, n
         ? { by: signOfCommit({ login: n.author?.user?.login, name: n.author?.name, email: n.author?.email, message: n.message }), at: String(n.committedDate ?? "") }
         : {});
@@ -213,7 +206,7 @@ const oneEach = (cards: Entry[]) => { const m = new Map<string, Entry>(); for (c
 
 /** the person's branches that hold shared cards on GitHub: `<login>/shared`, with their head sha */
 async function sharedBranches(repo: string): Promise<{ name: string; sha: string }[]> {
-  const refs = await gh(["api", `repos/${repo}/git/matching-refs/heads/`]).then((t) => JSON.parse(t) as any[], () => []);
+  const refs = await rec.code.heads(repo).then((t) => JSON.parse(t) as any[], () => []);
   return refs.map((r) => ({ name: String(r.ref ?? "").replace(/^refs\/heads\//, ""), sha: String(r.object?.sha ?? "") })).filter((b) => /^[A-Za-z0-9-]{1,39}\/shared$/.test(b.name));
 }
 
@@ -222,7 +215,7 @@ async function branchCards(repo: string, skip = ""): Promise<Entry[]> {
   const out: Entry[] = [];
   for (const b of await sharedBranches(repo)) {
     if (skip && b.name.toLowerCase() === `${skip.toLowerCase()}/shared`) continue;
-    const list = await gh(["api", `repos/${repo}/contents/${SHARED_DIR}?ref=${encodeURIComponent(b.name)}`]).then((t) => JSON.parse(t) as any[], () => []);
+    const list = await rec.files.list(repo, SHARED_DIR, b.name).then((t) => JSON.parse(t) as any[], () => []);
     const files = (Array.isArray(list) ? list : []).filter((f) => f.type === "file" && placeOf(String(f.path)) === "cards").map((f) => ({ path: String(f.path), sha: String(f.sha), ref: b.name }));
     const last = await lastCommits(repo, files);
     const read = await pool(files, 6, (f) => textOf(repo, f.path, f.sha, f.ref));
@@ -233,7 +226,7 @@ async function branchCards(repo: string, skip = ""): Promise<Entry[]> {
 
 /** a repo from GitHub: the tree of its default branch, once, then only what changed */
 export async function readRepoGh(repo: string): Promise<RepoShare> {
-  const tree = JSON.parse(await gh(["api", `repos/${repo}/git/trees/HEAD?recursive=1`])) as { tree: { path: string; type: string; sha: string; size?: number }[] };
+  const tree = JSON.parse(await rec.files.tree(repo)) as { tree: { path: string; type: string; sha: string; size?: number }[] };
   const blobs = new Map(tree.tree.filter((t) => t.type === "blob").map((t) => [t.path, t] as const));
   const place = sortPaths([...blobs.keys()]);
   const all = [...place.memory, ...place.designs, ...place.cards].map((p) => ({ path: p, sha: blobs.get(p)!.sha, ref: "HEAD" }));
@@ -310,28 +303,33 @@ const defaults = (): ShareDeps => ({
 
 const TTL = 60_000;
 let cache: Shared | null = null;
-let reading: Promise<Shared> | null = null;
+// the read under way, and the repos it reads: a room switch (#154) starts its own read rather than wait on the old room's
+let reading: { repos: string; p: Promise<Shared> } | null = null;
 const subs = new Set<(s: Shared) => void>();
 export function onShared(fn: (s: Shared) => void) { subs.add(fn); return () => { subs.delete(fn); }; }
 onRelay("changed", () => { cache = null; });
-/** drop the cached list (the tests, which read with their own deps) */
+/** drop the cached list (the tests, which read with their own deps; a room switch, #154) */
 export function forgetShared() { cache = null; }
 
 /** shared with me, from cache when younger than 60 s; refresh reads now */
 export function getShared(refresh = false, d: ShareDeps = defaults()): Promise<Shared> {
-  if (!refresh && cache && Date.now() - cache.at < TTL) return Promise.resolve(cache);
-  if (reading) return reading;
-  reading = (async () => {
+  const list = d.repos(), key = list.join(",");
+  if (!refresh && cache && Date.now() - cache.at < TTL && cache.repos.map((r) => r.repo).join(",") === key) return Promise.resolve(cache);
+  if (reading?.repos === key) return reading.p;
+  const p: Promise<Shared> = (async () => {
     const [folders, me] = await Promise.all([d.local ? d.folders().catch(() => ({} as Record<string, string>)) : Promise.resolve({} as Record<string, string>), d.me()]);
-    const repos = await Promise.all(d.repos().map(async (repo): Promise<RepoShare> => {
+    const repos = await Promise.all(list.map(async (repo): Promise<RepoShare> => {
       try { return folders[repo] ? await readRepoDisk(repo, folders[repo], me) : await readRepoGh(repo); }
       catch (e) { return { repo, from: folders[repo] ? "checkout" : "github", memory: [], designs: [], cards: [], error: `could not read ${repo}: ${String((e as Error)?.message ?? e).split("\n")[0].slice(0, 200)}` }; }
     }));
-    cache = { repos, at: Date.now() };
+    const got: Shared = { repos, at: Date.now() };
+    if (d.repos().join(",") !== key) return got;   // the room changed while this read: its asker gets it, never cached
+    cache = got;
     for (const f of subs) f(cache);
     return cache;
-  })().finally(() => { reading = null; });
-  return reading;
+  })().finally(() => { if (reading?.p === p) reading = null; });
+  reading = { repos: key, p };
+  return p;
 }
 
 // ---- opening one ----
@@ -377,13 +375,13 @@ export async function openShared(repo: string, path: string, ref?: string, d: Sh
   }
   // GitHub: the bytes once, kept in a cache folder the image and browser panes can reach
   if (k === "image" || k === "html") {
-    const bytes = await ghBytes(raw(repo, path, ref));
+    const bytes = await rec.files.bytes(repo, path, ref);
     const file = join(CACHE, safe(repo), safe(ref ?? "HEAD"), path);
     await mkdir(join(file, ".."), { recursive: true });
     await writeFile(file, bytes);
     return k === "image" ? { image: paneImage(file) } : { url: `file://${file}` };
   }
-  const text = await gh(raw(repo, path, ref));
+  const text = await rec.files.read(repo, path, ref);
   if (k === "json") { const card = cardOfFile(text); return card ? { card } : { error: "that is not a desk card" }; }
   return { text: text.slice(0, 2_000_000) };
 }

@@ -6,14 +6,15 @@
 // (`gh api orgs/<org>/members/<login>`, 204 = yes). The login GitHub returns is the one the hub stamps on everything
 // that connection says, never the one its hello claims. A yes is remembered for 10 minutes by the token's hash, so a
 // reconnect does not ask GitHub again.
+// The open gate (#157, round 35): on the beta's hub (team.json `relay.open`) and with no org, any real GitHub user is
+// let in under GitHub's login, no member check: a room joined by a code is met as who you are on GitHub.
 import type { IncomingMessage } from "node:http";
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { makeGithubRecord, record, runGh, runners, type GhAs } from "./record.js";
 
-/** GitHub's login for this token when it is a member of the org, else null */
+/** GitHub's login for this token when it is a member of the org (org "": any GitHub user), else null */
 export type Verify = (token: string, org: string) => Promise<string | null>;
-/** gh with a token in its env (never on its command line): its output, or a throw on a non-zero exit */
-export type GhAs = (args: string[], token: string) => Promise<string>;
+export type { GhAs };
 
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 const LOGIN = /^[A-Za-z0-9-]{1,39}$/;
@@ -41,14 +42,20 @@ export async function orgGate(headers: IncomingMessage["headers"], org: string, 
   return login && LOGIN.test(login) ? login : null;
 }
 
-const ghAsCli: GhAs = (args, token) => new Promise((ok, no) => {
-  const env: NodeJS.ProcessEnv = { ...process.env, GH_TOKEN: token };
-  delete env.GITHUB_TOKEN;   // only this token, nothing else the shell had
-  execFile("gh", args, { env, timeout: 15_000 }, (err, out) => (err ? no(new Error("gh refused")) : ok(String(out))));
-});
+/** the open gate (#157): GitHub's login for this knock's token, no org asked, or null (refused). A knock with no token
+ *  never comes here: it goes to the key's gate */
+export async function openGate(headers: IncomingMessage["headers"], port: number, verify: Verify): Promise<string | null> {
+  if (!originOk(headers, port)) return null;
+  const token = bearerOf(headers);
+  if (!token) return null;
+  const login = await verify(token, "").catch(() => null);
+  return login && LOGIN.test(login) ? login : null;
+}
 
-/** the hub's verify: `gh api user` and the org's member check, as that token; a yes kept 10 minutes by the token's hash */
-export function ghVerify(gh: GhAs = ghAsCli, now: () => number = Date.now): Verify {
+/** the hub's verify: `gh api user` and the org's member check, as that token; a yes kept 10 minutes by the token's hash.
+ *  org "" (the open gate): who the token is, and nothing more */
+export function ghVerify(gh: GhAs = runners.as, now: () => number = Date.now): Verify {
+  const rec = makeGithubRecord(runGh, { as: gh });
   const known = new Map<string, { login: string; org: string; until: number }>();
   return async (token, org) => {
     const key = createHash("sha256").update(token).digest("hex");
@@ -56,14 +63,19 @@ export function ghVerify(gh: GhAs = ghAsCli, now: () => number = Date.now): Veri
     if (k && k.org === org && k.until > now()) return k.login;
     known.delete(key);
     let login = "";
-    try { login = (await gh(["api", "user", "--jq", ".login"], token)).trim(); } catch { return null; }
-    if (!LOGIN.test(login) || !LOGIN.test(org)) return null;
-    try { await gh(["api", `orgs/${org}/members/${login}`, "--silent"], token); } catch { return null; }   // 204 = a member; 404 or 302 = not
+    try { login = (await rec.who.loginAs(token)).trim(); } catch { return null; }
+    if (!LOGIN.test(login) || (org && !LOGIN.test(org))) return null;
+    if (org) try { await rec.members.inOrgAs(org, login, token); } catch { return null; }   // 204 = a member; 404 or 302 = not
     known.set(key, { login, org, until: now() + TTL });
     return login;
   };
 }
 
+/** the hub's verify, which also knows its own tickets (proof.ts): a `sol1.` Bearer is this hub's signed word, asked of
+ *  nobody; anything else is a GitHub token, asked of GitHub as before (an older Sol, or a Sol on this machine) */
+export function withTickets(verify: Verify, proofs?: { check: (ticket: string, org: string) => string | null }): Verify {
+  return async (token, org) => (token.startsWith("sol1.") ? proofs?.check(token, org) ?? null : verify(token, org));
+}
+
 /** this person's GitHub token, read fresh from gh for one connect (never kept); "" when gh is not signed in */
-export const ghToken = () => new Promise<string>((ok) =>
-  execFile("gh", ["auth", "token"], { timeout: 10_000 }, (err, out) => ok(err ? "" : String(out).trim())));
+export const ghToken = () => record().who.token();

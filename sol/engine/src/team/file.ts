@@ -14,6 +14,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sign } from "./note.js";
+import { makeGithubRecord } from "./record.js";
 
 export const MODES = ["life", "work", "cowork"] as const;
 export type Mode = (typeof MODES)[number];
@@ -89,7 +90,7 @@ export async function fileIt(d: FileDeps, f: FileAsk): Promise<Filed> {
   }
   const build = await d.build().catch(() => "");
   const { title, body } = issueOf({ mode, words, page: safe(f.page), conversation: safe(f.conversation, 200), health: d.health(), build, login, shotUrl, shotNote });
-  const out = await d.gh(["issue", "create", "-R", repo, "--title", title, "--label", mode, "--body", body]);
+  const out = await makeGithubRecord(d.gh).cards.open(title, mode, body, repo);
   const m = /\/issues\/(\d+)/.exec(out);
   if (!m) throw new Error(`GitHub did not say the number (${safe(out, 120) || "no answer"})`);
   return { number: Number(m[1]), url: out.trim().split(/\s+/).pop() ?? "", shot: !!shotUrl, ...(shotNote ? { note: shotNote } : {}) };
@@ -98,14 +99,15 @@ export async function fileIt(d: FileDeps, f: FileAsk): Promise<Filed> {
 /** the shot as a file on <login>/shots (the branch made from main the first time); its URL as an issue shows it */
 async function putShot(d: FileDeps, repo: string, login: string, img: Buffer, now: Date, mode: Mode): Promise<string> {
   const ref = `${login}/shots`;
-  const exists = await d.gh(["api", `repos/${repo}/branches/${encodeURIComponent(ref)}`, "--jq", ".name"]).catch(() => "");
+  const rec = makeGithubRecord(d.gh, { input: d.ghInput });
+  const exists = await rec.code.branch(repo, ref).catch(() => "");
   if (!exists.trim()) {
-    const main = (await d.gh(["api", `repos/${repo}/git/ref/heads/main`, "--jq", ".object.sha"])).trim();
-    await d.gh(["api", "-X", "POST", `repos/${repo}/git/refs`, "-f", `ref=refs/heads/${ref}`, "-f", `sha=${main}`]);
+    const main = (await rec.code.mainSha(repo)).trim();
+    await rec.code.makeBranch(repo, ref, main);
   }
   const stamp = now.toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "").replace("T", "-");
-  const path = `shots/${stamp}-${mode}.jpg`;
-  await d.ghInput(["api", "-X", "PUT", `repos/${repo}/contents/${path}`], {
+  const path = `shots/${stamp}-${mode}.${isPng(img) ? "png" : "jpg"}`;   // a held grab is a png (holdShot)
+  await rec.files.putBody(repo, path, {
     message: `shot: ${mode}, ${stamp} (${sign(login)})`, branch: ref, content: img.toString("base64"),
   });
   return `https://github.com/${repo}/blob/${ref.split("/").map(encodeURIComponent).join("/")}/${path}?raw=true`;
@@ -141,6 +143,17 @@ export async function takeShot(owner = "Sol", title = "Sol"): Promise<string> {
   held = { id: shot, path, at: Date.now() };
   return shot;
 }
+/** hold these bytes as the shot (a grab, marked up in the sheet: Grab and Shelf); its id, for the file that follows */
+export function holdShot(buf: Buffer): string {
+  if (!buf?.length) throw new Error("no picture to hold");
+  mkdirSync(DIR, { recursive: true, mode: 0o700 });
+  drop();
+  const shot = randomBytes(6).toString("hex"), path = join(DIR, `${shot}.${isPng(buf) ? "png" : "jpg"}`);
+  writeFileSync(path, buf, { mode: 0o600 });
+  held = { id: shot, path, at: Date.now() };
+  return shot;
+}
+const isPng = (b: Buffer) => b.length > 8 && b.readUInt32BE(0) === 0x89504e47;
 /** the held shot, if it is this one and fresh */
 export function heldShot(id: string): Buffer | null {
   if (!held || held.id !== id || Date.now() - held.at > SHOT_MS) return null;
@@ -148,11 +161,3 @@ export function heldShot(id: string): Buffer | null {
 }
 /** forget the held shot (filed, or a new one taken) */
 export function drop() { if (held) { rmSync(held.path, { force: true }); held = null; } }
-
-/** gh with a JSON body: written to a private temp file, handed on --input, deleted */
-export async function ghWithInput(gh: (args: string[]) => Promise<string>, args: string[], body: object): Promise<string> {
-  mkdirSync(DIR, { recursive: true, mode: 0o700 });
-  const p = join(DIR, `body-${randomBytes(6).toString("hex")}.json`);
-  writeFileSync(p, JSON.stringify(body), { mode: 0o600 });
-  try { return await gh([...args, "--input", p]); } finally { rmSync(p, { force: true }); }
-}
