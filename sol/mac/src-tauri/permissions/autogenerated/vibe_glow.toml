@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vibe-glow"
+description = "Enables the vibe_glow command without any pre-configured scope."
+commands.allow = ["vibe_glow"]
+
+[[permission]]
+identifier = "deny-vibe-glow"
+description = "Denies the vibe_glow command without any pre-configured scope."
+commands.deny = ["vibe_glow"]

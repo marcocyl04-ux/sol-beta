@@ -48,7 +48,8 @@ export function Room({ bead, say, onTaken, onLeave }: {
     say("Looking for Sol…");
     void ask<{ windows?: SolWindow[] }>("grab.sol.windows", {}, 10_000).then((r) => {
       if (!live) return;
-      if (r.error) { say(`Could not find Sol's windows: ${r.error}`); setWins([]); return; }
+      // the eye is closed (engine/src/eye.ts): its words as they are, "Sol is hidden: open the eye to grab it"
+      if (r.error) { say(r.error.startsWith("Sol is hidden") ? r.error : `Could not find Sol's windows: ${r.error}`); setWins([]); return; }
       const w = (r.windows ?? []).map((x) => ({ ...x, x: x.x - ORIGIN.x, y: x.y - ORIGIN.y }))
         .filter((x) => x.w > 4 && x.h > 4 && x.x + x.w > 0 && x.y + x.h > 0 && x.x < innerWidth && x.y < innerHeight);
       setWins(w);

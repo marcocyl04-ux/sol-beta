@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { toggleVibe } from "./vibe";
 import { Creature, clamp, type Life } from "./creature/Widget";
 import { live, poke } from "./creature/state";
 import { bayer, tintAt, rgba, type RGB } from "./creature/ring";
@@ -10,6 +11,27 @@ import { bayer, tintAt, rgba, type RGB } from "./creature/ring";
 // glances and twitches an ear, and follows the creature's state calmly; `live` (the empty state, 56 px) it also
 // watches the pointer, keeps its dust orbit and can be poked. With reduced motion it is the still SVG.
 const reduced = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+// The mark at the top of the sidebar is the vibe switch (vibe.ts): a click turns vibe mode on or off, everything
+// spreading from it; a hold (half a second) opens its settings, the music drawer. The creature's own poke still plays.
+export function VibeMark({ size = 22 }: { size?: number }) {
+  const timer = useRef(0);
+  const held = useRef(false);
+  const down = () => {
+    held.current = false;
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => { held.current = true; window.dispatchEvent(new CustomEvent("sol-vibe-edit")); }, 450);
+  };
+  const clear = () => window.clearTimeout(timer.current);
+  const up = (e: React.PointerEvent<HTMLSpanElement>) => { clear(); if (!held.current) toggleVibe(e.currentTarget); };
+  return (
+    // no pointerleave here: the creature captures the pointer on its canvas, which makes the wrapper hear a leave at once
+    <span className="vibe-mark" onPointerDown={down} onPointerUp={up} onPointerCancel={clear}
+      title="vibe mode: click to turn it on or off, hold to set it up">
+      <Mark size={size} />
+    </span>
+  );
+}
+
 export function Mark({ size = 22, className, live: alive }: { size?: number; className?: string; live?: boolean }) {
   if (!reduced) return <MarkLive size={size} big={!!alive} className={className} />;
   return <MarkStill size={size} className={className} />;

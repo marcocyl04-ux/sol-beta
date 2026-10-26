@@ -7,11 +7,48 @@
 // test note; a push or PR from a base branch while another person's base branch is open (#98); parking the face-hot flag,
 // installing, opening or quitting Sol.app, restarting the engine's jobs, moving where Sol lives (sol/mine/live, #116; #114, the window is the person's). Any person can let one through from their own window: .claude/harness.local.json (gitignored),
 // {"allow": ["merge"]}, names the rule; the guard then says so on stderr and steps aside. Rule names are below.
-import { execFileSync } from "node:child_process";
+// It also says one thing that is not a refusal (#202, claims): an edit of a file another open PR or another side copy on
+// this machine changed gets one line of context for the agent, once per file per session, and the holder's agent is told.
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+
+const TMP = (name, key) => join(tmpdir(), `sol-guard-${name}-${createHash("sha1").update(key).digest("hex").slice(0, 12)}.json`);
+const readJson = (file, maxAge = Infinity) => { try { if (Date.now() - statSync(file).mtimeMs < maxAge) return JSON.parse(readFileSync(file, "utf8")); } catch {} return undefined; };
+const writeJson = (file, v) => { try { writeFileSync(file, JSON.stringify(v)); } catch {} };
+
+// `guard --refresh-claims <root>`: the slow half of the live claims, run detached by the hook so an edit never waits on
+// gh or git. It writes two files: every open PR's files, and the files changed on each other side copy (worktree) of
+// this repo against main plus its working tree. A call that fails writes an empty answer, so no answer is no note.
+if (process.argv[2] === "--refresh-claims") {
+  const r = process.argv[3];
+  const run = (cmd, a, dir, ms) => { try { return execFileSync(cmd, a, { cwd: dir, encoding: "utf8", timeout: ms, stdio: ["ignore", "pipe", "ignore"] }); } catch { return ""; } };
+  let prs = [];
+  try { prs = JSON.parse(run("gh", ["pr", "list", "--state", "open", "--json", "number,headRefName,author,files", "--limit", "100"], r, 15000) || "[]"); } catch {}
+  writeJson(TMP("prfiles", r), prs.map((p) => ({ number: p.number, branch: p.headRefName, login: p.author?.login ?? "", files: (p.files ?? []).map((f) => f.path) })));
+  const trees = [];
+  let cur = {};
+  for (const l of (run("git", ["worktree", "list", "--porcelain"], r, 5000) + "\n").split("\n")) {
+    if (l.startsWith("worktree ")) cur = { path: l.slice(9) };
+    else if (l.startsWith("branch refs/heads/")) cur.branch = l.slice(18);
+    else if (l === "") { if (cur.path && cur.branch) trees.push(cur); cur = {}; }
+  }
+  // a side copy's holder is its branch's prefix, made a GitHub login by docs/people/<prefix>.md ("login: x"), else kept
+  const loginOf = (prefix) => { try { return (/^login:\s*(\S+)/m.exec(readFileSync(join(r, "docs/people", prefix + ".md"), "utf8")) ?? [])[1] || prefix; } catch { return prefix; } };
+  const out = [];
+  for (const t of trees) {
+    if (resolve(t.path) === resolve(r) || /^(main|stable|live|beta)$/.test(t.branch) || /\/(mine|plan|shots)$/.test(t.branch)) continue;
+    const diff = run("git", ["diff", "--name-only", "main...HEAD"], t.path, 5000);
+    const status = run("git", ["status", "--porcelain", "--untracked-files=all"], t.path, 5000);
+    if (!diff && !status && !existsSync(t.path)) continue;
+    const files = new Set([...diff.split("\n"), ...status.split("\n").map((l) => l.slice(3).replace(/^.* -> /, ""))].filter(Boolean));
+    out.push({ path: t.path, branch: t.branch, login: t.branch.includes("/") ? loginOf(t.branch.split("/")[0]) : "", files: [...files] });
+  }
+  writeJson(TMP("worktrees", r), out);
+  process.exit(0);
+}
 
 const input = JSON.parse(readFileSync(0, "utf8") || "{}");
 const tool = input.tool_name || "";
@@ -78,6 +115,41 @@ function isFenced(p) {
   return fence().includes(abs);
 }
 
+// Claims, live (#202): on a Take branch, a file of the repo that another open PR or another side copy on this machine
+// also changed gets one line of context for the agent (the hook's additionalContext, the edit goes ahead), once per
+// file per session, and the hit goes to the engine's door (POST /claim, fire and forget) so the holder's agent hears it
+// as a claim ping. The lookup reads the two files `--refresh-claims` keeps, refreshed detached when older than a minute;
+// the matching and the words are a copy of fileOverlap and claimLine in sol/engine/src/team/claims.ts, the tested home.
+function claimNote(p) {
+  if (!branch || /^(main|stable|live|beta)$/.test(branch) || /\/(mine|plan|shots)$/.test(branch)) return "";
+  const rel = relative(root, isAbsolute(p) ? p : resolve(cwd, p)).split("\\").join("/");
+  if (!rel || rel.startsWith("../") || rel === ".." || isAbsolute(rel)) return "";
+  const said = TMP("said", String(input.session_id || cwd));
+  const done = readJson(said) ?? [];
+  if (done.includes(rel)) return "";
+  const prFile = TMP("prfiles", root), wtFile = TMP("worktrees", root);
+  const fresh = readJson(prFile, 60_000) !== undefined && readJson(wtFile, 60_000) !== undefined;
+  if (!fresh) { try { spawn(process.execPath, [process.argv[1], "--refresh-claims", root], { detached: true, stdio: "ignore" }).unref(); } catch {} }
+  const prs = (readJson(prFile) ?? []).filter((c) => c.branch !== branch && (c.files ?? []).includes(rel));
+  const prBranches = new Set(prs.map((c) => c.branch));
+  const trees = (readJson(wtFile) ?? []).filter((c) => c.branch !== branch && !prBranches.has(c.branch) && (c.files ?? []).includes(rel));
+  const hits = [...prs.map((c) => ({ ...c, pr: c.number })), ...trees];
+  if (!hits.length) return "";
+  writeJson(said, [...done, rel]);
+  const me = login(), issue = Number((/-(\d{1,6})$/.exec(branch.split("/").pop() ?? "") ?? [])[1]) || undefined;
+  const remote = git(["remote", "get-url", "origin"]);
+  const repo = (/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/.exec(remote) ?? [])[1];
+  for (const c of hits) {
+    const hitIssue = Number((/-(\d{1,6})$/.exec(c.branch.split("/").pop() ?? "") ?? [])[1]) || undefined;
+    const body = JSON.stringify({ path: rel, branch: c.branch, login: c.login, pr: c.pr, issue: hitIssue, repo, from: { login: me, branch, issue } });
+    const port = process.env.SOL_PORT || process.env.PORT || "7777";
+    try { spawn("curl", ["-s", "-o", "/dev/null", "--max-time", "1", "-X", "POST", "-H", "content-type: application/json", "--data", body, `http://127.0.0.1:${port}/claim`], { detached: true, stdio: "ignore" }).unref(); } catch {}
+  }
+  return hits.map((c) => c.pr
+    ? `claim: ${rel} is also changed on #${c.pr} (${c.login}, ${c.branch}): read it (gh pr diff ${c.pr} -- ${rel}) and build on it, or say in your PR how yours differs.`
+    : `claim: ${rel} is also being changed on ${c.branch} (${c.login}, a side copy on this machine): build on it or say so in your PR.`).join("\n");
+}
+
 const HOME_DATA = /^sol\/home\/(memory|life|school|desk|talk|output|tmp|browser-profile|voice|attachments)\/(?!\.keep$)/;
 const SECRET_FILE = /(^|\/)\.env$|^sol\/engine\/(team|settings|doors|titles)\.json$/;
 const SECRET_TEXT = /sk-ant-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|AIza[0-9A-Za-z_-]{30,}|tskey-[a-z]+-[A-Za-z0-9]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY/;
@@ -85,6 +157,8 @@ const SECRET_TEXT = /sk-ant-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|github_pat_[
 if (tool === "Edit" || tool === "Write" || tool === "MultiEdit" || tool === "NotebookEdit") {
   const p = args.file_path || args.notebook_path || "";
   if (insideSol && p && isFenced(p)) refuse("fence", `${basename(p)} is on the fence: the few face files that keep the window alive are never edited from inside a running Sol (sol/README.md, Mutable mode). Edit it from a terminal, outside Sol.`);
+  const note = p ? claimNote(p) : "";
+  if (note) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", additionalContext: note } }));
   process.exit(0);
 }
 if (tool !== "Bash") process.exit(0);

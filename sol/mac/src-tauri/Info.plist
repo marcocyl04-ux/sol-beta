@@ -4,5 +4,7 @@
 <dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>Sol listens when you dictate a message.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>In vibe mode Sol hears what this Mac is playing, only to move with it. Nothing is recorded.</string>
 </dict>
 </plist>

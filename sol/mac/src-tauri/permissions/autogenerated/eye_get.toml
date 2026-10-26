@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-eye-get"
+description = "Enables the eye_get command without any pre-configured scope."
+commands.allow = ["eye_get"]
+
+[[permission]]
+identifier = "deny-eye-get"
+description = "Denies the eye_get command without any pre-configured scope."
+commands.deny = ["eye_get"]

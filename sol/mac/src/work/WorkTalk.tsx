@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Message } from "../Message";
 import type { Item, Work } from "./useWork";
 import { WorkSteps, type TalkView } from "./WorkSteps";
@@ -22,7 +23,13 @@ export function WorkTalk({ items, busy, w, view, onFresh, onLink, onBox }: {
   const top = items.filter((i) => !i.parent && !i.quiet && i.kind !== "plan" && i.kind !== "suggest" &&
     !(i.kind === "perm" && (i.state === "allow" || i.state === "always") && i.tool !== "ExitPlanMode"));
   const plan = items.find((i) => i.kind === "plan" && (i.steps?.length ?? 0) > 0);
-  const old = !busy;
+  // "old" is loaded, not arriving: what was already in the talk when this session's items first drew. Before (2026-10-25,
+  // SMOOTH.md) it meant "not busy", so opening a busy session played the arrival of every historic row at once: a
+  // spring and two forced layouts per row, ~300 layouts and a second before the talk stood still.
+  const first = useRef<{ id: string | null | undefined; ids: Set<string> | null }>({ id: undefined, ids: null });
+  if (first.current.id !== w.live) first.current = { id: w.live, ids: null };
+  if (!first.current.ids && items.length) first.current.ids = new Set(items.map((i) => i.id));
+  const was = (id: string) => !busy || !!first.current.ids?.has(id);
   const out: React.ReactNode[] = [];
   const parent = w.live ? w.sessions.find((s) => s.id === w.live)?.parent : undefined;
   if (parent) out.push(<SessionCard key="from" id={parent} w={w} lead="started from" />);
@@ -36,6 +43,7 @@ export function WorkTalk({ items, busy, w, view, onFresh, onLink, onBox }: {
       while (i <= last && (top[i].kind === "tool" || top[i].kind === "think")) i++;
       const run = top.slice(start, i);
       i--;
+      const old = was(top[start].id);
       out.push(<WorkSteps key={`s${top[start].id}`} items={run} all={items} view={view} old={old} />);
       // a session this run started (or handed the task to) gets its own row card after the steps; a proposal its card
       for (const t of run) {
@@ -49,26 +57,26 @@ export function WorkTalk({ items, busy, w, view, onFresh, onLink, onBox }: {
       const text = String(it.text ?? "") + (it.images ? `\n[${it.images} image${it.images > 1 ? "s" : ""}]` : "");
       out.push(
         <div key={it.id} data-item={it.id} className={`wme ${it.queued ? "queued" : ""}`}>
-          <Message m={{ who: "me", text, files: it.files, old }} live={false} />
+          <Message m={{ who: "me", text, files: it.files, old: was(it.id) }} live={false} />
           <MeRow it={it} w={w} busy={busy} />
         </div>,
       );
     } else if (it.kind === "you") out.push(
       <div key={it.id} data-item={it.id} className="wyou">
-        <Message m={{ who: "you", text: fileLinks(String(it.text ?? "")), old: old && !it.live }} live={busy && i === last && !!it.live} />
+        <Message m={{ who: "you", text: fileLinks(String(it.text ?? "")), old: was(it.id) && !it.live }} live={busy && i === last && !!it.live} />
         {!busy && it.uuid && w.live && <button className="wforkhere" onClick={() => w.fork(w.live!, String(it.uuid))} title="a new session with the talk up to here">fork from here</button>}
       </div>,
     );
     else if (it.kind === "review") {   // Codex's review: its head and remarks, one card per round, where the round began
       if (drawn.has(it.round)) continue;
       drawn.add(it.round);
-      out.push(<ReviewCard key={`r${it.round}`} items={top.filter((x) => x.kind === "review" && x.round === it.round)} w={w} onBox={onBox} old={old} />);
+      out.push(<ReviewCard key={`r${it.round}`} items={top.filter((x) => x.kind === "review" && x.round === it.round)} w={w} onBox={onBox} old={was(it.id)} />);
     }
     else if (it.kind === "perm") out.push(<div key={it.id} data-item={it.id}><PermCard it={it} w={w} /></div>);   // the notch's Open lands here (land.ts)
-    else if (it.kind === "wrap") out.push(<WrapBox key={it.id} it={it} w={w} last={i === lastWrap && !busy && !top.slice(lastWrap + 1).some((x) => x.kind === "me")} onFresh={onFresh} old={old} />);
+    else if (it.kind === "wrap") out.push(<WrapBox key={it.id} it={it} w={w} last={i === lastWrap && !busy && !top.slice(lastWrap + 1).some((x) => x.kind === "me")} onFresh={onFresh} old={was(it.id)} />);
     else out.push(<p key={it.id} data-item={it.id} className={`wline ${it.kind}`}>{String(it.text ?? "")}</p>);
   }
   if (busy && top[last]?.kind === "me" && !top[last].queued) out.push(<div key="wait" className="msg you md live"><p className="wwait"><Elapsed at={top[last].at} /></p></div>);
-  if (plan) out.push(<PlanCard key="plan" it={plan} w={w} old={old} />);
+  if (plan) out.push(<PlanCard key="plan" it={plan} w={w} old={was(plan.id)} />);
   return <div className="wtalk" onClickCapture={onLink}>{out}</div>;
 }

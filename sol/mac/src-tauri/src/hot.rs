@@ -98,7 +98,7 @@ pub fn stop_vite(app: &AppHandle) {
 /// Point every window at the dev pages or back at the bundled ones, keeping each page's path and query.
 fn navigate(app: &AppHandle, base: &Url) {
     for label in LABELS {
-        let Some(w) = app.get_webview_window(label) else { continue };
+        let Some(w) = app.get_webview(label) else { continue };   // the page, whatever else its window holds (thing.rs)
         let Ok(cur) = w.url() else { continue };
         let mut to = base.clone();
         to.set_path(cur.path());
@@ -109,7 +109,7 @@ fn navigate(app: &AppHandle, base: &Url) {
 
 /// Launch: remember where the bundled pages are and read the pick. The first check() moves the windows.
 pub fn init(app: &AppHandle) {
-    let bundled = app.get_webview_window("main").and_then(|w| w.url().ok()).map(|mut u| { u.set_path("/"); u.set_query(None); u });
+    let bundled = app.get_webview("main").and_then(|w| w.url().ok()).map(|mut u| { u.set_path("/"); u.set_query(None); u });
     let st = app.state::<Hot>();
     let mut s = st.0.lock().unwrap();
     s.bundled = bundled;

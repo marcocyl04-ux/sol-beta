@@ -4,7 +4,7 @@
 // promise: motion.ts or face.css reach everything). design/ is the creature's.
 // Part of the fence with Site.tsx, renovation.ts and hot.ts: the seat never edits these four (home/CLAUDE.md).
 
-export type SiteName = "sidebar" | "composer" | "talk" | "browser" | "desk" | "settings" | "panes" | "notch" | "creature" | "face";
+export type SiteName = "sidebar" | "composer" | "talk" | "browser" | "desk" | "settings" | "conversations" | "panes" | "notch" | "creature" | "face";
 
 // paths relative to mac/src; a trailing "/" is a folder, a "*" one name part
 const MAP: [string, SiteName][] = [
@@ -14,6 +14,7 @@ const MAP: [string, SiteName][] = [
   ["Browser.tsx", "browser"],
   ["Desk.tsx", "desk"],
   ["Settings.tsx", "settings"], ["work/WorkSettings.tsx", "settings"],
+  ["Conversations.tsx", "conversations"], ["conversations.css", "conversations"],
   ["work/Panes.tsx", "panes"], ["work/*Pane.tsx", "panes"], ["work/Show.tsx", "panes"], ["work/Overview.tsx", "panes"], ["work/Diff.tsx", "panes"], ["work/Split.tsx", "panes"],
   ["notch/", "notch"],
   ["creature/", "creature"], ["Mark.tsx", "creature"],
@@ -36,6 +37,6 @@ export function siteOf(file: string): SiteName | null {
 
 // how the site is called in a line ("the sidebar", "the whole face")
 export const SITE_WORDS: Record<SiteName, string> = {
-  sidebar: "the sidebar", composer: "the box", talk: "the talk", browser: "the browser", desk: "the desk", settings: "settings",
+  sidebar: "the sidebar", composer: "the box", talk: "the talk", browser: "the browser", desk: "the desk", settings: "settings", conversations: "conversations",
   panes: "the panes", notch: "the notch", creature: "the creature", face: "the whole face",
 };

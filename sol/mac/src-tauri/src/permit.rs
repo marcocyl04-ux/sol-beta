@@ -14,8 +14,9 @@
 // underneath it where nobody can click it. permit_open puts the sheet at the normal level first, so Settings comes in
 // front; permit_back raises it again. Settings is hidden at the end because Page's scroll turns the wheel at the
 // window's centre, and Settings must not be the window under it then.
-// Screen Recording is the engine's (node takes the pictures), so there is no state for it here: the sheet sees a blank
-// picture and the card says "find node in the list".
+// Screen Recording for grabs is the engine's (node takes the pictures), so there is no state for it here: the sheet sees
+// a blank picture and the card says "find node in the list". The clean screen (clean.rs) is the one thing Sol itself
+// films; it asks with screen_trusted / ask_screen / open_pane at the end of this file.
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager};
@@ -146,5 +147,35 @@ mod ax {
                 CFRelease(d);
             }
         }
+    }
+}
+
+// ---- Screen Recording for Sol itself: the clean screen (clean.rs) ----
+/// Sol may film the screen (CGPreflightScreenCaptureAccess; no prompt).
+#[cfg(target_os = "macos")]
+pub fn screen_trusted() -> bool { unsafe { screen::CGPreflightScreenCaptureAccess() } }
+#[cfg(not(target_os = "macos"))]
+pub fn screen_trusted() -> bool { false }
+
+/// macOS's own Screen Recording prompt (once per app; it also puts this very binary in the list, like ask_trust).
+#[cfg(target_os = "macos")]
+pub fn ask_screen() { unsafe { screen::CGRequestScreenCaptureAccess(); } }
+#[cfg(not(target_os = "macos"))]
+pub fn ask_screen() {}
+
+/// System Settings at one Privacy pane ("Privacy_ScreenCapture", "Privacy_Accessibility"), with no change to any window.
+pub fn open_pane(pane: &str) -> Result<(), String> {
+    let url = format!("x-apple.systempreferences:com.apple.preference.security?{pane}");
+    let ok = std::process::Command::new("/usr/bin/open").arg(&url).status()
+        .map_err(|e| format!("System Settings did not open: {e}"))?;
+    if ok.success() { Ok(()) } else { Err("System Settings did not open".into()) }
+}
+
+#[cfg(target_os = "macos")]
+mod screen {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        pub fn CGPreflightScreenCaptureAccess() -> bool;
+        pub fn CGRequestScreenCaptureAccess() -> bool;
     }
 }

@@ -107,9 +107,42 @@ export function lineFromRelay(m: RelayMsg): TalkLine | null {
   const id = typeof m.id === "string" && /^[\w-]{1,64}$/.test(m.id) ? m.id : randomUUID();
   return { id, thread, from: agent ? `${login}'s agent` : login, at: typeof m.at === "number" ? m.at : Date.now(), text, source: "relay", ...(agent ? { agent } : {}), ...(m.to === "discord" ? { to: "discord" as const } : {}) };
 }
+// a long line sent in parts (#223, A5: the cloud takes 4 KB a message), `<id>-p<i>` with part [i, n]: put back together
+// before it is kept, so both sides keep one line. Parts that never all come are kept as far as they go after a minute
+const parts = new Map<string, { n: number; got: Map<number, RelayMsg>; timer: ReturnType<typeof setTimeout> }>();
+const PARTS_MAX = 64;
+
 /** a line from the relay, live or kept by the hub's spool while this Sol was away (#102): the same line twice, by its id
- *  or by its time, signature and words, is kept once */
+ *  or by its time, signature and words, is kept once; a part of a long one waits for the rest */
 export function hearRelay(m: RelayMsg) {
+  const p = Array.isArray(m.part) ? m.part : null, base = typeof m.id === "string" ? /^([\w-]{1,80})-p(\d{1,3})$/.exec(m.id) : null;
+  if (!p || !base) return hearOne(m);
+  const [i, n] = p.map(Number);
+  if (!Number.isInteger(i) || !Number.isInteger(n) || n < 1 || n > PARTS_MAX || i < 1 || i > n || Number(base[2]) !== i) return;
+  const login = typeof m.from?.login === "string" ? m.from.login : "";
+  const key = `${login} ${m.from?.agent === true} ${base[1]}`;
+  let w = parts.get(key);
+  if (!w) {
+    if (parts.size > 200) return;   // a flood of halves is not kept waiting
+    w = { n, got: new Map(), timer: setTimeout(() => whole(key), 60_000) };
+    w.timer.unref?.();
+    parts.set(key, w);
+  }
+  if (w.n !== n) return;
+  w.got.set(i, m);
+  if (w.got.size === n) whole(key);
+}
+function whole(key: string) {
+  const w = parts.get(key);
+  if (!w) return;
+  clearTimeout(w.timer); parts.delete(key);
+  const got = [...w.got.entries()].sort((a, b) => a[0] - b[0]).map(([, x]) => x);
+  if (!got.length) return;
+  const first = got[0], id = String(first.id).replace(/-p\d+$/, "");
+  hearOne({ ...first, id, text: got.map((x) => (typeof x.text === "string" ? x.text : "")).join("") } as RelayMsg);
+}
+
+function hearOne(m: RelayMsg) {
   const l = lineFromRelay(m);
   if (l && !linesOf(l.thread).some((x) => x.id === l.id || (x.at === l.at && x.from === l.from && x.text === l.text))) add(l);
 }

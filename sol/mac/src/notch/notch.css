@@ -25,7 +25,6 @@ html, body, #root { background: transparent !important; }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .notch .say.dim { color: #8a877f; }
-.notch canvas.ring-c { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 /* the crew (Crew.tsx, issue #15): its canvas over the slab; while it works down in the card the line moves over to make room */
 .notch canvas.crew-c { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .notch.crew .say-box { left: 60px; }
@@ -97,3 +96,285 @@ html, body, #root { background: transparent !important; }
 /* the smaller cards (tab, bar, lens, island: 84 tall) take smaller thumbs and no count */
 .notch:not(.shape-wings) .thumb { width: 44px; height: 30px; }
 .notch:not(.shape-wings) .card-btns.wide .card-meta { display: none; }
+/* The eye (#253, Card.tsx EyeMark): the quiet card's corner, above the line's right end. The pills' icon at 14 px, no disc,
+   no label; open (Sol visible) it is dim like the card's small text, closed (Sol hidden from a share) it is pearl, so the
+   unusual state is the one that shows. It rides in with the line (it sits in the say-box), so the closed notch never has it. */
+.notch .eye {
+  position: absolute; top: -34px; right: 2px; width: 22px; height: 22px; padding: 0; border: 0; background: none;
+  display: grid; place-items: center; color: #8a877f; cursor: default; transition: color 0.12s;
+}
+.notch .eye svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.notch .eye.shut, .notch .eye.on { color: #e9e6df; }
+@media (prefers-reduced-motion: reduce) { .notch .eye { transition: none; } }
+/* Anticipate (#253): the ear is one more icon
+   pill. While a talk is on the row is five discs and a hairline before the last, the ear lit (pearl ring, a faint fill)
+   because a press on it stops the talk; the row takes the room it needs, the line is short. The bar under the pills is
+   a hairline capsule to type into, its hint at the right. The card that drops under the notch is its own black slab:
+   a headline, two bullets on dim dots, the dim source and the seconds; a card Sol volunteered carries the red mark.
+   With no room under the slab (the app's window is the open card's size) it is drawn inside the slab, smaller, over
+   the line. The bar needs the wings' taller card; the smaller shapes have no room for it. */
+.notch .ib-sep { flex: none; width: 1px; height: 16px; margin: 0 1px; background: rgba(233, 230, 223, 0.22); }
+.notch .ibtn.lit .ib-disc { border-color: #e9e6df; box-shadow: inset 0 0 0 2px #000, inset 0 0 0 30px rgba(233, 230, 223, 0.16); }
+.notch .ibtn.lit.on .ib-disc { box-shadow: none; }
+/* a talk on (sitting 2, D1): the card is the quiet card; the Anticipate pill carries a red dot, its name the clock */
+.notch .ibtn.dot::after { content: ""; position: absolute; top: -1px; right: -1px; width: 7px; height: 7px; border-radius: 50%; background: #fd302d; box-shadow: 0 0 0 2px #000; pointer-events: none; }
+.notch .say.red { color: #fd302d; }
+.notch .talk-drop .talk-q { margin: 0 0 6px; font-size: 12px; line-height: 1.3; color: #8a877f; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.notch .talk-drop {
+  position: absolute; left: 50%; translate: -50% 0; width: 360px; box-sizing: border-box; padding: 14px 20px 12px;
+  background: #000; border-radius: 18px; color: #e9e6df; font-family: -apple-system, system-ui, sans-serif; cursor: default;
+  animation: talk-drop-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.15) both; transition: opacity 0.24s, translate 0.24s;
+}
+.notch.shape-wings .talk-drop:not(.inside) { width: 440px; }
+.notch .talk-drop.leaving { opacity: 0; translate: -50% -6px; }
+@keyframes talk-drop-in { from { opacity: 0; transform: translateY(-10px) scale(0.97); } to { opacity: 1; transform: none; } }
+.notch .talk-drop h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 7px; font-size: 16px; line-height: 1.25; font-weight: 600; }
+.notch .talk-drop h3 .head { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.notch .talk-drop ul { margin: 0; padding: 0; list-style: none; }
+.notch .talk-drop li { position: relative; margin: 2px 0; padding-left: 14px; font-size: 13px; line-height: 1.4; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.notch .talk-drop li::before { content: ""; position: absolute; left: 2px; top: 8px; width: 4px; height: 4px; border-radius: 50%; background: #8a877f; }
+.notch .talk-drop .src { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 11px; color: #8a877f; }
+.notch .talk-drop .src span:first-child { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.notch .talk-drop .src span:last-child { flex: none; font-variant-numeric: tabular-nums; }
+.notch .talk-drop .spoke { flex: none; margin-left: auto; display: flex; align-items: center; gap: 6px; font: 600 11px/1 -apple-system, system-ui, sans-serif; color: #fd302d; letter-spacing: 0.01em; }
+.notch .talk-drop .spoke i { width: 7px; height: 7px; border-radius: 50%; background: #fd302d; box-shadow: 0 0 0 3px rgba(253, 48, 45, 0.18); }
+/* inside the slab: under the creature, over the line, the pills and the bar; smaller so it fits the open card */
+.notch .talk-drop.inside {
+  left: 18px; right: 18px; top: calc(var(--off, 0px) + 36px); bottom: 6px; width: auto; translate: none; z-index: 2;
+  padding: 2px 6px 0; border-radius: 0 0 18px 18px; animation-name: talk-drop-in;
+}
+.notch .talk-drop.inside.leaving { translate: 0 -6px; }
+.notch .talk-drop.inside h3 { margin-bottom: 3px; font-size: 15px; }
+.notch .talk-drop.inside li { margin: 0; font-size: 12.5px; line-height: 1.35; }
+.notch .talk-drop.inside li::before { top: 7px; }
+.notch .talk-drop.inside .src { margin-top: 4px; }
+.notch:not(.shape-wings) .talk-drop.inside ul { display: none; }
+@media (prefers-reduced-motion: reduce) { .notch .talk-drop { animation: none; transition: none; } }
+/* the line with a permission sentence on it: a press opens its System Settings page, so it reads as a link */
+.notch .say-text.linked .say { text-decoration: underline dotted rgba(233, 230, 223, 0.45); text-underline-offset: 3px; }
+/* The clean screen (#253, Card.tsx PrivateRow): the eye held is a pearl disc,
+   the icon black. The row under the card is its own black slab, the slab's width: a small dim heading, a chip per app
+   (a hairline capsule, a tick when it is cut out; unticked, dim with a hollow dot), a hairline, then "Clean screen",
+   pearl, at the right; while the clean screen is open it reads "Close clean screen" in a hairline capsule instead. */
+.notch .eye.held { width: 24px; height: 24px; top: -35px; right: 1px; border-radius: 50%; background: #e9e6df; color: #000; }
+.notch .priv-row {
+  position: absolute; left: 50%; translate: -50% 0; width: 440px; box-sizing: border-box; padding: 10px; background: #000;
+  border-radius: 18px; color: #e9e6df; font-family: -apple-system, system-ui, sans-serif; cursor: default;
+  animation: talk-drop-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+}
+.notch:not(.shape-wings) .priv-row { width: 360px; }
+.notch .priv-row h5 {
+  display: flex; justify-content: space-between; gap: 12px; margin: 2px 6px 8px; font-size: 10.5px; font-weight: 500;
+  letter-spacing: 0.06em; text-transform: uppercase; color: #8a877f;
+}
+.notch .priv-row h5 .r { text-transform: none; letter-spacing: 0; }
+.notch .priv-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.notch .priv-row .chip {
+  display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px 0 9px; border-radius: 999px;
+  border: 1px solid rgba(233, 230, 223, 0.5); background: transparent; color: #e9e6df; cursor: default;
+  font: 600 12px/1 -apple-system, system-ui, sans-serif; transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+.notch .priv-row .chip svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.notch .priv-row .chip.off { color: #8a877f; border-color: rgba(233, 230, 223, 0.24); }
+.notch .priv-row .chip-dot { width: 8px; height: 8px; margin: 0 3px; border-radius: 50%; border: 1.5px solid currentColor; box-sizing: border-box; }
+.notch .priv-row .chip:hover { border-color: #e9e6df; }
+.notch .priv-row hr { margin: 8px 2px; border: 0; border-top: 1px solid rgba(233, 230, 223, 0.14); }
+.notch .priv-row .chip.go { width: max-content; margin-left: auto; background: #e9e6df; border-color: #e9e6df; color: #000; }
+.notch .priv-row .chip.go.open { background: transparent; border-color: #e9e6df; color: #e9e6df; }
+.notch .priv-row .chip.go:disabled { opacity: 0.6; }
+.notch .priv-wait { padding: 6px; font-size: 12px; color: #8a877f; }
+@media (prefers-reduced-motion: reduce) { .notch .priv-row { animation: none; } .notch .priv-row .chip { transition: none; } }
+/* Anticipate's drawer (#253): a black slab under the notch,
+   the views as pills at the top with the clock and Stop, the view, and at the foot the discs and the bar. Pearl on
+   black, hairlines between, one red: the talk's dot (and a call that is not muted). */
+.notch .drawer {
+  position: absolute; left: 50%; translate: -50% 0; box-sizing: border-box; padding: 12px 18px 14px; border-radius: 22px;
+  background: #000; color: #e9e6df; font-family: -apple-system, system-ui, sans-serif; cursor: default;
+  animation: talk-drop-in 0.26s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+}
+.notch .drawer button { font: inherit; color: inherit; cursor: default; }
+.notch .dr-top { display: flex; align-items: center; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid rgba(233, 230, 223, 0.10); }
+.notch .dr-tab { position: relative; height: 24px; padding: 0 11px; border-radius: 999px; border: 1px solid transparent; background: none; font-size: 12px !important; color: #8a877f !important; transition: color 0.12s, border-color 0.12s; }
+.notch .dr-tab:hover { color: #e9e6df !important; }
+.notch .dr-tab.on { border-color: rgba(233, 230, 223, 0.5); color: #e9e6df !important; }
+.notch .dr-wait { position: absolute; top: 3px; right: 3px; width: 4px; height: 4px; border-radius: 50%; background: #e9e6df; animation: dr-blink 1s ease-in-out infinite; }
+@keyframes dr-blink { 50% { opacity: 0.25; } }
+.notch .dr-clock { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8a877f; font-variant-numeric: tabular-nums; }
+.notch .dr-clock i { width: 6px; height: 6px; border-radius: 50%; background: #fd302d; }
+.notch .dr-stop { display: flex; align-items: center; gap: 6px; height: 24px; margin-left: 8px; padding: 0 11px 0 9px; border-radius: 999px; border: 1px solid rgba(233, 230, 223, 0.5); background: none; font-size: 12px !important; }
+.notch .dr-stop:hover { background: #e9e6df; color: #000 !important; }
+.notch .dr-stop svg { width: 9px; height: 9px; fill: currentColor; stroke: none; }
+.notch .dr-body { position: relative; margin-top: 2px; }
+.notch .dr-scroll { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px); mask-image: linear-gradient(to bottom, transparent 0, #000 22px); }
+.notch .dr-scroll::-webkit-scrollbar { display: none; }
+.notch .dr-rows { position: relative; }
+.notch .dr-turn { position: absolute; left: 0; right: 0; box-sizing: border-box; display: grid; grid-template-columns: 64px 1fr; column-gap: 10px; padding: 12px 0 0; }
+.notch .dr-turn .w { grid-row: 1 / 3; align-self: start; justify-self: start; max-width: 64px; padding: 0; border: 0; background: none; font-size: 12px !important; line-height: 18px; font-weight: 600; color: #e9e6df !important; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-align: left; }
+.notch .dr-turn.you .w { color: #8a877f !important; font-weight: 500; }
+.notch .dr-turn .w:hover { text-decoration: underline dotted rgba(233, 230, 223, 0.45); text-underline-offset: 3px; }
+.notch .dr-turn .t { font-size: 13px; line-height: 18px; color: #e9e6df; overflow-wrap: anywhere; }
+.notch .dr-turn.part .t { color: #8a877f; }
+.notch .dr-turn .at { font-size: 11px; line-height: 15px; color: #5d5b56; font-variant-numeric: tabular-nums; }
+.notch .dr-rename { grid-row: 1 / 3; align-self: start; width: 64px; box-sizing: border-box; height: 20px; padding: 0 6px; border-radius: 6px; border: 1px solid rgba(233, 230, 223, 0.5); background: #000; color: #e9e6df; font: 600 12px/1 -apple-system, system-ui, sans-serif; outline: none; user-select: text; -webkit-user-select: text; }
+.notch .dr-newest { position: absolute; left: 50%; bottom: 8px; translate: -50% 0; height: 22px; padding: 0 11px; border-radius: 999px; border: 1px solid rgba(233, 230, 223, 0.5); background: #000; font-size: 11px !important; }
+.notch .dr-newest:hover { background: #e9e6df; color: #000 !important; }
+.notch .dr-empty { margin: 0; padding: 22px 0; text-align: center; font-size: 12px; color: #8a877f; }
+.notch .dr-cards { display: flex; flex-direction: column; gap: 8px; padding: 12px 0 4px; }
+.notch .dr-cards .old { opacity: 0.62; }
+.notch .dr-card { box-sizing: border-box; padding: 12px 16px 10px; border-radius: 14px; background: #141414; border: 1px solid rgba(233, 230, 223, 0.12); }
+.notch .dr-card h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font-size: 15px; line-height: 1.25; font-weight: 600; }
+.notch .dr-card h3 .head { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.notch .dr-card .tag { flex: none; margin-left: auto; font-size: 10px; font-weight: 500; color: #8a877f; letter-spacing: 0.02em; }
+.notch .dr-card .spoke { flex: none; margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #fd302d; }
+.notch .dr-card .spoke i { width: 6px; height: 6px; border-radius: 50%; background: #fd302d; }
+.notch .dr-card ul { margin: 0; padding: 0; list-style: none; }
+.notch .dr-card li { position: relative; margin: 2px 0; padding-left: 14px; font-size: 13px; line-height: 1.4; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.notch .dr-card li::before { content: ""; position: absolute; left: 2px; top: 8px; width: 4px; height: 4px; border-radius: 50%; background: #8a877f; }
+.notch .dr-card .src { display: flex; justify-content: space-between; gap: 12px; margin-top: 6px; font-size: 11px; color: #8a877f; }
+.notch .dr-card .src span:first-child { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.notch .dr-card .src span:last-child { flex: none; font-variant-numeric: tabular-nums; }
+.notch .dr-pin { padding: 10px 0 2px; transition: opacity 0.24s, translate 0.24s; animation: talk-drop-in 0.26s cubic-bezier(0.2, 0.9, 0.3, 1.1) both; }
+.notch .dr-pin.leaving { opacity: 0; translate: 0 -6px; }
+.notch .dr-pin .dr-card { border-color: rgba(233, 230, 223, 0.42); }
+.notch .dr-pin .dr-q { margin: 0 0 6px; font-size: 12px; color: #8a877f; }
+.notch .dr-thread { display: flex; flex-direction: column; gap: 14px; padding: 12px 0 6px; }
+.notch .dr-ask .dr-q { margin: 0 0 4px; font-size: 12px; line-height: 1.35; color: #8a877f; }
+.notch .dr-ask .globe { margin-right: 6px; font-size: 11px; }
+.notch .dr-a { display: block; width: 100%; margin: 0; padding: 0; border: 0; background: none; text-align: left; font-size: 13px !important; line-height: 1.45; color: #e9e6df !important; }
+.notch button.dr-a:hover { text-decoration: underline dotted rgba(233, 230, 223, 0.45); text-underline-offset: 3px; }
+.notch .dr-a.wait { color: #8a877f; animation: dr-blink 1.4s ease-in-out infinite; }
+.notch .dr-a .ms { margin-left: 8px; font-size: 11px; color: #5d5b56; font-variant-numeric: tabular-nums; }
+.notch .dr-foot { display: flex; align-items: center; gap: 12px; margin-top: 2px; padding-top: 12px; border-top: 1px solid rgba(233, 230, 223, 0.10); }
+.notch .dr-discs { flex: none; display: flex; gap: 6px; }
+.notch .dr-disc { position: relative; width: 28px; height: 28px; padding: 0; border: 0; background: none; }
+.notch .dr-disc .disc { position: absolute; inset: 0; box-sizing: border-box; display: grid; place-items: center; border-radius: 999px; border: 1px solid rgba(233, 230, 223, 0.5); color: #e9e6df; transition: background-color 0.12s, color 0.12s; }
+.notch .dr-disc .disc svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.notch .dr-disc .disc b { font-size: 12px; font-weight: 600; }
+.notch .dr-disc.on .disc { background: #e9e6df; border-color: #e9e6df; color: #000; }
+.notch .dr-disc .nm { position: absolute; left: 50%; bottom: calc(100% + 6px); translate: -50% 4px; padding: 5px 10px; border-radius: 999px; background: #000; border: 1px solid rgba(233, 230, 223, 0.5); font-size: 11px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.12s, translate 0.12s; }
+.notch .dr-disc.on .nm { opacity: 1; translate: -50% 0; }
+.notch .dr-bar { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; box-sizing: border-box; padding: 0 12px 0 14px; border-radius: 999px; border: 1px solid rgba(233, 230, 223, 0.24); }
+.notch .dr-bar:focus-within { border-color: rgba(233, 230, 223, 0.5); }
+.notch .dr-bar input { flex: 1 1 auto; min-width: 0; height: 100%; padding: 0; border: 0; outline: none; background: transparent; font: 13px/1 -apple-system, system-ui, sans-serif; color: #e9e6df; caret-color: #e9e6df; user-select: text; -webkit-user-select: text; }
+.notch .dr-bar input::placeholder { color: #8a877f; }
+.notch .dr-hint { flex: none; font-size: 11px; color: #5d5b56; white-space: nowrap; }
+.notch .dr-hint.held { color: #e9e6df; }
+.notch .dr-hint.red { color: #fd302d; }
+@media (prefers-reduced-motion: reduce) { .notch .drawer, .notch .dr-pin { animation: none; transition: none; } .notch .dr-wait, .notch .dr-a.wait { animation: none; } }
+/* The free notch (#253, Card.tsx LineBtns, LinePills, FoldCount): a session's ask is
+   the card made smaller. The line on one row (it ellipsises), its own buttons small under it at the left with the dim
+   meta, the pills where the quiet card has them. Folded, it is a hairline capsule beside the mark: one red dot and the
+   number, nothing else red. */
+.notch.lined .say-box { align-items: flex-start; }
+.notch .fl-row { display: flex; align-items: center; gap: 5px; margin-top: 6px; min-width: 0; }
+.notch .cbtn.fl-btn { padding: 4px 9px; font-size: 11px; flex: none; }
+.notch .cbtn.fl-btn .ret { margin-left: 4px; font-size: 10px; }
+.notch .fl-meta { margin-left: 3px; min-width: 0; font: 11px/1.2 -apple-system, system-ui, sans-serif; color: #8a877f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.notch .fl-count {
+  position: absolute; left: calc(100% + 7px); top: 50%; translate: 0 -50%; display: flex; align-items: center; gap: 5px;
+  height: 18px; box-sizing: border-box; padding: 0 7px 0 6px; border-radius: 999px; border: 1px solid rgba(233, 230, 223, 0.5);
+  background: #000; color: #e9e6df; font: 600 11px/1 -apple-system, system-ui, sans-serif; cursor: default; white-space: nowrap;
+}
+.notch .fl-count i { width: 6px; height: 6px; border-radius: 50%; background: #fd302d; }
+.notch .fl-count:hover { background: #e9e6df; border-color: #e9e6df; color: #000; }
+/* the smaller cards (tab, bar, lens, island: 84 tall) lift the line a little and keep the buttons lower, so both fit */
+.notch.lined:not(.shape-wings) .say-box { top: calc(var(--off, 0px) + 35px); }
+.notch.lined:not(.shape-wings) .fl-row { margin-top: 4px; }
+.notch.lined:not(.shape-wings) .cbtn.fl-btn { padding: 3px 9px; }
+/* The half moon (#254; Moon.tsx): the wings shape's open form. Every black shape (the moon,
+   a name's bud and neck, a card's body while it buds or is absorbed) is drawn by the scene (scene.ts, #254): one
+   canvas, one shader, shapes that touch melt by a smooth-min. No filter, no class, no border. The slab div is the
+   pointer's (it opens the moon) and the hit strips' box, with no black of its own. Everything sharp (the creature, the
+   discs, words, the cards' content) is above both. */
+.notch canvas.goo { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.notch.moon > .slab { background: none; pointer-events: auto; }
+/* the creature's layer: the slab's twin (the same springs size it), no black of its own */
+.notch .slab-top {
+  position: absolute; top: var(--tab-top, 0px); left: 50%; translate: -50% 0; transform-origin: 50% 0; pointer-events: none;
+}
+.notch .slab-top .mark { pointer-events: none; }
+/* the discs on the arc: the capsule family's disc, 28 across, a hairline; hovered or held, pearl with a black icon */
+.notch .moon-discs { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.notch .mdisc {
+  position: absolute; width: 28px; height: 28px; padding: 0; border: 0; background: none; cursor: default; pointer-events: auto;
+  visibility: hidden;
+}
+.notch .mdisc .ib-disc { transform-origin: 50% 100%; }
+.notch .mdisc.dim .ib-disc { color: #8a877f; border-color: rgba(233, 230, 223, 0.32); }
+.notch .mdisc.on .ib-disc { background: #e9e6df; border-color: #e9e6df; color: #000; }
+.notch .mdisc.lit .ib-disc { border-color: #e9e6df; box-shadow: inset 0 0 0 2px #000, inset 0 0 0 30px rgba(233, 230, 223, 0.16); }
+.notch .mdisc.lit.on .ib-disc { box-shadow: none; }
+.notch .mdisc.dot::after { content: ""; position: absolute; top: -1px; right: -1px; width: 7px; height: 7px; border-radius: 50%; background: #fd302d; box-shadow: 0 0 0 2px #000; pointer-events: none; }
+.notch .mdisc .m-count {
+  position: absolute; top: -6px; right: -7px; min-width: 14px; height: 14px; box-sizing: border-box; padding: 0 3px; border-radius: 7px;
+  background: #e9e6df; color: #000; box-shadow: 0 0 0 2px #000; font: 700 9.5px/14px -apple-system, system-ui, sans-serif; text-align: center;
+  pointer-events: none; z-index: 1;
+}
+.notch .mdisc.dot:has(.m-count)::after { display: none; }
+.notch .mdisc .m-clock {
+  position: absolute; left: 50%; top: calc(100% + 3px); translate: -50% 0; font: 500 10.5px/1 -apple-system, system-ui, sans-serif;
+  color: #e9e6df; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none;
+}
+/* the name's bud grows over the clock at the bottom of the moon: the clock steps aside while the name is out */
+.notch .mdisc.on .m-clock { visibility: hidden; }
+/* a name: pearl words on the bud's black (the bud is a scene shape, so it melts into the moon while it grows) */
+.notch .bud-word {
+  position: absolute; left: 0; top: 0; margin-left: 50%; height: 26px; box-sizing: border-box; padding: 0 11px; white-space: nowrap;
+  font: 600 12.5px/26px -apple-system, system-ui, sans-serif; letter-spacing: 0.005em; color: #e9e6df; visibility: hidden; pointer-events: none; z-index: 4;
+}
+/* the Sessions disc's name with what runs under it: the head line as the name, then one dimmer row each */
+.notch .bud-word.rows { height: auto; padding: 5px 11px 6px; line-height: 18px; }
+/* each running row keeps its card's buttons (Stop, Hang up, Open) small at its right: the words give way, the buttons
+   never; while they are out the bud takes the pointer (it is a hit region already), so they can be pressed */
+.notch .bud-word.live { pointer-events: auto; cursor: default; }
+.notch .bud-word .bw-row { display: flex; align-items: center; gap: 10px; min-height: 22px; font-weight: 500; color: #c9c6bf; max-width: 320px; }
+.notch .bud-word .bw-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.notch .bud-word .bw-btns { flex: none; display: flex; gap: 5px; margin-left: auto; }
+/* a card: a black rounded slab, pearl words; the black is the scene's body while it buds or is absorbed (.melting) */
+.notch .float {
+  position: absolute; left: 50%; top: 0; box-sizing: border-box; min-width: 200px; max-width: 360px; padding: 12px 16px;
+  background: #000; border-radius: 20px; color: #e9e6df; font: 13px/1.3 -apple-system, system-ui, sans-serif; cursor: default;
+  transform-origin: 50% 50%;
+}
+.notch .float.melting { background: transparent; }
+.notch .float.bare { padding: 0; max-width: none; }
+.notch .float .fl-content { position: relative; }
+.notch .float .fx {
+  position: absolute; top: -6px; right: -8px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none;
+  color: rgba(233, 230, 223, 0.36); font: 400 15px/18px -apple-system, system-ui, sans-serif; cursor: default; z-index: 2;
+}
+.notch .float .fx:hover { color: #e9e6df; background: rgba(233, 230, 223, 0.12); }
+/* the drawer's own row runs to its corner: its x is a small black disc sitting on the corner's curve (half on the black,
+   like a notification's close bubble), clear of Stop */
+.notch .float.bare .fx { top: -3px; right: -3px; width: 20px; height: 20px; line-height: 20px; background: #000; box-shadow: 0 0 0 1.5px rgba(233, 230, 223, 0.22); }
+.notch .float.bare .fx:hover { background: #1a1a1a; }
+/* the session cards stack in one column: one width, so the stack reads as a column */
+.notch .float.sess { min-width: 216px; }
+.notch .fc-head { display: flex; align-items: center; gap: 9px; padding-right: 16px; min-width: 0; }
+.notch .fc-mark { flex: none; width: 13px; height: 13px; shape-rendering: crispEdges; }
+.notch .fc-line { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13.5px; }
+.notch .fc-line b { font-weight: 600; }
+.notch .fc-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.notch .fc-meta { margin-left: auto; padding-left: 12px; font-size: 11px; color: rgba(233, 230, 223, 0.42); white-space: nowrap; }
+.notch .fc-say { margin: 0; padding-right: 18px; font-size: 13.5px; line-height: 1.35; text-align: center; max-width: 320px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.notch .fc-say.dim { color: #8a877f; }
+.notch .fc-say.red { color: #fd302d; }
+.notch .fc-row-card { padding-right: 16px; }
+.notch .fc-title { margin: 0 0 10px; font-size: 13.5px; font-weight: 600; }
+.notch .float .card-btns { max-width: none; align-items: flex-start; margin: 0; padding: 0; }
+.notch .float .card-btns .ib-name { right: auto; left: 0; transform-origin: 0 100%; }
+/* the rows the moon reuses as they are (the private list, a talk's card, the drawer): their own black, no place of their own */
+.notch .float .priv-row, .notch .float .talk-drop, .notch .float .drawer { position: relative; left: auto; top: auto !important; translate: none; animation: none; }
+/* inside a card the row is the card's content: the card's padding is its padding, the card sizes to it */
+.notch .float:has(> .fl-content > .priv-row), .notch .float:has(> .fl-content > .talk-drop) { max-width: none; }
+.notch .float .priv-row { width: 340px; padding: 0; background: transparent; }
+.notch .float .priv-row h5 { margin: 0 24px 8px 0; }
+.notch .float .talk-drop { width: 340px; padding: 0; background: transparent; }
+.notch .float .drawer { background: transparent; }
+.notch .float .talk-drop.leaving { opacity: 1; translate: none; }
+@media (prefers-reduced-motion: reduce) {
+  /* no necks and no melt: the scene draws them so under reduced motion (scene.ts drawn, Moon.tsx neckTo) */
+  .notch .float { animation: float-fade 0.2s ease-out both; }
+}
+@keyframes float-fade { from { opacity: 0; } to { opacity: 1; } }

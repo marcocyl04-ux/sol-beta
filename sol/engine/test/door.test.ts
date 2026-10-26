@@ -45,3 +45,13 @@ test("loopback: Sol's pages pass, a foreign page is refused, no Origin passes un
   assert.equal(doorOpen({}, opts), true);
   assert.equal(doorOpen({ "sec-fetch-site": "cross-site" }, opts), false);
 });
+
+test("loopback: a subresource of Sol's own page (an image of a page in the pane, #54) passes on its Referer; a foreign page's does not", () => {
+  const opts = { port: 7777, owner: "" };
+  const sub = { "sec-fetch-site": "cross-site", "sec-fetch-mode": "no-cors", "sec-fetch-dest": "image" };
+  assert.equal(doorOpen({ ...sub, referer: "tauri://localhost/" }, opts), true);
+  assert.equal(doorOpen({ ...sub, referer: "http://localhost:1420/" }, opts), true);
+  assert.equal(doorOpen({ ...sub, referer: "https://evil.example/" }, opts), false);
+  assert.equal(doorOpen({ ...sub }, opts), false);
+  assert.equal(doorOpen({ "sec-fetch-site": "cross-site", "sec-fetch-mode": "cors", referer: "tauri://localhost/" }, opts), false);
+});

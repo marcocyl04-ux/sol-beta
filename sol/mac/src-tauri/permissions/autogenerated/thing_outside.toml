@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-thing-outside"
+description = "Enables the thing_outside command without any pre-configured scope."
+commands.allow = ["thing_outside"]
+
+[[permission]]
+identifier = "deny-thing-outside"
+description = "Denies the thing_outside command without any pre-configured scope."
+commands.deny = ["thing_outside"]

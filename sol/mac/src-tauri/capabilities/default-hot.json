@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default-hot",
-  "description": "The main window in mutable mode, its page served by Vite on localhost:1420; also Work's pop-out windows (work-*)",
-  "windows": [
+  "description": "The main window in mutable mode, its page served by Vite on localhost:1420; also Work's pop-out windows (work-*). Named by web view, never by window: a thing's child web view inside the main window (thing.rs) matches no capability",
+  "webviews": [
     "main",
     "work-*"
   ],
@@ -25,6 +25,17 @@
     "allow-face-log",
     "allow-face-mode",
     "allow-face-state",
+    "allow-vibe-start",
+    "allow-vibe-stop",
+    "allow-vibe-glow",
+    "allow-thing-open",
+    "allow-thing-show",
+    "allow-thing-bounds",
+    "allow-thing-close",
+    "allow-thing-nav",
+    "allow-thing-outside",
+    "allow-sites-sign-out",
+    "allow-sites-clear",
     {
       "identifier": "opener:allow-open-path",
       "allow": [

@@ -3,7 +3,7 @@
 // Colour catches attention and nothing else: Working wears the sol gradient moving (the only moving colour), Your call
 // yellow (strong on arrival, soft after), done green, wrong red, Unplugged red soft and steady. Every other state wears
 // its seat's gradient (home candy to heart, work sun to orange), as before step 3 (repair, Marco 2026-10-18: "some things
-// by design should have colour"). The one plain thing is the chat box's fringe (indicators.tsx Fringe).
+// by design should have colour"). The chat box's fringe went with the look, sitting 2 (2026-10-25).
 import type { CreatureState, Flash } from "./states";
 import { CREATURE, FUNCTIONAL, GRADIENTS, INK, type RGB } from "./palette";
 export type { RGB };
@@ -99,4 +99,13 @@ const PAPERS = {
   work: { raised: [42, 42, 42] as RGB, line: [48, 48, 48] as RGB, ink: "#ebebe8", dim: "#9a9a97", mute: "#5c5c5a", grain: "rgba(235,235,232,0.035)" },
 };
 export const PAPER = { ...PAPERS.home };
-export function setPaper(mode: "home" | "work") { Object.assign(PAPER, PAPERS[mode]); }
+export function setPaper(mode: "home" | "work") { Object.assign(PAPER, PAPERS[mode], LOOK_PAPER); }
+// the look (look.ts): the canvases draw with the base's own steps, flattened, since a canvas cell is opaque.
+// `on` is white on a dark base, black on a light one; the base is the window's colour.
+const LOOK_PAPER: Partial<typeof PAPERS.home> = {};
+export function setPaperLook(base: RGB, on: RGB) {
+  const mix = (t: number): RGB => [base[0] + (on[0] - base[0]) * t, base[1] + (on[1] - base[1]) * t, base[2] + (on[2] - base[2]) * t];
+  const hex = (c: RGB) => `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})`;
+  Object.assign(LOOK_PAPER, { raised: mix(0.10), line: mix(0.12), ink: hex(mix(0.92)), dim: hex(mix(0.55)), mute: hex(mix(0.32)), grain: `rgba(${on[0]},${on[1]},${on[2]},0.035)` });
+  Object.assign(PAPER, LOOK_PAPER);
+}

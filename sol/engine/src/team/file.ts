@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sign } from "./note.js";
 import { makeGithubRecord } from "./record.js";
+import { HIDDEN, solHidden } from "../eye.js";
 
 export const MODES = ["life", "work", "cowork"] as const;
 export type Mode = (typeof MODES)[number];
@@ -130,8 +131,10 @@ for (let i = 0; i < a.count; i++) { const w = a.objectAtIndex(i); const u = (k) 
   if (!best || score > best.score) best = { id: u('kCGWindowNumber'), score }; }
 best ? String(best.id) : '';`;
 
-/** take the window's shot now and hold it; its id, for the file that follows */
+/** take the window's shot now and hold it; its id, for the file that follows. While the eye is closed (eye.ts) the
+ *  window is blank to screencapture: refused with HIDDEN, nothing held */
 export async function takeShot(owner = "Sol", title = "Sol"): Promise<string> {
+  if (solHidden()) throw new Error(HIDDEN);
   if (process.platform !== "darwin") throw new Error("a screenshot needs the Mac");
   const id = (await run("osascript", ["-l", "JavaScript", "-e", FIND(owner, title)])).trim();
   if (!/^\d+$/.test(id)) throw new Error("the Sol window was not found");

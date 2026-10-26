@@ -13,6 +13,12 @@ const App = lazy(() => import("./App"));
 // the press animation comes from a seat-editable file: loaded after the mount, so a broken edit there cannot stop the page
 void import("./motion").then((m) => m.installPress()).catch(() => {});
 start();
+document.documentElement.dataset.face = "";   // this page is the face: it alone draws the glass (face.css)
+if ("__TAURI_INTERNALS__" in window) document.documentElement.dataset.app = "";
+import("./look").then((l) => l.applyKeptLook()).catch(() => {});
+// a thing's page is native, over the face (cowork/thingView.ts): a face that loads again (a reload, a new face) never
+// finds one left on screen from the page before; the main window's only, a pop-out has none
+if ("__TAURI_INTERNALS__" in window) void import("@tauri-apps/api/window").then(async ({ getCurrentWindow }) => { if (getCurrentWindow().label === "main") await (await import("./cowork/thingView")).shell.close(); }).catch(() => {});   // the kept look, before the engine answers; never over the engine's
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <Site name="face"><Suspense fallback={null}><App /></Suspense></Site>

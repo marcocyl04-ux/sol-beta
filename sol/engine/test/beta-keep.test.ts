@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -96,4 +96,12 @@ test("a tester's rebase: the beta repo has no stable, so their */mine goes onto 
   git(house, "push", "-q", beta, "main");
   git(tester, "fetch", "-q", "origin");
   assert.throws(() => execFileSync("bash", [rebase], { cwd: tester, stdio: "pipe" }), /no stable branch/);
+});
+
+test("every file the export keeps, as it is in this checkout, passes the export check (S6b: a test's address once slipped in)", () => {
+  const root = git(join(import.meta.dirname, ".."), "rev-parse", "--show-toplevel");
+  const files = git(root, "ls-files", "-z", "--", ...BETA_KEEP).split("\0").filter(Boolean);
+  assert.ok(files.length > 100, "the kept paths are there");
+  const offences = files.map((f) => { try { return exportOffence(f, readFileSync(join(root, f))); } catch { return null; } }).filter(Boolean);
+  assert.deepEqual(offences, []);
 });

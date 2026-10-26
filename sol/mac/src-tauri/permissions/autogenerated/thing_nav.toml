@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-thing-nav"
+description = "Enables the thing_nav command without any pre-configured scope."
+commands.allow = ["thing_nav"]
+
+[[permission]]
+identifier = "deny-thing-nav"
+description = "Denies the thing_nav command without any pre-configured scope."
+commands.deny = ["thing_nav"]

@@ -10,12 +10,14 @@
 //
 // handleGrab answers every `shelf.*` and `grab.*` ask (index.ts routes them here like `team.*`): the same type and
 // rid back, or { type, rid, error }. The Sol-window filter is pure and tested; nothing in a test takes a picture.
+// While the eye is closed (eye.ts) Sol's windows are blank to a picture: the Sol room's two asks answer HIDDEN instead.
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { holdShot } from "./team/file.js";
+import { HIDDEN, solHidden } from "./eye.js";
 import { addToShelf, deleteFromShelf, fromFileIn, keepOnShelf, listShelf, pngSize, putOnShelf, replaceOnShelf, stampOf, KINDS, type ShelfKind } from "./shelf.js";
 
 export type CGWindow = { id: number; owner: string; title: string; layer: number; onScreen: boolean; bounds: { x: number; y: number; w: number; h: number } };
@@ -150,8 +152,10 @@ export async function handleGrab(w: Out, m: any): Promise<void> {
         return reply({ item: putOnShelf(buf, `shot-${stampOf(new Date())}.png`, "image/png", "shot") });
       }
       case "grab.sol.windows":
+        if (solHidden()) return reply({ error: HIDDEN });
         return reply({ windows: await listSolWindows() });
       case "grab.sol.take": {
+        if (solHidden()) return reply({ error: HIDDEN });
         const buf = await takeWindow(Number(m.id));
         return reply({ item: putOnShelf(buf, `sol-${stampOf(new Date())}.png`, "image/png", "sol") });
       }

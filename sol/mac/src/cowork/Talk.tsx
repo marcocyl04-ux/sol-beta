@@ -37,6 +37,14 @@ export function Talk({ team, flash }: { team: Team; flash: (s: string) => void }
   const [text, setText] = useState(unsent);
   useEffect(() => { try { sessionStorage.setItem(TEXT, text); } catch { /* a private window */ } }, [text]);
   const [said, setSaid] = useState<{ t: string; bad: boolean } | null>(null);   // the answer to the last send, under the box
+  // S6b: the room meets on the cloud and this Sol has no account there; Google in the system browser, up to ten minutes
+  const [signing, setSigning] = useState(false);
+  const signInSol = async () => {
+    setSigning(true);
+    const r = await team.ask<{ ok?: boolean; login?: string; error?: string }>("team.cloud.signin", {}, 11 * 60_000);
+    setSigning(false);
+    setSaid(r.ok ? { t: `signed in to Sol as ${r.login}`, bad: false } : { t: plain(r.error ?? "the sign-in did not finish"), bad: true });
+  };
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const fresh = useRef(new Set<string>());     // ids that just arrived: they slide in
@@ -67,6 +75,12 @@ export function Talk({ team, flash }: { team: Team; flash: (s: string) => void }
     return () => { on = false; };
   }, [thread, team.up]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // the hub's word (#223): a line it asked to wait, my place in its queue, a Sol too old for it; said under the box
+  useEffect(() => team.onHub((w) => {
+    if (w.say === "retry" && w.what === "talk") setSaid({ t: `the cloud asked to slow down: sending again in ${w.after ?? 1} s`, bad: false });
+    else if (w.say === "queue") setSaid({ t: `the cloud is busy: you are in line${w.ahead ? `, ${w.ahead} ahead` : ""}; in again in about ${w.wait ?? 10} s, by itself`, bad: false });
+    else if (w.say === "update") setSaid({ t: "this Sol is older than the cloud takes: please update Sol", bad: true });
+  }), [team]); // eslint-disable-line react-hooks/exhaustive-deps
   // a line said anywhere on the team, or brought in from an export, arrives here
   useEffect(() => {
     if (DEV_TALK) { devAdd = add; return () => { devAdd = null; }; }
@@ -150,6 +164,9 @@ export function Talk({ team, flash }: { team: Team; flash: (s: string) => void }
       </div>
       <div className="tk-foot">
         {said && <p className={`tk-said ${said.bad ? "tk-no" : ""}`} role="status">{said.t}</p>}
+        {team.state?.cloud?.need && <p className="tk-said tk-no" role="status">this room meets on the cloud: sign in to Sol to talk here{" "}
+          <button className="wlink" disabled={signing} onClick={() => void signInSol()}>{signing ? "finish in the browser…" : "sign in with Google"}</button></p>}
+        {team.state?.cloud?.gone && <p className="tk-said tk-no" role="status">the cloud does not know this room's code yet: its maker can move it there (bash sol/cloud/move), or ask Frank or Marco to bring the NucBox's rooms over</p>}
         <div className="tk-box">
           <textarea ref={box} rows={1} value={text} placeholder={`say something in ${title(thread)}`} spellCheck
             onChange={(ev) => { setText(ev.target.value); if (said) setSaid(null); }}

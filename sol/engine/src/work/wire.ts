@@ -25,10 +25,19 @@ import { changes, pathIn, readText, writeText, pullRequest, openTerm, getTerm, c
 import { remote, changesSummary, createPr } from "./overview.js";
 import { withMine } from "./mine.js";
 import { brief, teamNote, runGit } from "../team/note.js";
-import { runGh } from "../team/record.js";   // the room's record (#152)
-import { getTeam, myLogin, mayAgentSpeak } from "../team/settings.js";
-import { sendRelay, relayUp } from "../team/relay.js";
+import { runGh, record } from "../team/record.js";   // the room's record (#152)
+import { getTeam, myLogin, mayAgentSpeak, activeRoom, recordOf } from "../team/settings.js";
+import { getThings, agentAdd, agentFolder, agentMove, thingsText } from "../team/things.js";   // the room's things (#194)
+import { agentIn } from "../team/here.js";   // in_thing (#230)
+import { feedText } from "../team/feed.js";   // room_feed (#232)
+import { goalForAgent, setGoal, addGoalFile } from "../team/goal.js";   // the room's goal (#216)
+import { calendar, calendarText, agentEventAdd } from "../team/calendar.js";   // the room's own tools (#245)
+import { decisions, decisionsText, agentDecisionAdd } from "../team/decisions.js";
+import { polls, pollsText, agentPollAdd } from "../team/polls.js";
+import { sendRelay, relayUp, hubLogin } from "../team/relay.js";
+import { CLOUD_RECORD, DRIVE_RECORD } from "../team/settings.js";
 import { takePings, pingsText } from "../team/pings.js";
+import { onCall, onCallText } from "../team/oncall.js";   // on-call (#225)
 import { shows, issueAt, repoOf } from "../team/show.js";   // Show to team (#101)
 
 type Wire = { send: (m: object) => void };
@@ -448,6 +457,8 @@ export async function showSession(id: string, on: boolean): Promise<{ shown: boo
     return { shown: false, note };
   }
   if (!run) throw new Error("this session is not running: send it a message, then show it");
+  // a room session streaming to its room (#238) is shown on its issue instead: the room show ends first
+  if (shows.roomShows().includes(id)) await shows.stop(id);
   if (shows.showing(id)) return { shown: true };
   const issue = await issueAt(runGit, run.cwd);
   if (!issue) throw new Error("this session's branch does not name a team issue (start the work with sol/take <issue>)");
@@ -528,15 +539,88 @@ setWorkHooks({
     const r = await showSession(from, on);
     return r.note ?? (r.shown ? "shown: the team sees this session's new lines, read-only, until it ends or is switched off" : "it was not shown");
   },
+  // the room's things (#194): the list as lines; an add through the same policy and compare-and-swap as the face's,
+  // marked as the agent's, refused when my agent may not speak where the record is: GitHub, or Cowork for a cloud room (#216)
+  async things() {
+    const repo = recordOf(activeRoom(getTeam()));
+    return thingsText(repo ? await getThings(thingsDeps(), repo) : { v: 1, things: [] }, repo);
+  },
+  async thingAdd(_from, url, name, folder) {
+    const repo = recordOf(activeRoom(getTeam())), onCloud = repo.startsWith(CLOUD_RECORD) || repo.startsWith(DRIVE_RECORD);
+    const login = (onCloud ? hubLogin() : "") || getTeam().me.login || (await myLogin().catch(() => ""));
+    return agentAdd(thingsDeps(), { repo, mayGitHub: mayAgentSpeak(getTeam(), onCloud ? "cowork" : "github"), login, url, name, parent: folder });
+  },
+  // room_folder_add, room_thing_move (#248): the same CAS as the face's, under the same "may my agent speak" rule
+  async folderAdd(_from, name) {
+    const repo = recordOf(activeRoom(getTeam())), onCloud = repo.startsWith(CLOUD_RECORD) || repo.startsWith(DRIVE_RECORD);
+    const login = (onCloud ? hubLogin() : "") || getTeam().me.login || (await myLogin().catch(() => ""));
+    return agentFolder(thingsDeps(), { repo, mayGitHub: mayAgentSpeak(getTeam(), onCloud ? "cowork" : "github"), login, name });
+  },
+  async thingMove(_from, id, to) {
+    const repo = recordOf(activeRoom(getTeam())), onCloud = repo.startsWith(CLOUD_RECORD) || repo.startsWith(DRIVE_RECORD);
+    return agentMove(thingsDeps(), { repo, mayGitHub: mayAgentSpeak(getTeam(), onCloud ? "cowork" : "github"), id, to });
+  },
+  // in_thing (#230): the agent of this session is in one of the room's things; an unknown id is refused in one line
+  async inThing(from, id) {
+    const repo = recordOf(activeRoom(getTeam()));
+    if (!repo) return "this room has no record yet; nothing to be in";
+    return agentIn((await getThings(thingsDeps(), repo)).things, id, from);
+  },
+  // room_feed (#232): the room's feed as plain lines, the same read the face's "what happened" uses
+  async feed() {
+    const { feed, roomKeyNow } = await import("../team/wire.js");   // loaded first by index.ts: no load-order cycle
+    const r = await feed.lines(roomKeyNow());
+    return (r.error ? `(${r.error}; these are from before)\n` : "") + feedText(r.lines);
+  },
+  // the room's goal (#216): read as the room's words; set or a file added only when the human asks (the tools say so),
+  // signed as the agent, and only where my agent may speak (Cowork for a cloud room, GitHub for a GitHub room)
+  async goal() {
+    return goalForAgent(thingsDeps(), recordOf(activeRoom(getTeam())));
+  },
+  async goalSet(_from, title, lines) {
+    const repo = recordOf(activeRoom(getTeam())), onCloud = repo.startsWith(CLOUD_RECORD) || repo.startsWith(DRIVE_RECORD);
+    if (repo && !mayAgentSpeak(getTeam(), onCloud ? "cowork" : "github")) return `not set: my agent may not speak ${onCloud ? "in Cowork" : "on GitHub"} (Settings, my agent)`;
+    const r = await setGoal(thingsDeps(), repo, { title, lines, by: `${(onCloud ? hubLogin() : "") || getTeam().me.login || (await myLogin().catch(() => ""))}'s agent` });
+    return "error" in r ? `not set: ${r.error}` : `the room's goal is now: ${r.goal.title}`;
+  },
+  // the room's own tools (#245): read as the room's words; written only when the human asks (the tools say so), signed
+  // as the agent, and only where my agent may speak (Cowork for a cloud room, GitHub for a GitHub room)
+  async calendar() { const repo = recordOf(activeRoom(getTeam())); return calendarText(repo ? await calendar.get(thingsDeps(), repo) : { v: 1, events: [] }, repo, Date.now()); },
+  async decisions() { const repo = recordOf(activeRoom(getTeam())); return decisionsText(repo ? await decisions.get(thingsDeps(), repo) : { text: "", decisions: [] }, repo); },
+  async polls() { const repo = recordOf(activeRoom(getTeam())); return pollsText(repo ? await polls.get(thingsDeps(), repo) : { v: 1, polls: [] }, repo); },
+  async eventAdd(_from, e) { const a = await agentWho(); return agentEventAdd(thingsDeps(), { ...a, ...e }); },
+  async decisionAdd(_from, title, lines) { const a = await agentWho(); return agentDecisionAdd(thingsDeps(), { ...a, title, lines }); },
+  async pollAdd(_from, question, options) { const a = await agentWho(); return agentPollAdd(thingsDeps(), { ...a, question, options }); },
+  // on-call (#225): only on an admin's Sol (SOL_CLOUD_WATCH); a proposal waits for a person, slow undoes itself
+  async cloudAlerts() { return (await onCall()?.state()) ?? onCallText.off; },
+  async cloudPropose(action, target, why) { return (await onCall()?.propose(action, target, why)) ?? onCallText.off; },
+  async cloudSlow(minutes, why) { return (await onCall()?.slow(minutes, why)) ?? onCallText.off; },
+  async goalFile(_from, name, text) {
+    const repo = recordOf(activeRoom(getTeam())), onCloud = repo.startsWith(CLOUD_RECORD) || repo.startsWith(DRIVE_RECORD);
+    if (repo && !mayAgentSpeak(getTeam(), onCloud ? "cowork" : "github")) return `not added: my agent may not speak ${onCloud ? "in Cowork" : "on GitHub"} (Settings, my agent)`;
+    const r = await addGoalFile(thingsDeps(), repo, { name, text });
+    return "error" in r ? `not added: ${r.error}` : `added ${name} beside the goal; ${r.goal.files.length} file${r.goal.files.length === 1 ? "" : "s"} there now`;
+  },
 });
+const thingsDeps = () => ({ record, changed: (repo: string) => { sendRelay("changed", { repo }); } });
+// the room in use's record, whether my agent may write there, and who it writes as (the things' rule, #194, #216)
+const agentWho = async () => {
+  const repo = recordOf(activeRoom(getTeam())), onCloud = repo.startsWith(CLOUD_RECORD) || repo.startsWith(DRIVE_RECORD);
+  return { repo, may: mayAgentSpeak(getTeam(), onCloud ? "cowork" : "github"), login: (onCloud ? hubLogin() : "") || getTeam().me.login || (await myLogin().catch(() => "")) };
+};
 
 const carding = new Map<string, Promise<string>>();   // proposal cards being started, by proposer and card
 
 // a session started from another (a tool, a hand-off, a proposal card): nested under it, on the Work defaults from the
-// settings file, never its parent's picks (#94: a sub-session in manual mode once set the face to manual)
+// settings file for its model and effort (#94), and on its parent's permission mode while the parent is live: a session
+// left to run unasked starts its sub-sessions unasked too, instead of dropping them to the default and asking (Frank,
+// 2026-10-26). Plan is not handed down: a sub-session is started to do the work. The face no longer follows a run's mode,
+// so the #94 face bug cannot come back through this.
 async function startFrom(from: string, a: Start & { card?: string }): Promise<string> {
   const parent = getRun(from);
-  const like = { parent: from, ...workDefaults() };
+  const d = workDefaults();
+  const mode = parent && parent.mode !== "plan" ? parent.mode : d.mode;
+  const like = { parent: from, ...d, mode };
   if (a.fork) {
     if (a.worktree) throw new Error("a fork stays in its own folder; start it fresh to put it in a side copy");
     const id = (await forkSession(from, { title: a.title })).sessionId;

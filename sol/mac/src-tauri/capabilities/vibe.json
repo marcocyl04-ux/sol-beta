@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "vibe",
+  "description": "The vibe glow window (vibe.html): it only listens to events (the music's levels, on/off), nothing else",
+  "windows": [
+    "vibe"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

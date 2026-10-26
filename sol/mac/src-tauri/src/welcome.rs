@@ -78,11 +78,12 @@ pub fn welcome_done(app: AppHandle) -> Result<(), String> {
 
 /// The main window on one of the bundled pages ("/" the face, "/welcome.html" the welcome), the same host it is on.
 pub fn show_page(app: &AppHandle, path: &str) {
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_webview("main") {   // the face's web view; the window may hold a thing too (thing.rs)
         if let Ok(mut u) = w.url() {
             u.set_path(path);
             u.set_query(None);
             let _ = w.navigate(u);
         }
+        crate::eye::apply(&w.window());   // the main window keeps the eye across its pages (eye.rs)
     }
 }

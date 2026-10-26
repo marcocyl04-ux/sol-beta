@@ -17,10 +17,10 @@ process.env.SOL_STATE = join(tmp("sol-state-"), "work.json");
 process.env.SOL_HOME = tmp("sol-home-");
 process.env.SOL_HUB = "wss://shared.example.net/relay";
 
-const { Registry, makeCode, CODE, REGISTRY_MAX, PEOPLE_MAX, PER_MAKER, LONELY } = await import("../src/team/registry.ts");
+const { Registry, makeCode, CODE, REGISTRY_MAX, PEOPLE_MAX, PER_MAKER, LONELY } = await import("../src/hub/index.ts");
 const { RelayHub, RelayClient, knock, relayServer, relayRoutes, relayAuth, relayUrl } = await import("../src/team/relay.ts");
 const { ghVerify } = await import("../src/team/identity.ts");
-const { Spool } = await import("../src/team/spool.ts");
+const { Spool } = await import("../src/hub/index.ts");
 const { shareRoom, joinRoom, hubHttp } = await import("../src/team/rooms.ts");
 const T = await import("../src/team/settings.ts");
 type RelayMsg = import("../src/team/relay.ts").RelayMsg;
@@ -77,7 +77,7 @@ test("registry: a bad room throws in plain words", () => {
 test("registry: five rooms a maker; a full hub drops only a room quiet for 30 days, else it is full (409)", async () => {
   const DAY = 86_400_000;
   let t = 0, n = 0;
-  const reg = new Registry(file(), () => t, () => makeCode(() => Uint8Array.from([n >> 25, n >> 20, n >> 15, n >> 10, n >> 5, n++])));
+  const reg = new Registry(file(), () => t, () => makeCode(() => Uint8Array.from([n >> 25, n >> 20, n >> 15, n >> 10, n >> 5, n++])), { rooms: REGISTRY_MAX });   // the engine's cap (#208)
   for (let i = 0; i < PER_MAKER; i++) reg.register({ ...sol, name: `m${i}`, repos: [`a/m${i}`] }, "frank");
   assert.throws(() => reg.register({ ...sol, name: "m-more", repos: ["a/m-more"] }, "Frank"), /at most 5 rooms/);
   assert.equal(reg.register({ ...sol, name: "m0", repos: ["a/m0"] }, "frank").repos[0], "a/m0", "the same room again is no new one");
@@ -245,7 +245,7 @@ test("rooms on one hub: a roster each, a line and a ping stay in their room", ()
 
 test("registry: on a full hub a room only its maker came into makes way after three days, before any other", () => {
   let t = 0, n = 0;
-  const reg = new Registry(file(), () => t, () => makeCode(() => Uint8Array.from([n >> 25, n >> 20, n >> 15, n >> 10, n >> 5, n++])));
+  const reg = new Registry(file(), () => t, () => makeCode(() => Uint8Array.from([n >> 25, n >> 20, n >> 15, n >> 10, n >> 5, n++])), { rooms: REGISTRY_MAX });   // the engine's cap (#208)
   for (let i = 0; i < REGISTRY_MAX; i++) reg.register({ ...sol, name: `r${i}`, repos: [`a/r${i}`] }, `p${i}`);
   const used = reg.all().filter((e) => e.repos[0] !== "a/r7");
   for (const e of used) reg.saw(e.code, "guest", 0);   // all but a/r7 had a guest; a/r7 is only its maker's
@@ -607,7 +607,7 @@ test("join: the same record on another hub, or on the same hub with another code
 });
 
 // ---- the second review of #157 ----
-const { Guesses, GUESS_MAX } = await import("../src/team/registry.ts");
+const { Guesses, GUESS_MAX } = await import("../src/hub/index.ts");
 const { shareOnArrival } = await import("../src/team/rooms.ts");
 const face = await import("../../mac/src/cowork/rooms.ts");
 
@@ -760,7 +760,7 @@ test("the client: a room switch while a connect's headers are being made never s
 });
 
 test("guesses: a key holder with a new login on every hello still meets every key holder's count; one dead room locks out nobody else", async () => {
-  const { KEY_GUESS_MAX } = await import("../src/team/registry.ts");
+  const { KEY_GUESS_MAX } = await import("../src/hub/index.ts");
   const g = new Guesses(() => 0);
   const reg = new Registry(file(), () => 1, () => "REALQ2");
   reg.register(sol, "frank");
@@ -817,7 +817,9 @@ test("the shared hub is SOL_HUB as it is when asked, a ws(s) address or none; no
     assert.equal(sharedHub(), "wss://later.example.net/relay", "read when asked, trimmed, never a key in the address");
     process.env.SOL_HUB = "https://not-a-socket.example.net/";
     assert.equal(sharedHub(), "", "an https address is not a hub");
+    process.env.SOL_HUB = "off";
+    assert.equal(sharedHub(), "", "off: a new room meets on this engine's own relay");
     delete process.env.SOL_HUB;
-    assert.equal(sharedHub(), "", "none: a new room meets on this engine's own relay");
+    assert.equal(sharedHub(), "wss://cloud.matterfold.tech/relay", "none: the cloud (S6b)");
   } finally { if (was === undefined) delete process.env.SOL_HUB; else process.env.SOL_HUB = was; }
 });

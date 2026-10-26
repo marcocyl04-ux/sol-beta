@@ -26,7 +26,8 @@
           "y": 24
         },
         "dragDropEnabled": false,
-        "backgroundColor": "#1a1a1a"
+        "transparent": true,
+        "windowEffects": { "effects": ["underWindowBackground"], "state": "active", "radius": 12 }
       }
     ],
     "security": {
@@ -43,6 +44,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "macOS": {
+      "signingIdentity": "-",
+      "hardenedRuntime": false
+    },
     "resources": {
       "../../install": "install"
     }

@@ -8,49 +8,17 @@
 // reconnect does not ask GitHub again.
 // The open gate (#157, round 35): on the beta's hub (team.json `relay.open`) and with no org, any real GitHub user is
 // let in under GitHub's login, no member check: a room joined by a code is met as who you are on GitHub.
-import type { IncomingMessage } from "node:http";
 import { createHash } from "node:crypto";
 import { makeGithubRecord, record, runGh, runners, type GhAs } from "./record.js";
+import type { Verify } from "../hub/index.js";
 
-/** GitHub's login for this token when it is a member of the org (org "": any GitHub user), else null */
-export type Verify = (token: string, org: string) => Promise<string | null>;
+// the pure gate (bearerOf, originOk, orgGate, openGate, withTickets, Verify) is the hub's own since #206, in the hub's
+// folder src/hub since #208, built alone as the package sol/hub (hub/relay-hub.ts)
+export { bearerOf, originOk, orgGate, openGate, withTickets, type Verify } from "../hub/index.js";
 export type { GhAs };
 
-const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 const LOGIN = /^[A-Za-z0-9-]{1,39}$/;
 const TTL = 10 * 60_000;
-
-/** the token in `Authorization: Bearer <token>`, or "" */
-export function bearerOf(headers: IncomingMessage["headers"]): string {
-  const m = /^Bearer\s+(\S{1,400})\s*$/i.exec(one(headers.authorization) ?? "");
-  return m ? m[1] : "";
-}
-
-/** no browser page but Sol's own (the same rule as the key's gate) */
-export function originOk(headers: IncomingMessage["headers"], port: number): boolean {
-  const o = one(headers.origin);
-  if (o === undefined) return true;   // a program: another engine
-  return new Set(["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost", `http://127.0.0.1:${port}`, `http://localhost:${port}`]).has(o);
-}
-
-/** the org gate: GitHub's login for this knock, or null (refused). verify is injected: the tests never reach GitHub */
-export async function orgGate(headers: IncomingMessage["headers"], org: string, port: number, verify: Verify): Promise<string | null> {
-  if (!org || !originOk(headers, port)) return null;
-  const token = bearerOf(headers);
-  if (!token) return null;
-  const login = await verify(token, org).catch(() => null);
-  return login && LOGIN.test(login) ? login : null;
-}
-
-/** the open gate (#157): GitHub's login for this knock's token, no org asked, or null (refused). A knock with no token
- *  never comes here: it goes to the key's gate */
-export async function openGate(headers: IncomingMessage["headers"], port: number, verify: Verify): Promise<string | null> {
-  if (!originOk(headers, port)) return null;
-  const token = bearerOf(headers);
-  if (!token) return null;
-  const login = await verify(token, "").catch(() => null);
-  return login && LOGIN.test(login) ? login : null;
-}
 
 /** the hub's verify: `gh api user` and the org's member check, as that token; a yes kept 10 minutes by the token's hash.
  *  org "" (the open gate): who the token is, and nothing more */
@@ -69,12 +37,6 @@ export function ghVerify(gh: GhAs = runners.as, now: () => number = Date.now): V
     known.set(key, { login, org, until: now() + TTL });
     return login;
   };
-}
-
-/** the hub's verify, which also knows its own tickets (proof.ts): a `sol1.` Bearer is this hub's signed word, asked of
- *  nobody; anything else is a GitHub token, asked of GitHub as before (an older Sol, or a Sol on this machine) */
-export function withTickets(verify: Verify, proofs?: { check: (ticket: string, org: string) => string | null }): Verify {
-  return async (token, org) => (token.startsWith("sol1.") ? proofs?.check(token, org) ?? null : verify(token, org));
 }
 
 /** this person's GitHub token, read fresh from gh for one connect (never kept); "" when gh is not signed in */

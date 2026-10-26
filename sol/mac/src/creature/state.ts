@@ -12,6 +12,7 @@ import { micLevel, outLevel } from "../voice";
 import { tintOf, lookOf, seatName, type Look, type SeatName, type Tint } from "./ring";
 import { CREATURE_STATES, FLASH_MS, type CreatureState, type Flash } from "./states";
 import { onTick } from "./loop";
+import { vibe } from "../vibe";
 import { onWire } from "../renovation";
 
 export type { CreatureState, SeatName };
@@ -130,7 +131,7 @@ export function tick(dt: number, now: number) {
   else if (state === "speaking") { const o = outLevel(); target = o === null ? synthetic(now / 1000) : level(o); }
   live.env += (target - live.env) * (1 - Math.pow(0.001, dt / 0.08));
   live.now = now;
-  const tempo = look === "rest" ? 0.25 : state === "speaking" ? 0.6 + live.env * 2.2 : 1;
+  const tempo = look === "rest" ? 0.25 : state === "speaking" ? 0.6 + live.env * 2.2 : 1 + (vibe.move ? vibe.env * 0.9 : 0);   // music quickens the band a little (vibe.ts)
   // coming to rest the tempo winds down slowly; anything else catches up quickly
   live.tempo += (tempo - live.tempo) * ease(dt, tempo < live.tempo && look === "rest" ? 1.6 : 0.25);
   const asks = forced === "yourcall" ? Math.max(1, inputs.asks) : inputs.asks;

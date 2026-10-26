@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-thing-show"
+description = "Enables the thing_show command without any pre-configured scope."
+commands.allow = ["thing_show"]
+
+[[permission]]
+identifier = "deny-thing-show"
+description = "Denies the thing_show command without any pre-configured scope."
+commands.deny = ["thing_show"]

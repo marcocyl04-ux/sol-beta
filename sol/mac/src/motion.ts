@@ -76,22 +76,77 @@ export class Spring {
 }
 
 const active = new Set<Spring>();
-let raf = 0, last = 0;
-function frame(now: number) {
-  raf = 0;
-  const dt = Math.min((now - last) / 1000, 1 / 20);
-  last = now;
+let raf = 0, last = 0, guard = 0;
+/** told once per stall, with the silence in ms (the notch logs it) */
+let onStall: ((ms: number) => void) | null = null;
+export function setOnStall(f: ((ms: number) => void) | null) { onStall = f; }
+/** called once per frame after every spring has stepped (the notch's scene draws here, on the springs' clock) */
+let frameHook: (() => void) | null = null;
+export function onFrame(f: (() => void) | null) { frameHook = f; }
+/** one frame on the loop's clock even with no spring moving (a drawing marked dirty outside a step) */
+export function requestFrame() { wake(); }
+function stepAll(dt: number, now: number) {
   for (const s of [...active]) {
     if (s.at && now < s.at) continue;
     s.at = 0;
     if (!s.step(dt)) active.delete(s);
   }
-  if (active.size) raf = requestAnimationFrame(frame);
 }
+/** one motion run (from the first spring moving to the last at rest): the frame gaps and the work in each frame, for a
+ *  smoothness report (the notch logs it): frames, the longest gap, how many gaps ran past 20 ms, the work's p95 */
+export type RunReport = { frames: number; ms: number; maxGap: number; longGaps: number; workP95: number; workMax: number };
+let onRun: ((r: RunReport) => void) | null = null;
+export function setOnRun(f: ((r: RunReport) => void) | null) { onRun = f; }
+let runStart = 0, runFrames = 0, runMaxGap = 0, runLong = 0;
+const runWork: number[] = [];
+function frame(now: number) {
+  raf = -1;   // inside the frame: a wake from a spring's apply is this frame's (it used to schedule a second callback)
+  const gap = now - last;
+  const dt = Math.min(gap / 1000, 1 / 20);
+  last = now;
+  if (!runFrames) runStart = now; else { if (gap > runMaxGap) runMaxGap = gap; if (gap > 20) runLong++; }
+  runFrames++;
+  const t0 = performance.now();
+  stepAll(dt, now);
+  frameHook?.();
+  runWork.push(performance.now() - t0);
+  raf = 0;
+  if (active.size) raf = requestAnimationFrame(frame);
+  else {
+    stopGuard();
+    if (onRun && runFrames > 3) {
+      const w = [...runWork].sort((a, b) => a - b);
+      onRun({ frames: runFrames, ms: Math.round(now - runStart), maxGap: Math.round(runMaxGap), longGaps: runLong, workP95: +w[Math.floor(w.length * 0.95)].toFixed(2), workMax: +w[w.length - 1].toFixed(2) });
+    }
+    runFrames = 0; runMaxGap = 0; runLong = 0; runWork.length = 0;
+  }
+}
+// The frame clock is WebKit's and it stops whenever WebKit holds the window to be out of sight (a display plugged or
+// unplugged, a full-screen Space, the lid, sleep). A spring in flight then froze where it was: the notch's moon left
+// short with its discs half faded, the creature halfway from the wing (Marco's two shots, 2026-10-26). The guard is a
+// plain timer: while any spring moves and no frame has come for 120 ms, it steps every spring up to the real time
+// itself, so a motion always ends where it was told to go, seen or not.
+function startGuard() {
+  if (guard || typeof window === "undefined") return;
+  guard = window.setInterval(() => {
+    if (!active.size) { stopGuard(); return; }
+    const now = performance.now(), silent = now - last;
+    if (silent < 120) return;
+    onStall?.(silent);
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    let left = silent / 1000;
+    while (left > 0 && active.size) { const h = Math.min(left, 1 / 20); stepAll(h, now); left -= h; }
+    frameHook?.();
+    last = now;
+    if (active.size) raf = requestAnimationFrame(frame); else stopGuard();
+  }, 60);
+}
+function stopGuard() { if (guard) { window.clearInterval(guard); guard = 0; } }
 function wake() {
   if (raf || typeof requestAnimationFrame === "undefined") return;
   last = performance.now();
   raf = requestAnimationFrame(frame);
+  startGuard();
 }
 
 export const spring = (v: number, cfg: Cfg, apply: (v: number, s: Spring) => void, rest?: () => void) => new Spring(v, cfg, apply, rest);

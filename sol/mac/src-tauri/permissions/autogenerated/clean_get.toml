@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clean-get"
+description = "Enables the clean_get command without any pre-configured scope."
+commands.allow = ["clean_get"]
+
+[[permission]]
+identifier = "deny-clean-get"
+description = "Denies the clean_get command without any pre-configured scope."
+commands.deny = ["clean_get"]

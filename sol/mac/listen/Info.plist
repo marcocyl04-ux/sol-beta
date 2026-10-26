@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The listener's own page for macOS: its name and the two sentences the Mac shows when it asks
+     the person to allow the microphone and the sound of other apps. It is baked into bin/listen by
+     build-listen.sh, so the permission prompts can appear at all. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>sol.listen</string>
+	<key>CFBundleName</key>
+	<string>Sol listen</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Sol hears your side of a conversation while Anticipate is on. The sound is turned into words on this Mac and never kept.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Sol hears the other side of a call (what your Mac plays) while Anticipate is on. The sound is turned into words on this Mac and never kept.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Sol turns the conversation into words on this Mac while Anticipate is on.</string>
+</dict>
+</plist>

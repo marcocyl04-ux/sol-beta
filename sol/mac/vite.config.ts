@@ -29,7 +29,7 @@ export default defineConfig(() => ({
   // the pages: the desktop face, the phone doorway (served by the engine at /away), the notch, the welcome (#169), the grab sheet
   build: {
     rollupOptions: {
-      input: { index: "index.html", away: "away.html", notch: "notch.html", welcome: "welcome.html", grab: "grab.html" },
+      input: { index: "index.html", away: "away.html", notch: "notch.html", welcome: "welcome.html", grab: "grab.html", vibe: "vibe.html" },
     },
   },
 

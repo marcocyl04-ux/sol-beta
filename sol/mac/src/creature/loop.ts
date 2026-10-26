@@ -1,5 +1,6 @@
 // One frame loop for every creature canvas. A canvas registers a draw function; the loop sizes it for the
-// device pixel ratio, clears it, skips it while off-screen, caps at 60 fps and stops when the window is hidden.
+// device pixel ratio, clears it, skips it while off-screen, caps at 60 fps while the pointer works (30 at rest, 20 when the
+// window is behind) and stops when the window is hidden.
 // Part of the fence (#16 blocker 5): it imports nothing a seat may edit; the creature's state registers its tick here.
 
 export type Draw = (x: CanvasRenderingContext2D, w: number, h: number, dt: number, now: number) => void;
@@ -13,9 +14,10 @@ let raf = 0;
 let prev = 0;
 
 // Where the pointer is in the window, for things that watch it without being under it.
-export const pointer = { x: -1, y: -1, inside: false };
+export const pointer = { x: -1, y: -1, inside: false, at: 0 };
 if (typeof window !== "undefined") {
-  window.addEventListener("pointermove", (e) => { pointer.x = e.clientX; pointer.y = e.clientY; pointer.inside = true; }, { passive: true });
+  window.addEventListener("pointermove", (e) => { pointer.x = e.clientX; pointer.y = e.clientY; pointer.inside = true; pointer.at = performance.now(); }, { passive: true });
+  window.addEventListener("pointerdown", () => { pointer.at = performance.now(); }, { passive: true });
   document.addEventListener("pointerleave", () => { pointer.inside = false; });
   window.addEventListener("blur", () => { pointer.inside = false; });
   document.addEventListener("visibilitychange", () => start());
@@ -35,7 +37,11 @@ function frame(now: number) {
   raf = 0;
   if (document.hidden || !entries.size) return;
   raf = requestAnimationFrame(frame);
-  if (now - prev < 1000 / 60 - 3) return; // at most 60 fps, also on a 120 Hz screen
+  // 60 fps only while the pointer is at work (moved or pressed in the last second); 30 the rest of the time, 20 when
+  // the window is not the front one. Every drawing is quantised to the cell grid, so the ambient life loses nothing at
+  // 30, and on a transparent, system-blurred window every canvas frame recomposites the glass (2026-10-25, warm Mac).
+  const fps = !document.hasFocus() ? 20 : now - pointer.at < 1000 ? 60 : 30;
+  if (now - prev < 1000 / fps - 3) return;
   const dt = Math.min((now - prev) / 1000, 0.05);
   prev = now;
   for (const t of ticks) { try { t(dt, now); } catch (err) { console.error("creature tick", err); } }

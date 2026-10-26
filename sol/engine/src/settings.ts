@@ -7,8 +7,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type Seat = "codex" | "claude";
-// what Claude may do without asking in a Work session, as Claude Code names it; the face's starting pick and the pick of
-// every session started by a card, a hand-off or a tool (#94: a card session never copies its parent)
+// what Claude may do without asking in a Work session, as Claude Code names it; the face's starting pick, and the pick of
+// a session started by a card, a hand-off or a tool when its parent is no longer live (a live parent hands down its own mode)
 export type WorkMode = "default" | "acceptEdits" | "plan" | "auto" | "bypassPermissions";
 export const WORK_MODES: WorkMode[] = ["default", "acceptEdits", "plan", "auto", "bypassPermissions"];
 export type Settings = {
@@ -17,9 +17,15 @@ export type Settings = {
   language: "follow" | "english" | "cantonese" | "dutch";
   mic?: string;
   defaults: { seat: Seat; model: Record<Seat, string>; effort: Record<Seat, string>; mode: WorkMode };
+  // the look (mine/look/SPEC.md): the window's base colour (#rrggbb), its opacity over the desktop (0.5–1), the blur
+  // behind it (0–64 px) and the style of the person's own bubble; the face and, later, the notch read the same recipe
+  look: { color: string; alpha: number; blur: number; bubble: Bubble };
 };
+export type Bubble = "slab" | "glass" | "edge" | "classic" | "outline" | "bare";
+export const BUBBLES: Bubble[] = ["slab", "glass", "edge", "classic", "outline", "bare"];
 
-// Gemini Live's prebuilt voices.
+// Gemini Live's prebuilt voices. "off" is also a valid voice: Sol listens and writes, it does not talk (no call starts).
+export const VOICE_OFF = "off";
 export const VOICES = [
   "Zephyr", "Puck", "Charon", "Kore", "Fenrir", "Leda", "Orus", "Aoede", "Callirrhoe", "Autonoe",
   "Enceladus", "Iapetus", "Umbriel", "Algieba", "Despina", "Erinome", "Algenib", "Rasalgethi", "Laomedeia", "Achernar",
@@ -39,7 +45,9 @@ export const DEFAULTS: Settings = {
     effort: { codex: "medium", claude: "medium" },
     mode: "default",
   },
+  look: { color: "#000000", alpha: 0.78, blur: 48, bubble: "edge" },
 };
+const num = (v: unknown, lo: number, hi: number, d: number) => (typeof v === "number" && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown, d: string) => (typeof v === "string" && v.trim() ? v : d);
@@ -51,8 +59,9 @@ function clean(raw: unknown): Settings {
   const dm = isObj(d.model) ? d.model : {};
   const de = isObj(d.effort) ? d.effort : {};
   const effort = (v: unknown, k: string) => (typeof v === "string" && EFFORTS.includes(v) ? v : DEFAULTS.defaults.effort[k as Seat]);
+  const lk = isObj(r.look) ? r.look : {};
   const out: Settings = {
-    voice: typeof r.voice === "string" && VOICES.includes(r.voice) ? r.voice : DEFAULTS.voice,
+    voice: typeof r.voice === "string" && (r.voice === VOICE_OFF || VOICES.includes(r.voice)) ? r.voice : DEFAULTS.voice,
     patienceMs: typeof r.patienceMs === "number" && isFinite(r.patienceMs) ? Math.min(1500, Math.max(200, Math.round(r.patienceMs))) : DEFAULTS.patienceMs,
     language: typeof r.language === "string" && LANGS.includes(r.language) ? (r.language as Settings["language"]) : "follow",
     defaults: {
@@ -60,6 +69,12 @@ function clean(raw: unknown): Settings {
       model: { codex: str(dm.codex, DEFAULTS.defaults.model.codex), claude: str(dm.claude, DEFAULTS.defaults.model.claude) },
       effort: { codex: effort(de.codex, "codex"), claude: effort(de.claude, "claude") },
       mode: WORK_MODES.includes(d.mode as WorkMode) ? (d.mode as WorkMode) : DEFAULTS.defaults.mode,
+    },
+    look: {
+      color: typeof lk.color === "string" && /^#[0-9a-fA-F]{6}$/.test(lk.color) ? lk.color.toLowerCase() : DEFAULTS.look.color,
+      alpha: Math.round(num(lk.alpha, 0.5, 1, DEFAULTS.look.alpha) * 100) / 100,
+      blur: Math.round(num(lk.blur, 0, 64, DEFAULTS.look.blur)),
+      bubble: BUBBLES.includes(lk.bubble as Bubble) ? (lk.bubble as Bubble) : DEFAULTS.look.bubble,
     },
   };
   if (typeof r.mic === "string" && r.mic) out.mic = r.mic;

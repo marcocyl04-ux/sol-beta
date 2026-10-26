@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vibe-stop"
+description = "Enables the vibe_stop command without any pre-configured scope."
+commands.allow = ["vibe_stop"]
+
+[[permission]]
+identifier = "deny-vibe-stop"
+description = "Denies the vibe_stop command without any pre-configured scope."
+commands.deny = ["vibe_stop"]

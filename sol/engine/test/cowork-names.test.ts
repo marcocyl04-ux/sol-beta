@@ -16,9 +16,9 @@ process.env.SOL_STATE = join(tmp("sol-state-"), "work.json");
 process.env.SOL_HOME = tmp("sol-home-");
 process.env.SOL_HUB = "wss://shared.example.net/relay";
 
-const { Registry } = await import("../src/team/registry.ts");
+const { Registry } = await import("../src/hub/index.ts");
 const { relayRoutes } = await import("../src/team/relay.ts");
-const { makeRoom } = await import("../src/team/rooms.ts");
+const { makeRoom, SIGN_IN } = await import("../src/team/rooms.ts");
 const { makeGithubRecord } = await import("../src/team/record.ts");
 const { tag } = await import("../src/team/record/github.ts");
 const T = await import("../src/team/settings.ts");
@@ -177,4 +177,22 @@ test("make: on this Mac (hub \"\") the name is checked and registered here, met 
   assert.equal("room" in r2 ? r2.room.gate : "", "key");
   assert.equal(k.calls[0].url, "https://kao.example.net/relay/names/Kao?key=kao-key");
   assert.equal(k.calls[0].headers.authorization, undefined);
+});
+
+test("S6b: on Sol's cloud with no Sol account there, a refusal says to sign in to Sol; with one, the hub's own words", async () => {
+  start();
+  const m = maker();
+  const no = hubs(() => [403, { error: "this cloud takes its own tickets" }]);
+  const CLOUD = "wss://cloud.matterfold.tech/relay";
+  assert.deepEqual(await makeRoom({ ...deps(no.f, m.record), cloudAt: () => false }, { name: "Chess", hub: CLOUD }), { error: SIGN_IN });
+  assert.deepEqual(m.made, [], "nothing made on GitHub");
+  const yes = hubs(() => [403, { error: "this cloud takes its own tickets" }]);
+  assert.deepEqual(await makeRoom({ ...deps(yes.f, m.record), cloudAt: () => true }, { name: "Chess", hub: CLOUD }), { error: "the hub refused: this cloud takes its own tickets" });
+  process.env.SOL_HUB = "wss://hub.myschool.example/relay";   // a self-hoster's shared hub is not Sol's cloud
+  try {
+    const own = hubs(() => [403, { error: "the hub asks GitHub" }]);
+    assert.deepEqual(await makeRoom({ ...deps(own.f, m.record), cloudAt: () => false }, { name: "Chess" }), { error: "the hub refused: the hub asks GitHub" });
+  } finally { process.env.SOL_HUB = "wss://shared.example.net/relay"; }
+  const other = hubs(() => [403, { error: "the hub asks GitHub" }]);
+  assert.deepEqual(await makeRoom({ ...deps(other.f, m.record), cloudAt: () => false }, { name: "Chess", hub: "wss://hub.myschool.example/relay" }), { error: "the hub refused: the hub asks GitHub" }, "a self-hoster's hub is not the cloud");
 });

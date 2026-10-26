@@ -13,6 +13,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { pointer, register, unregister } from "./loop";
 import { live } from "./state";
+import { vibe } from "../vibe";
 import { drawScenes, onRuns, running } from "./scenes";
 import type { Look } from "./ring";
 import { bayer, tintAt, rgba, type RGB, type Tint } from "./ring";
@@ -155,6 +156,7 @@ export class Life {
   fresh = false;   // true on the first frame of a transition
   colK = 1;        // 0..1, the dither sweep from live.prevSlice to live.slice
   private seen = live.since; private fired = 0; private calls = 0; private lastEnv = 0; private nodAt = 0;
+  private lastBeats = 0;   // vibe.beats as of the last frame: a new one is a beat
 
   // idle life (the mark): a breath, a glance, an ear twitch. Off unless `idle` is set.
   idle = false;
@@ -266,10 +268,18 @@ export class Life {
     // what the body leans toward between moves: speaking pulses with the voice (squash follows the level, so a loud
     // syllable presses it down and the spring rings it back); listening nods on a rising edge of the mic
     let sqT = 0;
+    const beat = vibe.beats !== this.lastBeats; this.lastBeats = vibe.beats;
     if (live.look === "speaking") sqT = live.env * 0.55;
     else if (live.look === "listening") {
       if (live.env - this.lastEnv > 0.2 && now - this.nodAt > 350) { this.nodAt = now; this.body.sq.vel += 3.5; }
       sqT = -live.env * 0.12;
+    } else if (vibe.move && (live.look === "plain" || live.look === "rest")) {
+      // music (vibe.ts): the body sits a touch lower the louder it plays; a beat is a light press the spring rings back
+      sqT = vibe.env * 0.25;
+      if (beat) {
+        this.body.sq.vel += 3.2 + vibe.env * 2;
+        if (vibe.beats % 4 === 0 && !this.body.air) this.body.jump(0.6);   // the first beat of a bar: a small hop
+      }
     }
     this.lastEnv = live.env;
     this.body.step(dt, sqT);
@@ -280,7 +290,9 @@ export class Life {
     // the dust orbit: wide and slow idle, tight and quick thinking, pulsing with the voice speaking, open listening
     const orbR = { rest: 0.7, plain: 1, listening: 1.22 - live.env * 0.3, thinking: 0.72, speaking: 1 + live.env * 0.55, ok: 1.5, warn: 0.5, attention: 1.7 }[live.look];
     const orbW = { rest: 0.12, plain: 0.6, listening: 0.4, thinking: 2.6, speaking: 1.1 + live.env * 2, ok: 1.4, warn: 0.15, attention: 3 }[live.look];
-    spring(this.orb, orbR, dt, 60, 0.45); spring(this.orbW, orbW, dt, 30, 0.8);
+    // with music the orbit widens a little and quickens (vibe.ts), only while nothing else has the body
+    const vb = vibe.move && live.look === "plain" ? 1 : 0;
+    spring(this.orb, orbR + vb * (vibe.env * 0.45 + vibe.beat * 0.25), dt, 60, 0.45); spring(this.orbW, orbW + vb * vibe.env * 1.6, dt, 30, 0.8);
     this.orbA += this.orbW.v * dt;
     spring(this.flowV, live.slice.speed * flowDir(live.look), dt, 25, 1);
     this.flow += this.flowV.v * dt * live.tempo;
@@ -317,13 +329,19 @@ export class Life {
     // each breath has its own length and depth of rest: a long one now and then, a shallow quick one after a glance
     const ph = (this.bt % this.period) / this.period;
     if (ph < 0.02 && this.bt - this.lastBreath > 1) { this.lastBreath = this.bt; this.period = 3.4 + Math.random() * 2.4; this.duty = 0.3 + Math.random() * 0.25; }
-    spring(this.breath, ph > 0.08 && ph < 0.08 + this.duty ? 1 : 0, dt, 18, 0.9);
-    // a slow lean to one side and back, a cell, held for a moment, like shifting weight
-    if (live.look !== "rest" && live.look !== "warn") {
-      this.swayAt -= dt;
-      if (this.swayAt < 0) { this.swayAt = 9 + Math.random() * 9; this.swayTill = this.now + 1100 + Math.random() * 900; this.swayTo = Math.random() < 0.5 ? -1 : 1; }
+    if (vibe.move && live.look !== "rest" && live.look !== "warn") {
+      // music (vibe.ts): the breath rides the bar, in on two beats and out on two; the lean swaps sides every two beats
+      spring(this.breath, Math.sin(vibe.bar * Math.PI * 2) > 0.2 ? 1 : 0, dt, 18, 0.9);
+      spring(this.sway, (vibe.beats >> 1) & 1 ? 1 : -1, dt, 22, 1);
+    } else {
+      spring(this.breath, ph > 0.08 && ph < 0.08 + this.duty ? 1 : 0, dt, 18, 0.9);
+      // a slow lean to one side and back, a cell, held for a moment, like shifting weight
+      if (live.look !== "rest" && live.look !== "warn") {
+        this.swayAt -= dt;
+        if (this.swayAt < 0) { this.swayAt = 9 + Math.random() * 9; this.swayTill = this.now + 1100 + Math.random() * 900; this.swayTo = Math.random() < 0.5 ? -1 : 1; }
+      }
+      spring(this.sway, this.now < this.swayTill ? this.swayTo : 0, dt, 22, 1);
     }
-    spring(this.sway, this.now < this.swayTill ? this.swayTo : 0, dt, 22, 1);
     if (live.look !== "rest") {
       this.glanceAt -= dt;
       if (this.glanceAt < 0) {

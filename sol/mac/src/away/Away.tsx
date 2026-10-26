@@ -289,7 +289,7 @@ function SettingsBody({ d, demo }: { d: ReturnType<typeof useDoor>; demo: boolea
           return (
             <li key={name}>
               <button className={`vrow${on ? " on" : ""}`} onClick={() => d.pick(name)}>
-                <span className="mk">{d.sampling === name ? <RowBars demo={demo} /> : on ? <i className="sq" /> : null}</span>
+                <span className="mk">{d.sampling === name && name !== "off" ? <RowBars demo={demo} /> : on ? <i className="sq" /> : null}</span>
                 <b>{name}</b><span className="w">{word}</span>
               </button>
               {d.sampleWhy && on && <p className="why">{d.sampleWhy.why}</p>}

@@ -6,7 +6,7 @@
 .tk-threads { display: flex; flex-wrap: wrap; gap: 6px; }
 .tk-thread { height: 24px; padding: 0 11px; background: none; border: 1px solid var(--line); border-radius: var(--pill); font: inherit; font-size: 12px; color: var(--dim); cursor: pointer; }
 .tk-thread:hover { color: var(--ink); border-color: var(--mute); }
-.tk-thread.on { background: var(--ink); border-color: var(--ink); color: var(--page); }
+.tk-thread.on { background: var(--ink); border-color: var(--ink); color: var(--base-color); }
 .tk-thread.ghost { border-style: dashed; color: var(--mute); }
 .tk-about { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--dim); }
 

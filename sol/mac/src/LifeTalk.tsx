@@ -10,7 +10,6 @@ import { Orb } from "./Orb";
 import { Picker } from "./Picker";
 import { Message, Steps } from "./Message";
 import { Mark } from "./Mark";
-import { Fringe } from "./creature/indicators";
 import { useCreature } from "./creature/state";
 import { SceneLayer } from "./creature/Widget";
 import { play as playScene, end as endScene, stop as stopScene, setSceneBox } from "./creature/scenes";
@@ -68,7 +67,7 @@ export function LifeTalk({ e, mark, onSwitch }: { e: ReturnType<typeof useEngine
   const [rec, setRec] = useState<"off" | "on" | "ending">("off"); // ending: the mic is closed, the last words are being read
   const [live, setLive] = useState({ kept: "", open: "" });       // words settled (ink) and still being read (dim), as he speaks
   const settledWords = useRef("");                                // what the recorder had settled when it stopped
-  const [boxFocus, setBoxFocus] = useState(false);
+  const [, setBoxFocus] = useState(false);   // the box knows its focus (the engine asks); its look is CSS :focus-within since sitting 2
   // a new chat starts on the seat Control's "in Life" picks (seats.life, mirrored into defaults.seat), Codex until the
   // settings come; the seat switch under the box changes it while the chat is new. An old chat opens where it lives;
   // there the switch, or the other seat's model in the list, starts a new chat on that seat (#141).
@@ -264,21 +263,21 @@ export function LifeTalk({ e, mark, onSwitch }: { e: ReturnType<typeof useEngine
     <Site name="composer">
     <div className={`ask ${drop ? "dropping" : ""}`}>
       <div className="ask-col">
-        {atts.length > 0 && (
-          <div className="chips">
-            {atts.map((a, i) => (
-              <div className="chip" key={i}>
-                {a.thumb && <img src={a.thumb} alt="" />}
-                <span>{a.name}</span>
-                <button onClick={() => setAtts((x) => x.filter((_, j) => j !== i))} title="remove">×</button>
-              </div>
-            ))}
-          </div>
-        )}
         <FileLine mode="life" page={`Home · chat · ${e.seat}`} conversation={e.sessionId} />
         <EngineBack up={e.up} />
-        <div className="ask-inner" ref={askBox} onFocus={() => setBoxFocus(true)} onBlur={() => setBoxFocus(false)}>
-          {boxFocus && <Fringe eye={!e.busy} />}
+        <div className={`ask-inner ${e.busy ? "running" : ""}`} ref={askBox} onFocus={() => setBoxFocus(true)} onBlur={() => setBoxFocus(false)}>
+        {atts.length > 0 && (
+            <div className="chips">
+              {atts.map((a, i) => (
+                <div className="chip" key={i}>
+                  {a.thumb && <img src={a.thumb} alt="" />}
+                  <span>{a.name}</span>
+                  <button onClick={() => setAtts((x) => x.filter((_, j) => j !== i))} title="remove">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="ask-line">
           {rec !== "off" && (
             <p className="live" aria-live="polite">
               {draft.trim() || live.kept || live.open ? <>{[draft.trim(), live.kept].filter(Boolean).join(" ")}{live.open && <span className="said">{(draft.trim() || live.kept) ? " " : ""}{live.open}</span>}{rec === "ending" && <span className="said">…</span>}</>
@@ -301,7 +300,7 @@ export function LifeTalk({ e, mark, onSwitch }: { e: ReturnType<typeof useEngine
             }}
           />
           {e.busy && <button className="stop" onClick={e.stop}>stop</button>}
-        </div>
+          </div>
         <Picker seat={e.seat} info={e.info} seats={e.models.seats} model={e.model} effort={e.effort} efforts={e.efforts}
           up={e.up} health={e.health} context={e.context} win={e.win} parts={e.parts} rec={rec !== "off"} notice={e.notice}
           onSeat={inFolder ? (s) => { if (s !== e.seat) onSwitch!(s); } : e.pickSeat} onModel={e.pickModel}
@@ -309,6 +308,7 @@ export function LifeTalk({ e, mark, onSwitch }: { e: ReturnType<typeof useEngine
           onMicDown={micDown} onMicUp={micUp}>
           {inFolder && <span className="wchip quiet" title={e.cwd}>in {base(e.cwd!)}</span>}
         </Picker>
+        </div>
       </div>
     </div>
     </Site>

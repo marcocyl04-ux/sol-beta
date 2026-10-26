@@ -235,7 +235,7 @@ export async function hand(d: Hand, a: HandAsk): Promise<Handing> {
 export type Answered = { ok: true; sessionId?: string; note?: string } | { ok?: false; error: string; taken?: true };
 
 /** team.hand.answer: take, pass with a line, or later (nothing written) */
-export async function answer(d: Hand, h: Handed, how: unknown, line?: unknown): Promise<Answered> {
+export async function answer(d: Hand, h: Handed, how: unknown, line?: unknown, start = true): Promise<Answered> {
   if (how === "later") return { ok: true };
   const me = await d.me();
   if (!me) return { error: "who you are on GitHub is not known yet" };
@@ -257,6 +257,8 @@ export async function answer(d: Hand, h: Handed, how: unknown, line?: unknown): 
       h.brief || "(no brief)",
       ...(h.branch ? ["", `branch: \`${h.branch}\`${note ? " (not fetched)" : ` (fetched: origin/${h.branch})`}`] : []),
     ].join("\n");
+    // just taken (#234: for you asks first): the take is written, no agent runs
+    if (!start) return { ok: true, note: note ?? `taken #${h.issue}; no session started` };
     // the take is written: a session that does not start is said, never thrown, and nothing more is written
     try {
       const sessionId = await d.start({ repo: h.repo, cwd, issue: h.issue, title: h.title, text });
@@ -364,7 +366,7 @@ export async function handNow(a: HandAsk): Promise<Handing> {
   if (r.ok) void push(true);
   return r;
 }
-export async function answerNow(id: unknown, how: unknown, line?: unknown): Promise<Answered> {
+export async function answerNow(id: unknown, how: unknown, line?: unknown, start = true): Promise<Answered> {
   if (!L) return { error: "the team is not set up here" };
   if (how === "later") return { ok: true };   // nothing is written; the face keeps it under its repo
   const l = L, key = String(id);
@@ -377,7 +379,7 @@ export async function answerNow(id: unknown, how: unknown, line?: unknown): Prom
     const heardOne = l.heard.get(key);
     const h = pending.find((p) => p.id === key) ?? (heardOne && unanswered(l, heardOne) ? heardOne : undefined);
     if (!h) return { error: "that hand is not yours now" };
-    const r = await answer(l.d, h, how, line);
+    const r = await answer(l.d, h, how, line, start);
     if (r.ok || ("taken" in r && r.taken)) { l.done.set(h.id, h.at ?? new Date().toISOString()); l.heard.delete(h.id); void push(true); }
     return r;
   } catch (e) {

@@ -26,8 +26,10 @@ sol/engine/.setup-*
 sol/engine/settings.json
 sol/engine/titles.json
 sol/engine/doors.json
+sol/engine/sticky.json
 # Sol: the team settings, each person's own (Together, BUILD.md)
 sol/engine/team.json
+sol/engine/team.cloud.json
 
 # Claude Code session lock, machine-local
 .claude/scheduled_tasks.lock
@@ -56,6 +58,10 @@ sol/home/arrangement.bad-*.json
 sol/home/arrangement.json.*.tmp
 # the sol skill linked for Claude chats by sol/setup (sol/home is each person's own)
 sol/home/.claude/skills/
+# Anticipate sitting 2: the notch's skill file is each person's own, and a shelf export of someone's words must
+# never be one `git add -A` from a commit
+sol/home/skills/
+sol/home/shelf/
 
 # The harness (sol/harness/guard, .claude/settings.json): what is each person's own stays out
 .claude/settings.local.json

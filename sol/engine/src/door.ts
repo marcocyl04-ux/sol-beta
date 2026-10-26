@@ -37,6 +37,12 @@ export function doorOpen(headers: IncomingHttpHeaders, opts: DoorOpts): boolean 
     const host = (one(headers["x-forwarded-host"]) ?? one(headers.host) ?? "").trim().toLowerCase();
     return host !== "" && o.toLowerCase() === `https://${host}`;
   }
-  if (typeof o === "string") return APP.has(o) || o === `http://127.0.0.1:${opts.port}` || o === `http://localhost:${opts.port}`;
-  return one(headers["sec-fetch-site"]) !== "cross-site";
+  const own = (x: string) => APP.has(x) || x === `http://127.0.0.1:${opts.port}` || x === `http://localhost:${opts.port}`;
+  if (typeof o === "string") return own(o);
+  if (one(headers["sec-fetch-site"]) !== "cross-site") return true;
+  // an image, font or style a page of Sol's own loads (the page pane's assets, #54) carries no Origin, only its page as
+  // Referer and "cross-site" (the app's scheme is not the engine's): the Referer's origin must be a page of Sol's own
+  return one(headers["sec-fetch-mode"]) === "no-cors" && own(originOf(one(headers.referer)));
 }
+// the origin of a URL; a custom scheme (tauri://localhost) has none in Node, so it is put together
+const originOf = (u: string | undefined) => { try { if (!u) return ""; const x = new URL(u); return x.origin !== "null" ? x.origin : `${x.protocol}//${x.host}`; } catch { return ""; } };

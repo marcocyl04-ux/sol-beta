@@ -1,7 +1,7 @@
 // Busy (sitting 6, #16): the one place that knows what is live in this engine, so that nothing restarts it mid-job.
 //
 // The counter: every long job joins it when it starts and leaves when it ends: a Life turn (either seat), a Work run's
-// turn, a call, a terminal, a review, a run cell's command. `renew` waits until the count is zero before going live
+// turn, a call, a terminal, a review, a run cell's command, a talk (Anticipate). `renew` waits until the count is zero before going live
 // with a new build, and says who it is waiting on; `promote` reads the count from /health on the live engine and waits
 // the same way; the keeper never has to know, it only restarts what ended. No cap: a job that never ends (a terminal
 // left open) holds the renew and is named in the log and the window, so Marco can close it.
@@ -89,7 +89,7 @@ export function relockSession(from: string, to: string, holder: string, cwd?: st
 // window's reload (and none is left running unseen on this Mac).
 export const LET_GO_MS = 15_000;
 const STARTS = new Set(["say", "call", "work.say", "work.handover", "work.start", "work.fork", "work.forkhere", "work.compact",
-  "work.review", "work.term.open", "team.session.start", "team.try", "team.try.review"]);
+  "work.review", "work.term.open", "team.session.start", "team.try", "team.try.review", "anticipate.start", "anticipate.ask"]);
 let goneUntil = 0;
 /** true (and the engine lets go for LET_GO_MS) when nothing is live; false, nothing changed, when something is */
 export function letGo(now = Date.now()): boolean { if (!idle()) return false; goneUntil = now + LET_GO_MS; return true; }

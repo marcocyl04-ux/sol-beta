@@ -10,6 +10,7 @@ import { Mark } from "../Mark";
 import { Trail } from "../Trail";
 import { Orb } from "../Orb";
 import { Settings } from "../Settings";
+import { Conversations } from "../Conversations";
 import { CFG, enter, follow, type Follow } from "../motion";
 import { fitRow, useDock, useWidth } from "../fit";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -27,6 +28,7 @@ import type { FileAt } from "./FilePane";
 import { pagesOf } from "./pages";
 import { Beside, popOut } from "./Split";
 import { WorkDrawers } from "./WorkSettings";
+import { StickyKey } from "./Sticky";
 import { Site } from "../Site";
 import { seenSession } from "../renovation";
 import { BUTTONS, MORE, button, keyIs, type ButtonCtx, type ButtonDef, type Mark as Marked, type Talk } from "../buttons";
@@ -70,7 +72,16 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
   useEffect(() => { if (!chat) setRunner({ send: e.send, seat: "claude", sessionId: w.current ?? null, work: true }); }, [e.send, w.current, chat]);
   useEffect(() => e.subscribe(ran), [e.subscribe]);
   const [pinned, setPinned] = useState(() => !solo && localStorage.getItem("sol.work.pin") !== "0");
-  const [view, setView] = useState<"chat" | "settings">(() => kept("sol.work.view", "chat"));
+  // the page in the stage: the talk, Settings (⌘,) or Conversations (⌘;, #253); ?page=conversations opens on it (dev stills)
+  const [view, setView] = useState<"chat" | "settings" | "conversations">(() => (new URLSearchParams(location.search).get("page") === "conversations" ? "conversations" : kept("sol.work.view", "chat")));
+  // the mark held (Mark.tsx VibeMark): settings, open on the music drawer. A new key only when settings are closed;
+  // when they are up, Settings opens the drawer in place, so an open drawer or a slider mid-drag is kept
+  const [settingsFirst, setSettingsFirst] = useState<{ first: string; n: number }>({ first: "work", n: 0 });
+  useEffect(() => {
+    const f = () => { if (view === "settings") return; setSettingsFirst((s) => ({ first: "music", n: s.n + 1 })); setView("settings"); };
+    window.addEventListener("sol-vibe-edit", f);
+    return () => window.removeEventListener("sol-vibe-edit", f);
+  }, [view]);
   useEffect(() => keepS("sol.work.view", view), [view]);
   const [talkView, setTalkView] = useState<TalkView>(() => (VIEWS.find((v) => v === localStorage.getItem("sol.work.talkview")) ?? "normal"));
   const cycleView = () => setTalkView((v) => { const n = VIEWS[(VIEWS.indexOf(v) + 1) % 3]; localStorage.setItem("sol.work.talkview", n); return n; });
@@ -216,7 +227,8 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
       if (ev.metaKey && ev.shiftKey && k === "s") { ev.preventDefault(); H.showPane("browser"); setArmed((a) => !a); return; }
       if (ev.metaKey && !ev.shiftKey && k === "w") { ev.preventDefault(); if (H.chat) { if (H.e.sessionId) H.freshChat(); } else if (H.w.live) H.fresh(H.w.thread?.cwd); return; }
       if (ev.metaKey && !ev.shiftKey && ev.key === "\\" && H.inPane() && H.active) { ev.preventDefault(); H.closePane(H.active); box.current?.focus(); return; }
-      if (ev.metaKey && ev.key === ";") { ev.preventDefault(); if (h.current.w.live && !H.chat) { setAsideOn((a) => !a); box.current?.focus(); } }
+      // ⌘; in the box of a live session asks on the side, as before; anywhere else it opens and closes Conversations
+      if (ev.metaKey && ev.key === ";") { ev.preventDefault(); if (h.current.view === "chat" && document.activeElement === box.current && h.current.w.live && !H.chat) { setAsideOn((a) => !a); box.current?.focus(); } else setView((v) => (v === "conversations" ? "chat" : "conversations")); }
       else if (ev.key === "Escape" && (h.current.asideOn || h.current.w.sideAnswer)) { ev.preventDefault(); setAsideOn(false); h.current.w.dropAside(); }
       else if (ev.metaKey && !ev.shiftKey && ev.key === "\\") { ev.preventDefault(); h.current.toggleSide(); }
       else if (ev.metaKey && ev.key === ",") { ev.preventDefault(); setView((v) => (v === "settings" ? "chat" : "settings")); }
@@ -411,18 +423,21 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
         </div>
         <div className="spacer" data-tauri-drag-region />
         {view === "chat" && <Rail c={ctx} fallback={chat ? "everyday" : "build"} on={paneOpen ? active : null} onPane={togglePane} foot={foot} />}
+        {!solo && <StickyKey e={e} />}
       </div>
       <div className="shell">
         {!solo && <Site name="sidebar"><WorkSidebar w={chat ? { ...w, live: null } : w} pinned={lay.docked} view={view} onMode={onMode}
           chats={{ threads: e.threads, active: chat ? e.sessionId ?? null : undefined, onOpen: openChat, onNew: freshChat, onRename: e.rename }}
-          lay={{ layout: e.arrangement?.layout.home, share: e.arrangement?.split.share, arrange: e.arrange }} onSettings={() => setView((v) => (v === "settings" ? "chat" : "settings"))} onFresh={fresh}
+          lay={{ layout: e.arrangement?.layout.home, share: e.arrangement?.split.share, arrange: e.arrange }} onSettings={() => setView((v) => (v === "settings" ? "chat" : "settings"))} onConversations={() => setView((v) => (v === "conversations" ? "chat" : "conversations"))} onFresh={fresh}
           onBeside={(id) => { if (id === w.live) return; setBeside(id); setView("chat"); }} onPop={(id, t) => { void popOut(id, t).then((ok) => { if (!ok) e.flash("pop-out needs the next Sol.app build"); }); }} /></Site>}
         <div ref={main} className="main">
           <div className="wcols">
           <div ref={page} className="page-in" data-view={view}>
           {view === "settings" ? (
-            <Site name="settings"><Settings s={e.settings} stale={false} info={e.engineInfo} up={e.up} health={e.health} goBack={e.goBackPlan} send={e.send} models={e.models} efforts={e.efforts} sampling={e.sampling} onSet={e.setSettings} onHear={e.hearVoice}
-              first="work" more={(o, t) => <WorkDrawers w={w} open={o} toggle={t} flash={e.flash} />} onClose={() => setView("chat")} /></Site>
+            <Site name="settings"><Settings key={settingsFirst.n} s={e.settings} stale={false} info={e.engineInfo} up={e.up} health={e.health} goBack={e.goBackPlan} send={e.send} models={e.models} efforts={e.efforts} sampling={e.sampling} onSet={e.setSettings} onHear={e.hearVoice}
+              first={settingsFirst.first} more={(o, t) => <WorkDrawers w={w} open={o} toggle={t} flash={e.flash} />} onClose={() => setView("chat")} /></Site>
+          ) : view === "conversations" ? (
+            <Site name="conversations"><Conversations onOpenChat={(sessionId, t) => openChat({ seat: "claude", sessionId, title: t, updatedAt: Date.now() })} /></Site>
           ) : chat ? <LifeTalk key="chat" e={e} mark={chatMark} onSwitch={chatSwitch} /> : (<>
             <Site name="talk">
             <div className="talk-wrap">
@@ -464,10 +479,10 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
 // cmd+/: every key Work answers, in five short columns of what they are for; it drops in on a spring
 const KEYS: [string, [string, string][]][] = [
   ["sessions", [["⌘N", "a new session"], ["⌘W", "close it, back to a new one"], ["⌃⇥  ⌘⇧]", "the next session"], ["⌃⇧⇥  ⌘⇧[", "the one before"], ["⌘\\", "the side, or the pane in focus"]]],
-  ["the box", [["⏎", "send"], ["⇧⏎", "a new line"], ["⇥  →", "take the suggested prompt"], ["⌘;", "ask on the side"], ["esc", "stop the turn"]]],
+  ["the box", [["⏎", "send"], ["⇧⏎", "a new line"], ["⇥  →", "take the suggested prompt"], ["⌘;", "ask on the side (in the box)"], ["esc", "stop the turn"]]],
   ["how it runs", [["⌘⇧M", "the next leash"], ["⌘⇧I", "the model"], ["⌘⇧E", "the effort"], ["⌃O", "how much shows"]]],
   ["panes", [["⌘⇧D", "changes"], ["⌃`", "terminal"], ["⌘⇧B", "browser"], ["⌘⇧S", "mark the page"], ["⌘⇧P", "the page it wrote"], ["⌘⇧O", "the show"], ["⌃]  ⌃[", "focus round the box, beside, panes"]]],
-  ["anywhere", [["⌘,", "settings"], ["1–9", "pick in a menu"], ["⌘/", "these keys"]]],
+  ["anywhere", [["⌘,", "settings"], ["⌘;", "conversations"], ["1–9", "pick in a menu"], ["⌘/", "these keys"]]],
 ];
 function Keys({ onClose }: { onClose: () => void }) {
   const el = useRef<HTMLDivElement>(null);

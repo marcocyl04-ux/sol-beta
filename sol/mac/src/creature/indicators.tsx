@@ -5,16 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Body, Creature, ditherPick, spring, type Life } from "./Widget";
 import { live } from "./state";
-import { PAPER, TINTS, bandColour, bayer, tintAt, rgba, type RGB, type Tint } from "./ring";
-
-// the paper's ink (#rrggbb, it flips with the mode) as a one-stop tint, made again only when the mode changes
-const plainOf = (() => {
-  let key = "", t: Tint = TINTS.ink;
-  return (hex: string): Tint => {
-    if (hex !== key) { key = hex; const n = parseInt(hex.slice(1), 16); t = { name: "ink", stops: [[(n >> 16) & 255, (n >> 8) & 255, n & 255] as RGB], speed: 0 }; }
-    return t;
-  };
-})();
+import { PAPER, TINTS, bandColour, tintAt, rgba, type Tint } from "./ring";
 
 // ---- a rounded rectangle's outline as a path you can walk by distance ----
 // `at` writes into one shared point (read it before the next call): walking a path allocates nothing.
@@ -40,17 +31,6 @@ export function outline(x: number, y: number, w: number, h: number, r: number) {
     return arc(x + r, y + r, Math.PI, d);
   };
   return { len, at };
-}
-// one outline per size, kept on the widget so a frame does not rebuild it
-type Path = ReturnType<typeof outline>;
-const paths = new WeakMap<Life, { key: number; o: Path }>();
-function pathFor(l: Life, x: number, y: number, w: number, h: number, r: number): Path {
-  const key = Math.round(w) * 100003 + Math.round(h);
-  const p = paths.get(l);
-  if (p && p.key === key) return p.o;
-  const o = outline(x, y, w, h, r);
-  paths.set(l, { key, o });
-  return o;
 }
 
 // ---- status: a fragment of the creature with an eye. Green slice when the engine is up, ember when down ----
@@ -131,82 +111,6 @@ export function Runner() {
   );
 }
 
-// ---- card edge: marching cells around the card of a running step, and an eye at the running row's right end ----
-// Runs of four: a bright head cell leading, the tail thinning behind it. The march rides the shared flow, so it
-// accelerates and decelerates with the slice and turns round (head and all) when the creature starts speaking;
-// an inchworm surge in the stride keeps it from reading as a linear loop.
-export function CardEdge() {
-  return (
-    <Creature className="edge" host="parent" dustCell={2} setup={(l) => { l.data.shift = 0; }} draw={(l, x, w, h, t, dt) => {
-      const cell = 2, pad = 2;
-      const o = pathFor(l, pad, pad, w - pad * 2 - 1, h - pad * 2 - 1, 10);
-      const n = Math.floor(o.len / cell);
-      const surge = 0.55 + 0.9 * Math.pow(Math.max(0, Math.sin(t * 3.2)), 2);
-      l.data.shift += l.flowV.v * dt * live.tempo * 115 * surge;
-      const shift = l.data.shift, fwd = l.flowV.v >= 0;
-      const P = 7, RUN = 4, gap = l.hover ? 0.4 : 0.12;
-      for (let k = 0; k < n; k++) {
-        const m = k % P;
-        // which cell of the run it is, counted from the leading end
-        const r = m < RUN ? (fwd ? RUN - 1 - m : m) : -1;
-        const a = r === 0 ? 1 : r === 1 ? 0.7 : r === 2 ? 0.45 : r === 3 ? 0.28 : gap;
-        const p = o.at(k * cell + shift);
-        const px = p[0], py = p[1];
-        const s = l.sliceAt(k, 0, (px / w + 1 - py / h) / 2);
-        x.fillStyle = rgba(tintAt(s, (k / n) * 2), a);
-        x.fillRect(Math.round(px - cell / 2), Math.round(py - cell / 2), cell, cell);
-        if (r === 0) { x.fillStyle = "rgba(255,255,255,0.35)"; x.fillRect(Math.round(px - cell / 2), Math.round(py - cell / 2), cell, cell); }
-      }
-      // the eye watches from the running row's right end
-      const c = x.canvas, row = c.parentElement?.querySelector(".step.running .step-state");
-      if (row) {
-        const cr = c.getBoundingClientRect(), rr = row.getBoundingClientRect();
-        l.eye(x, rr.left - cr.left + Math.round(l.shake.v) * 4, rr.top - cr.top + rr.height / 2 + l.body.cy * 4, 4, l.eyeOpen(), l.look.x, l.look.y);
-      }
-    }} />
-  );
-}
-
-// ---- input, focused: a sparkling fringe around the box, the small eye listening at its right end ----
-// It grows: on focus the fringe spreads out from the eye end cell by cell, both ways round the box, and every colour
-// change (idle to listening and back) starts at the eye too and travels outward through the dither.
-export function Fringe({ eye }: { eye: boolean }) {
-  return (
-    <Creature className="fringe" host="parent" setup={(l) => { l.data.born = -1; l.data.ke = -1; l.data.key = 0; }} draw={(l, x, w, h, t) => {
-      // the one plain highlight (repair 2026-10-18, Marco: "the only colourful thing that should have been removed is the
-      // highlight around the chat box"): the fringe draws in the paper's ink, whatever the state or seat wears
-      const cell = 3, inset = 6, plain = plainOf(PAPER.ink);
-      const o = pathFor(l, inset - 2, inset - 2, w - 2 * inset + 4, h - 2 * inset + 4, 16);
-      const n = Math.floor(o.len / cell);
-      const ex = w - inset - 11, ey = h - inset - 24;
-      // the path cell nearest the eye, found once per size
-      const key = Math.round(w) * 100003 + Math.round(h);
-      if (l.data.key !== key) {
-        l.data.key = key;
-        let best = 0, bd = Infinity;
-        for (let k = 0; k < n; k++) { const p = o.at(k * cell); const dd = (p[0] - ex) ** 2 + (p[1] - ey) ** 2; if (dd < bd) { bd = dd; best = k; } }
-        l.data.ke = best;
-      }
-      if (l.data.born < 0) l.data.born = l.now;
-      const half = n / 2;
-      const grow = Math.min(1, (l.now - l.data.born) / 420);
-      const reach = Math.floor((1 - (1 - grow) * (1 - grow)) * half) + 1; // decelerating, a whole cell at a time
-      const tw = l.hover ? Math.floor(t * 8) : 0; // hover: the fringe sparkles
-      for (let k = 0; k < n; k++) {
-        let dk = Math.abs(k - l.data.ke); if (dk > half) dk = n - dk;
-        if (dk > reach) continue;
-        const p = o.at(k * cell);
-        const s = plain, u = 0;
-        const kk = k + tw * 5;
-        const spark = bayer(kk & 3, (kk >> 2) & 3);
-        const a = dk === reach && grow < 1 ? 1 : l.hover ? (spark > 0.3 ? 1 : 0.4) : spark > 0.7 ? 0.9 : 0.25;
-        x.fillStyle = rgba(tintAt(s, u * 2), a);
-        x.fillRect(Math.round((p[0] - cell / 2) / cell) * cell, Math.round((p[1] - cell / 2) / cell) * cell, cell, cell);
-      }
-      if (eye) l.eye(x, ex + Math.round(l.shake.v) * 4, ey + l.body.cy * 4, 4, l.eyeOpen(), l.look.x, l.look.y);
-    }} />
-  );
-}
 
 // ---- slider: a dithered band for a track, a 3x3 ink knob with an eye, dust while dragging ----
 // The knob is a spring (it overshoots a column and comes back); quantised to the columns when drawn.
@@ -352,6 +256,37 @@ export function CellCheck({ land }: { land?: boolean }) {
           x.fillStyle = rgba(tintAt(TINTS.ok, i * 0.2));
           x.fillRect(ox + i * cw, px(base - (4 - j) * ch), cw, ch);
         }
+      }} />
+  );
+}
+
+// ---- the Bypass pill's ambient life (mine/look/SITTING-3.md, item 3): a faint aurora inside the pill ----
+// A soft band of --glow (the canvas wears it as its colour) at .10–.18 drifts left to right across the pill over ~6 s
+// and back (the dithered run along its ring went on 2026-10-25: Marco, "remove that pixelated shimmer"). The pill's words stay
+// above it in --ink. It stands still (the band at rest) while the window is unfocused or under
+// prefers-reduced-motion. pointer-events none: the pill is the button, this only draws.
+const RM = typeof matchMedia !== "undefined" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+export function Aurora() {
+  return (
+    <Creature className="aurora" dustCell={2} setup={(l) => { l.maxDust = 0; l.data.t = 1.5; }}
+      draw={(l, x, w, h, _t, dt) => {
+        const d = l.data;
+        const still = !!RM?.matches || (typeof document !== "undefined" && !document.hasFocus());
+        if (!still) d.t += dt;
+        const c = getComputedStyle(x.canvas).color.match(/(\d+)[ ,]+(\d+)[ ,]+(\d+)/);
+        if (!c) return;   // no colour to wear, nothing to draw (never a hue of its own)
+        const [r, g, b] = [+c[1], +c[2], +c[3]];
+        const band = w * 0.55;
+        const cx = still ? w / 2 : w / 2 + (w / 2 + band * 0.1) * Math.sin((d.t / 12) * Math.PI * 2);
+        const breath = 0.10 + 0.08 * (0.5 + 0.5 * Math.sin((d.t / 5) * Math.PI * 2));
+        const gr = x.createLinearGradient(cx - band, 0, cx + band, 0);
+        gr.addColorStop(0, `rgba(${r},${g},${b},0)`); gr.addColorStop(0.5, `rgba(${r},${g},${b},${breath})`); gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        x.fillStyle = gr; x.fillRect(0, 0, w, h);
+        // a softer second veil, drifting the other way, so the light never reads as one bar
+        const cx2 = still ? w * 0.35 : w / 2 - (w / 2) * Math.sin((d.t / 9.5) * Math.PI * 2 + 1.2);
+        const g2 = x.createRadialGradient(cx2, h * 0.3, 0, cx2, h * 0.3, band * 0.9);
+        g2.addColorStop(0, `rgba(${r},${g},${b},0.07)`); g2.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        x.fillStyle = g2; x.fillRect(0, 0, w, h);
       }} />
   );
 }

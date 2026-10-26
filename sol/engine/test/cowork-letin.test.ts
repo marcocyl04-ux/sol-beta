@@ -24,8 +24,8 @@ Object.assign(process.env, {
 const T = await import("../src/team/settings.ts");
 const L = await import("../src/team/letin.ts");
 const { RelayHub, RelayClient, relayServer, relayRoutes } = await import("../src/team/relay.ts");
-const { Registry } = await import("../src/team/registry.ts");
-const { Spool } = await import("../src/team/spool.ts");
+const { Registry } = await import("../src/hub/index.ts");
+const { Spool } = await import("../src/hub/index.ts");
 const { teamFolders } = await import("../src/team/wire.ts");
 type RelayMsg = import("../src/team/relay.ts").RelayMsg;
 type LetInDeps = import("../src/team/letin.ts").LetInDeps;
@@ -78,7 +78,7 @@ function deps(f: Fake = {}) {
 }
 const ask = (from: string, repo: string, more: object = {}): RelayMsg => ({ kind: "room", from: { login: from, agent: true }, at: 1, want: "in", repo, ...more });
 const answer = (to: string, repo: string, said: string, more: object = {}): RelayMsg => ({ kind: "room", from: { login: "frank", agent: true }, at: 1, to, repo, in: said, ...more });
-const cloneArgs = (repo: string, dir: string) => [...L.CLONE_AUTH, "clone", "--quiet", `https://github.com/${repo}.git`, dir];
+const cloneArgs = (repo: string, dir: string) => ["clone", ...L.cloneAuth(), "--quiet", `https://github.com/${repo}.git`, dir];
 
 // ---- the record's calls ----
 test("the record: may I push, my invitations, accept one, add a person (201 invited, 204 already)", async () => {

@@ -1,19 +1,18 @@
-// The Space: what sits under the UI. A faint cell grid like paper grain, the seat's tint breathing in the bottom-left
-// corner while the conversation is empty, the eye in the bottom-right corner that follows the pointer and closes asleep,
-// and a diagonal cell wipe when the seat changes. Ported from drawSpace.
-// The tint comes and goes as cells: leaving, they drop out in Bayer order along the diagonal, the far ones first
-// and the bottom-left corner last (about 900 ms); coming back it fills in the same way, corner first. Never a fade.
+// The Space: what sits under the UI. A faint cell grid like paper grain, the eye in the bottom-right corner that
+// follows the pointer and closes asleep, and a diagonal cell wipe when the seat changes. Ported from drawSpace.
+// The seat's tint that used to breathe in the bottom-left corner of an empty conversation is gone for good
+// (Marco, 2026-10-26: "dithering in the left corner of the chat box, just ugly"); `empty` is kept so the eye and the
+// wipe can still tell an empty conversation apart later.
 // A full-window canvas at 2x is a tiled layer and window-sized surfaces of graphics memory (#81), so none stays up: the
-// grain is a CSS background (one 16x16 tile), the eye a small canvas at the corner of .main, and the tint and the wipe
-// get a canvas only while they draw, the tint one the size of its corner.
+// grain is a CSS background (one 16x16 tile), the eye a small canvas at the corner of .main, and the wipe gets a canvas
+// only while it draws.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { onTick, pointer, register, unregister } from "./loop";
 import { live, onSeatChange, type SeatName } from "./state";
 import { Life, cellFill } from "./Widget";
-import { PAPER, TINTS, bayer, tintAt, rgba } from "./ring";
+import { PAPER, TINTS, bayer, tintAt } from "./ring";
 
 const CELL = 8;
-const DITHER_S = 0.9; // how long the tint takes to dither away or back
 const EYE_W = 60, EYE_H = 40; // the eye's canvas; the eye sits 46 px from .main's right, 30 from its bottom
 const clamp = (v: number) => Math.max(-1, Math.min(1, v));
 const dprNow = () => Math.min(window.devicePixelRatio || 1, 2);
@@ -36,29 +35,20 @@ function grainTile(grain: string, dpr: number): string {
   return url;
 }
 
-// what the tint, the wipe and the eye share between their canvases
-type Shared = { want: boolean; shown: number; moving: boolean; T: number; wipe: { t: number; to: SeatName } | null };
+// what the wipe and the eye share between their canvases
+type Shared = { T: number; wipe: { t: number; to: SeatName } | null };
 
 export function Space({ empty }: { empty: boolean }) {
   const grain = useRef<HTMLDivElement>(null);
   const s = useRef<Shared | null>(null);
-  if (!s.current) s.current = { want: empty, shown: empty ? 1 : 0, moving: false, T: 0, wipe: null };
-  s.current.want = empty;
-  // the tint's canvas stands while the conversation is empty and until its cells have dithered away
-  const [tint, setTint] = useState(empty);
-  const tintUp = useRef(empty);
-  useEffect(() => { if (empty) { tintUp.current = true; setTint(true); } }, [empty]);
+  if (!s.current) s.current = { T: 0, wipe: null };
+  void empty;
   const [wipe, setWipe] = useState(0);
 
   useEffect(() => {
     const sh = s.current!;
     const offTick = onTick((dt) => {
       sh.T += dt * live.tempo;
-      // how much of the tint stands: 1 all of it, 0 none; walks toward `want` at a constant pace
-      const target = sh.want ? 1 : 0;
-      sh.moving = sh.shown !== target;
-      if (sh.moving) sh.shown = target > sh.shown ? Math.min(1, sh.shown + dt / DITHER_S) : Math.max(0, sh.shown - dt / DITHER_S);
-      else if (sh.shown === 0 && tintUp.current) { tintUp.current = false; setTint(false); }
     });
     const offSeat = onSeatChange((to) => { sh.wipe = { t: 0, to }; setWipe((n) => n + 1); });
     return () => { offTick(); offSeat(); };
@@ -76,59 +66,10 @@ export function Space({ empty }: { empty: boolean }) {
   return (
     <>
       <div ref={grain} className="space" aria-hidden="true" />
-      {tint && <Tint s={s.current} />}
       {wipe > 0 && s.current.wipe && <Wipe key={wipe} s={s.current} done={() => setWipe(0)} />}
       <Eye before={keepGrain} />
     </>
   );
-}
-
-// the seat's tint: a diagonal breath in the bottom-left corner, dithered. Its cells are worked out ten times a second
-// at rest, every frame while it dithers in or out, and drawn every frame. Its canvas covers the corner it can reach,
-// i < cols * 0.75 and j >= rows * 0.25 of the window's cells.
-function Tint({ s }: { s: Shared }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const c = ref.current;
-    if (!c) return;
-    let drawn = -1, place = "";
-    let cells: { f: string; i: number; j: number }[] = [];
-    // the corner in the window's cells; the canvas follows it when the window changes size
-    const corner = () => {
-      const W = window.innerWidth, H = window.innerHeight;
-      const cols = Math.ceil(W / CELL), rows = Math.ceil(H / CELL);
-      const iMax = Math.ceil(cols * 0.75), jMin = Math.floor(rows * 0.25);
-      const p = `${iMax}:${jMin}:${H}`;
-      if (p !== place) {
-        place = p; drawn = -1;
-        Object.assign(c.style, { top: `${jMin * CELL}px`, width: `${iMax * CELL}px`, height: `${H - jMin * CELL}px` });
-      }
-      return { cols, rows, iMax, jMin };
-    };
-    corner();
-    register(c, (x, _w, _h, _dt, now) => {
-      const { cols, rows, iMax, jMin } = corner();
-      if (s.moving || now - drawn > 100) {
-        drawn = now;
-        cells = [];
-        const sl = live.slice, shown = s.shown, T = s.T;
-        for (let j = jMin; j < rows; j++) for (let i = 0; i < iMax; i++) {
-          const d = i / cols + (1 - j / rows);
-          const v = Math.max(0, 1.15 - d * 2.3) + Math.sin(T * 0.5 + i * 0.1) * 0.02; // a smaller corner than the prototype: a full window is big
-          if (v <= 0 || bayer(i, j) >= v * v * 0.5) continue;
-          // each cell's turn to go: mostly its place on the diagonal (the corner is 0, the tint's edge ~1),
-          // broken up by the Bayer matrix so the edge is a dither, not a line
-          if (shown < 1) { const turn = Math.min(1, d / 0.5) * 0.7 + bayer(j, i) * 0.3; if (turn >= shown) continue; }
-          cells.push({ f: rgba(tintAt(sl, d + T * sl.speed), 0.09), i, j });
-        }
-      }
-      // drawn against where the canvas stands now, not where it was asked to stand: the loop learns a resize a frame late
-      const top = Math.round(c.getBoundingClientRect().top);
-      for (const k of cells) { x.fillStyle = k.f; x.fillRect(k.i * CELL, k.j * CELL - top, CELL - 1, CELL - 1); }
-    });
-    return () => unregister(c);
-  }, [s]);
-  return <canvas ref={ref} className="space-tint" aria-hidden="true" />;
 }
 
 // the wipe: the new seat's colour sweeps the diagonal, bottom-left to top-right; a full-window canvas for its second

@@ -18,6 +18,7 @@ export class Sample {
 
   async start() {
     if (!process.env.GEMINI_API_KEY) return this.fail("no voice key: put GEMINI_API_KEY in sol/engine/.env");
+    if (this.voice === "off") return this.fail("voice is off: nothing to hear");
     if (!VOICES.includes(this.voice)) return this.fail("unknown voice");
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     this.timer = setTimeout(() => this.fail("the voice did not answer"), TIMEOUT_MS);

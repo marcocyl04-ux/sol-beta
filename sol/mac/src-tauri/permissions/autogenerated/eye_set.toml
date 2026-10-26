@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-eye-set"
+description = "Enables the eye_set command without any pre-configured scope."
+commands.allow = ["eye_set"]
+
+[[permission]]
+identifier = "deny-eye-set"
+description = "Denies the eye_set command without any pre-configured scope."
+commands.deny = ["eye_set"]

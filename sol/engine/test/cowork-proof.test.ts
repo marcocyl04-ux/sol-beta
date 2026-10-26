@@ -12,10 +12,10 @@ import type { AddressInfo } from "node:net";
 const tmp = (p: string) => mkdtempSync(join(tmpdir(), p));
 Object.assign(process.env, { SOL_TEAM: join(tmp("sol-team-"), "team.json"), SOL_TEAM_OFFLINE: "1", SOL_STATE: join(tmp("sol-state-"), "work.json"), SOL_HOME: tmp("sol-home-") });
 
-const P = await import("../src/team/proof.ts");
+const P = await import("../src/hub/index.ts");
 const { relayRoutes, knock } = await import("../src/team/relay.ts");
 const { withTickets } = await import("../src/team/identity.ts");
-const { Registry } = await import("../src/team/registry.ts");
+const { Registry } = await import("../src/hub/index.ts");
 beforeEach(() => P.resetTickets());
 
 /** GitHub, faked: gists by id, each its owner and text */

@@ -1,14 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Fold, Turn } from "./MotionKit";
-import { CFG, stagger } from "./motion";
+import { CFG, stagger, reducedMotion } from "./motion";
+import { PART_NAMES, PRESETS, setPart, setVibe, useVibe, type Part, type Prefs } from "./vibe";
 import { ONE, FELL } from "./engine";
 import { ENGINE, WHICH, LIVE, NEXT, FAR_NAME, pickEngine, sameEngine, keptMachines, type Effort, type EngineInfo, type Health, type Models, type Seat, type Settings as S, type GoBackPlan } from "./useEngine";
-import { VOICES } from "./voices";
+import { VOICES, VOICE_OFF } from "./voices";
 import { ControlDrawers } from "./control/Control";
 import { CellRange, Status } from "./creature/indicators";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useRenovation } from "./renovation";
+import { applyLook, BUBBLES, LOOK_DEFAULT, SWATCHES } from "./look";
 
 // Mutable mode (lib.rs, hot.rs): the app's windows load Vite's dev pages, so edits to sol/mac/src appear in place.
 // Only inside Sol.app; in a plain browser there is no shell to ask.
@@ -27,6 +29,64 @@ function useFace(): [Face | null, (hot: boolean) => void] {
   }, []);
   const set = (hot: boolean) => { setFace((f) => (f ? { ...f, hot, state: hot ? "starting" : "bundled" } : f)); void invoke<Face>("face_mode", { hot }).catch(() => {}); };
   return [face, set];
+}
+
+// one part of vibe mode (vibe.ts Prefs): on, follows the music, size, brightness, colours (a preset or its own swatches)
+function PartRows({ k, p }: { k: keyof Prefs; p: Part }) {
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const preset = Object.keys(PRESETS).find((n) => PRESETS[n].join() === p.colours.join()) ?? "own";
+  return (
+    <div className="vpart">
+      <p className="vpart-h">{PART_NAMES[k]}</p>
+      <div className="field-r">
+        <div className="lab"><span>shown</span></div>
+        <Pick value={p.on ? "on" : "off"} options={[["off", "off"], ["on", "on"]]} onChange={(v) => setPart(k, { on: v === "on" })} />
+      </div>
+      <div className="field-r">
+        <div className="lab"><span>follows the music</span><small>{k === "ring" ? "turns faster and swells on the beat" : "widens and brightens with what is playing"}</small></div>
+        <Pick value={p.music ? "on" : "off"} options={[["off", "off"], ["on", "on"]]} onChange={(v) => setPart(k, { music: v === "on" })} />
+      </div>
+      <div className="field-r">
+        <div className="lab"><span>size</span></div>
+        <div className="range">
+          <CellRange min={50} max={200} step={10} value={Math.round(p.size * 100)} aria-label="size" onChange={(ev) => setPart(k, { size: Number(ev.target.value) / 100 })} />
+          <span className="val">{pct(p.size)}</span>
+        </div>
+      </div>
+      <div className="field-r">
+        <div className="lab"><span>brightness</span></div>
+        <div className="range">
+          <CellRange min={5} max={100} step={5} value={Math.round(p.bright * 100)} aria-label="brightness" onChange={(ev) => setPart(k, { bright: Number(ev.target.value) / 100 })} />
+          <span className="val">{pct(p.bright)}</span>
+        </div>
+      </div>
+      <div className="field-r">
+        <div className="lab"><span>colours</span></div>
+        <Pick value={preset} options={[...Object.keys(PRESETS).map((n): [string, string] => [n, n]), ["own", "my own"]]}
+          onChange={(v) => { if (PRESETS[v]) setPart(k, { colours: PRESETS[v] }); }} />
+      </div>
+      <div className="swatches" aria-label="colours">
+        {p.colours.map((c, i) => (
+          <span key={i} className="swatch" style={{ background: c }} title={c}>
+            <input type="color" value={c} aria-label={`colour ${i + 1}`} onChange={(ev) => { const n = [...p.colours]; n[i] = ev.target.value; setPart(k, { colours: n }); }} />
+            {p.colours.length > 2 && <button className="x" aria-label="remove this colour" onClick={() => setPart(k, { colours: p.colours.filter((_, j) => j !== i) })}>×</button>}
+          </span>
+        ))}
+        {p.colours.length < 8 && <button className="swatch add" aria-label="add a colour" onClick={() => setPart(k, { colours: [...p.colours, p.colours[0]] })}>+</button>}
+      </div>
+    </div>
+  );
+}
+
+// the music drawer's line: what vibe mode is doing, or why it is not (vibe.ts)
+function vibeHint(v: ReturnType<typeof useVibe>): string {
+  if (!inApp) return "only inside Sol.app";
+  if (reducedMotion()) return "off while the Mac asks for reduced motion";
+  if (v.error) return v.error;
+  if (!v.want) return "macOS asks once to let Sol hear this Mac's sound; nothing is recorded";
+  if (!v.up) return "starting…";
+  if (v.playing) return "hearing it";
+  return "hearing nothing: play something. If macOS was told no, allow Sol under Privacy & Security › Screen & System Audio Recording";
 }
 
 // Takes the place of the talk and the box. One drawer open at a time; the height animates with a grid row.
@@ -69,7 +129,62 @@ const MODE_NAMES: [string, string][] = [["auto", "auto"], ["default", "manual: a
 const FALLBACK: S = {
   voice: "Kore", patienceMs: 600, language: "follow",
   defaults: { seat: "codex", model: { codex: "gpt-6.1-sol", claude: "claude-opus-5-5" }, effort: { codex: "medium", claude: "medium" }, mode: "default" },
+  look: LOOK_DEFAULT,
 };
+
+// The look (mine/look/SPEC.md): the base colour, how much of the desktop shows through, the blur behind, and his bubble.
+// A slider shows live while it drags (applyLook on the root) and tells the engine once, at the end, like patience.
+function LookDrawer({ s, off, onSet, open, onToggle }: { s: S; off: boolean; onSet: (patch: object) => void; open: boolean; onToggle: () => void }) {
+  const look = s.look ?? LOOK_DEFAULT;
+  const [live, setLive] = useState<{ alpha?: number; blur?: number }>({});
+  const alpha = live.alpha ?? look.alpha, blur = live.blur ?? look.blur;
+  const drag = (k: "alpha" | "blur", v: number) => { setLive((l) => ({ ...l, [k]: v })); applyLook({ ...look, ...live, [k]: v }); };
+  const drop = (k: "alpha" | "blur") => { if (live[k] !== undefined) { onSet({ look: { [k]: live[k] } }); setLive((l) => ({ ...l, [k]: undefined })); } };
+  const custom = !SWATCHES.some(([c]) => c === look.color);
+  return (
+    <Drawer name="look" open={open} onToggle={onToggle}>
+      <div className="field-r">
+        <div className="lab"><span>base</span><small>the window's colour, over the desktop</small></div>
+        <div className="swatches">
+          {SWATCHES.map(([c, name]) => (
+            <button key={c} className={`swatch ${look.color === c ? "on" : ""}`} style={{ background: c }} title={name} aria-label={name} disabled={off}
+              onClick={() => onSet({ look: { color: c } })} />
+          ))}
+          <label className={`swatch any ${custom ? "on" : ""}`} title="any colour" style={custom ? { background: look.color } : undefined}>
+            <input type="color" value={look.color} disabled={off} onChange={(ev) => onSet({ look: { color: ev.target.value } })} />
+          </label>
+        </div>
+      </div>
+      <div className="field-r">
+        <div className="lab"><span>opacity</span><small>how much of the desktop shows through</small></div>
+        <div className="range">
+          <CellRange min={50} max={100} step={1} value={Math.round(alpha * 100)} aria-label="opacity" disabled={off}
+            onChange={(ev) => drag("alpha", Number(ev.target.value) / 100)} onPointerUp={() => drop("alpha")} onKeyUp={() => drop("alpha")} />
+          <span className="val">{alpha.toFixed(2)}</span>
+        </div>
+      </div>
+      <div className="field-r">
+        <div className="lab"><span>blur</span><small>of the desktop behind</small></div>
+        <div className="range">
+          <CellRange min={0} max={64} step={1} value={blur} aria-label="blur" disabled={off}
+            onChange={(ev) => drag("blur", Number(ev.target.value))} onPointerUp={() => drop("blur")} onKeyUp={() => drop("blur")} />
+          <span className="val">{blur} px</span>
+        </div>
+      </div>
+      <div className="field-r bubbles">
+        <div className="lab"><span>your bubble</span><small>a cosmetic pick; the seat's colour stays the one hue</small></div>
+        <div className="pair">
+          {BUBBLES.map(([k, name]) => (
+            <button key={k} className={`bpill ${look.bubble === k ? "on" : ""}`} disabled={off} onClick={() => onSet({ look: { bubble: k } })}>{name}</button>
+          ))}
+        </div>
+      </div>
+      <div className="bpreview" data-bubble={look.bubble}>
+        <div className="me-row"><div className="msg me">go, start with the unshare flag, then check both engines</div></div>
+      </div>
+    </Drawer>
+  );
+}
 
 // The way out, where every pane closes: the top right, under the bar. Escape is the same door: both apps' window
 // listeners already close a view that is not the chat, after a menu or a pane's own key has had its turn.
@@ -91,6 +206,7 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
   const [now, setNow] = useState(Date.now());
   const [patience, setPatience] = useState<number | null>(null); // while dragging, so the engine is told once
   const [face, setFace] = useFace();
+  const vb = useVibe();
 
   const look = () => navigator.mediaDevices?.enumerateDevices().then((d) => setMics(d.filter((x) => x.kind === "audioinput"))).catch(() => {});
   useEffect(() => {
@@ -108,6 +224,12 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
   const col = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { if (col.current) stagger(col.current.querySelectorAll(".drawer"), { y: 18, gap: 55, delay: 60, cfg: CFG.slide }); }, [!!real, up]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = (n: string) => setOpen((o) => (o === n ? "" : n));
+  // the mark held while settings are up (Mark.tsx VibeMark): the music drawer opens here, nothing else is redrawn
+  useEffect(() => {
+    const f = () => setOpen("music");
+    window.addEventListener("sol-vibe-edit", f);
+    return () => window.removeEventListener("sol-vibe-edit", f);
+  }, []);
   // the Go back row asks the engine what one step back would do, each time the drawer opens with the engine up
   useEffect(() => { if (open === "engine" && up && send) send({ type: "goback.plan" }); }, [open, up, send]);
   const [sure, setSure] = useState(false);   // go back asks once more: it ends what is running
@@ -193,7 +315,7 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
                   onKeyDown={(ev) => { if (!off && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); onSet({ voice: name }); } }}>
                   <b>{name.toLowerCase()}</b>
                   <span>{word}</span>
-                  {on && (
+                  {on && name !== VOICE_OFF && (
                     <button className={`hear ${sampling ? "playing" : ""}`} disabled={off || sampling || !up} onClick={(ev) => { ev.stopPropagation(); onHear(name); }}
                       title="a real sample in this voice">{sampling ? "playing…" : "hear it"}</button>
                   )}
@@ -228,6 +350,15 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
           <p className="hint-line">hold the mic to talk, tap to toggle</p>
         </Drawer>
 
+        <Drawer name="music" open={open === "music"} onToggle={() => toggle("music")}>
+          <div className="field-r">
+            <div className="lab"><span>vibe mode</span><small>Sol's colours round the screen and the chat box, moving with what this Mac plays</small></div>
+            <Pick value={vb.want ? "on" : "off"} options={[["off", "off"], ["on", "on"]]} disabled={!inApp || reducedMotion()} onChange={(v) => setVibe(v === "on")} />
+          </div>
+          <p className="hint-line">{vibeHint(vb)}</p>
+          {(["screen", "frame", "ring"] as (keyof Prefs)[]).map((k) => <PartRows key={k} k={k} p={vb.prefs[k]} />)}
+        </Drawer>
+
         <Drawer name="defaults" open={open === "defaults"} onToggle={() => toggle("defaults")}>
           <p className="hint-line top">for new conversations only; an open one keeps its own. Who answers a new chat is in my accounts</p>
           {(["codex", "claude"] as Seat[]).map((k) => (
@@ -249,6 +380,7 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
           <p className="hint-line">what Claude does without asking in a session, and in every session a card starts</p>
         </Drawer>
 
+        <LookDrawer s={s} off={off} onSet={onSet} open={open === "look"} onToggle={() => toggle("look")} />
         {engineDrawer}
         {more?.(open, toggle)}
       </div>

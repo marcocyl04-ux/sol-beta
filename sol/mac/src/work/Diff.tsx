@@ -21,8 +21,17 @@ export function lineDiff(a: string, b: string): DL[] {
 }
 
 // the diff a tool call makes, or null for a tool that changes no file
+// remembered by the call's input (an item's input object is kept across renders): the LCS ran again for every edit row
+// on every render of the talk, and a busy talk renders on every delta (2026-10-25, SMOOTH.md)
+const diffs = new WeakMap<object, DL[] | null>();
 export function editDiff(name: string, input: any): DL[] | null {
-  if (!input) return null;
+  if (!input || typeof input !== "object") return null;
+  if (diffs.has(input)) return diffs.get(input)!;
+  const d = editDiffNow(name, input);
+  diffs.set(input, d);
+  return d;
+}
+function editDiffNow(name: string, input: any): DL[] | null {
   if (name === "Edit") return lineDiff(String(input.old_string ?? ""), String(input.new_string ?? ""));
   if (name === "MultiEdit" && Array.isArray(input.edits))
     return input.edits.flatMap((e: any, k: number) => [...(k ? [{ t: "~" as const, s: "" }] : []), ...lineDiff(String(e.old_string ?? ""), String(e.new_string ?? ""))]);

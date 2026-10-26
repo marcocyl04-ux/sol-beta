@@ -15,18 +15,20 @@ import { join } from "node:path";
 import type { Gh, GhAs, GhBytes, GhInput, RoomRecord } from "../record.js";
 import { slug } from "../settings.js";
 
-/** the one file of a proof gist (proof.ts) */
-export const PROOF_FILE = "sol-proof.txt";
+// the one file of a proof gist: the hub's word (src/hub/proof.ts, #208), which its own GitHub reads look for too
+import { PROOF_FILE } from "../../hub/index.js";
+export { PROOF_FILE };
 
 const run = promisify(execFile);
 const ENV = () => ({ ...process.env, GIT_TERMINAL_PROMPT: "0" });
 
 // ---- the runners ----
 
-/** the default (was note.ts runGh): in a folder, no prompt, the first line of what gh said on a failure */
+/** the default (was note.ts runGh): in a folder, no prompt, the first line of what gh said on a failure as the message;
+ *  the whole of it on `full` (#194: gh's `(HTTP nnn)` is on the last line, so a classifier reads that) */
 export const runGh: Gh = (args, cwd) => new Promise<string>((ok, no) =>
   execFile("gh", args, { cwd, timeout: 30_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
-    (err, out, errOut) => (err ? no(new Error(String(errOut || err.message).trim().split("\n")[0])) : ok(String(out)))));
+    (err, out, errOut) => { if (!err) return ok(String(out)); const full = String(errOut || err.message).trim(); no(Object.assign(new Error(full.split("\n")[0]), { full })); }));
 
 export const runners = {
   note: runGh,
@@ -159,6 +161,7 @@ export function makeGithubRecord(gh: Gh, more: More = {}): RoomRecord {
       put: (repo, path, w, commit) => gh(["api", "-X", "PUT", `repos/${repo}/contents/${path}`, "-f", `message=${w.message}`, "-f", `branch=${w.branch}`,
         "-f", `content=${w.content}`, ...(w.sha !== undefined ? ["-f", `sha=${w.sha}`] : []), ...(commit ? ["--jq", ".commit.sha"] : [])]),   // note.ts, press.ts
       putBody: (repo, path, body) => input(["api", "-X", "PUT", `repos/${repo}/contents/${path}`], body),   // file.ts
+      branch: (repo) => gh(["api", `repos/${repo}`, "--jq", ".default_branch"]).then((t) => t.trim()),       // things.ts (#194)
       tree: (repo) => gh(["api", `repos/${repo}/git/trees/HEAD?recursive=1`]),                                // share.ts
       list: (repo, dir, ref) => gh(["api", `repos/${repo}/contents/${dir}?ref=${encodeURIComponent(ref)}`]),  // share.ts
       // share.ts: the last commit on each path, one GraphQL request for the lot (a batch of at most 60)

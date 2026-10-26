@@ -1,53 +1,37 @@
-import { useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { SeatSwitch } from "./SeatSwitch";
 import { Swap } from "./MotionKit";
-import { CellTrack, Status, VoiceArms } from "./creature/indicators";
+import { Status, VoiceArms } from "./creature/indicators";
 import { forcedState } from "./creature/state";
 import type { Effort, Health, Part, Seat, SeatInfo } from "./useEngine";
+import { prettyModel } from "./models";
+import { Menu, type MenuItem } from "./work/Menu";
+import { EffortPill } from "./EffortPill";
 
-// a band of cells with an eyed knob, snapping to positions. With `list`, the name beside it is also the full list: an
-// invisible select lies over the name, so a click opens the native list and the eye reads one control, not two.
-// `others`: the other seats' models, listed under their seat (#141); picking one goes to that seat.
-function Slider({ options, value, onChange, label, list, others, onOther, here }: {
-  options: string[]; value?: string; onChange: (v: string) => void; label?: string; list?: boolean;
-  others?: { seat: Seat; label: string; models: string[] }[]; onOther?: (s: Seat, m: string) => void; here?: string;
+// The model pill (mine/look/SITTING-5-model.md): the friendly name alone, the id in its title; a click opens a Sol menu above it,
+// the same `.menu` as the mode menu (work/Menu.tsx), with only the toggled seat's models under a small-caps head naming the
+// seat, each row the friendly name and the id at its right, the current one ticked. Switching seats is the seat switch's business.
+function ModelPill({ options, value, onChange, label, seatName, seat }: {
+  options: string[]; value?: string; onChange: (v: string) => void; label: string; seatName: string; seat: Seat;
 }) {
-  const n = options.length;
   const i = Math.max(0, options.indexOf(value ?? ""));
   const prev = useRef(i);
   const dirOf = (k: number) => { const d = k >= prev.current ? 1 : -1; prev.current = k; return d as 1 | -1; };
-  const pick = (ev: React.PointerEvent<HTMLDivElement>) => {
-    const r = ev.currentTarget.getBoundingClientRect();
-    const k = Math.round(Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)) * (n - 1));
-    if (options[k] !== value) onChange(options[k]);
-  };
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const close = useCallback(() => setMenu(null), []);
+  const closing = useRef(false);   // a press on the pill while the menu is open: the menu's own outside-press closes it, and the click that follows must not reopen it
+  const items: MenuItem[] = [
+    { head: seatName },
+    ...options.map((m) => ({ label: prettyModel(m, seat), meta: m, on: m === value, run: () => onChange(m) })),
+  ];
   return (
-    <div className="slider" title={label}>
-      <div
-        className="track"
-        onPointerDown={(ev) => { ev.currentTarget.setPointerCapture(ev.pointerId); pick(ev); }}
-        onPointerMove={(ev) => { if (ev.buttons) pick(ev); }}
-      >
-        <CellTrack frac={n > 1 ? i / (n - 1) : 0.5} />
-      </div>
-      <span className={`name${list ? " list" : ""}`}>
-        <Swap k={value ?? "–"} className="val" dist={14} dir={dirOf(i)}><span>{value ?? "–"}</span></Swap>
-        {list && (
-          <select value={value ?? ""} title={`pick a ${label ?? "value"}`} onChange={(ev) => {
-            const [s, m] = ev.target.value.split("\t");
-            if (m !== undefined) onOther?.(s as Seat, m); else onChange(s);
-          }}>
-            {others?.length
-              ? <optgroup label={here}>{options.map((o) => <option key={o} value={o}>{o}</option>)}</optgroup>
-              : options.map((o) => <option key={o} value={o}>{o}</option>)}
-            {others?.map((g) => (
-              <optgroup key={g.seat} label={`${g.label} · a new chat`}>
-                {g.models.map((o) => <option key={o} value={`${g.seat}\t${o}`}>{o}</option>)}
-              </optgroup>
-            ))}
-          </select>
-        )}
-      </span>
+    <div className="slider" title={value ? `${label}: ${value}` : label}>
+      <button type="button" className="name list" aria-haspopup="listbox" aria-expanded={!!menu} aria-label={`${label}: ${value ? prettyModel(value, seat) : "–"}`}
+        onMouseDown={() => { closing.current = !!menu; }}
+        onClick={(ev) => { if (closing.current) { closing.current = false; return; } const r = ev.currentTarget.parentElement!.getBoundingClientRect(); setMenu({ x: r.left, y: r.top - 6 }); }}>
+        <Swap k={value ?? "–"} className="val" dist={14} dir={dirOf(i)}><span>{value ? prettyModel(value, seat) : "–"}</span></Swap>
+      </button>
+      {menu && options.length > 0 && <Menu x={menu.x} y={menu.y} items={items} onClose={close} up box scroll={options.length > 8} />}
     </div>
   );
 }
@@ -98,13 +82,13 @@ const Mic = () => (
   </svg>
 );
 
-export function Picker({ seat, info, seats, model, effort, efforts, up, health, context, win, parts, rec, notice, locked,
-  onSeat, onModel, onSeatModel, onEffort, onMicDown, onMicUp, noSeat, children }: {
+export function Picker({ seat, info, model, effort, efforts, up, health, context, win, parts, rec, notice, locked,
+  onSeat, onModel, onEffort, onMicDown, onMicUp, noSeat, children }: {
   noSeat?: boolean; children?: React.ReactNode; // the mode lives in the side now; Work puts its own controls in
   seat: Seat; info?: SeatInfo; seats: SeatInfo[]; model?: string; effort: Effort; efforts: Effort[]; locked?: boolean;
   up: boolean; health?: Health | null; context: number; win: number; parts?: Part[]; rec: boolean; notice: string;
   onSeat: (s: Seat) => void; onModel: (m: string) => void; onEffort: (e: Effort) => void;
-  onSeatModel?: (s: Seat, m: string) => void;   // given: the model list holds every seat's models (#141)
+  onSeatModel?: (s: Seat, m: string) => void;   // kept for the callers; the list shows one seat's models now, the seat switch does the rest (sitting 5)
   onMicDown: () => void; onMicUp: () => void;   // the call is a button on the rail (buttons/call.tsx)
 }) {
   const fill = Math.min(1, context / (win || 1));
@@ -117,10 +101,8 @@ export function Picker({ seat, info, seats, model, effort, efforts, up, health, 
       <div className="picker">
         {!noSeat && <SeatSwitch seat={seat} locked={locked} onPick={onSeat}
           title={locked ? `this conversation lives on ${info ? label(info) : seat}${info?.via ? ` (via ${info.via})` : ""}; a new conversation (cmd+N) can be on the other seat` : `${info?.via ? `via ${info.via}. ` : ""}switching starts a new conversation`} />}
-        <Slider options={models} value={model} onChange={onModel} label="model" list here={info ? label(info) : seat}
-          others={onSeatModel && seats.filter((x) => x.seat !== seat && x.models.length).map((x) => ({ seat: x.seat, label: label(x), models: x.models }))}
-          onOther={onSeatModel} />
-        <Slider options={efforts} value={effort} onChange={(v) => onEffort(v as Effort)} label="effort" />
+        <ModelPill options={models} value={model} onChange={onModel} label="model" seatName={info ? label(info) : seat} seat={seat} />
+        <EffortPill options={efforts} value={effort} onChange={(v) => onEffort(v as Effort)} label="effort" />
         {children}
         <span className="grow" />
         <button className={`icon ${rec ? "rec" : ""}`} onPointerDown={onMicDown} onPointerUp={onMicUp} title="dictate (click, or hold)">

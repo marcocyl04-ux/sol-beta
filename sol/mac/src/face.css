@@ -1,15 +1,30 @@
 @import "./palette.css"; /* the colours: generated from design/palette.json (--ink, --paper, green/yellow/red soft and strong, gradients) */
-/* Sol's face. Round 3: neutral charcoal (no warmth, Marco 2026-10-14), one radius scale, steps as cards. Every color is a token here. */
+/* Sol's face. The look (mine/look/SPEC.md, 2026-10-25): ONE material. The window is the base colour at an opacity over
+   the desktop (black 0.78 by default); every surface inside it is the same base laid again at a step; every line and
+   every word is the "on" colour (white on a dark base, black on a light one) at an opacity. No grey, no charcoal, no
+   second surface colour. The base is adjustable in Settings → look; --glow, the seat's colour, is the one hue. */
 :root {
   color-scheme: dark;
-  --page: var(--paper); /* the window (palette.css) */
-  --side: #151515;      /* the sidebar, pinned or floating: a step darker than the window */
-  --surface: #222222;   /* fields, cards */
-  --raised: #2a2a2a;    /* hover, the active tab */
-  --line: #303030;      /* every 1px line */
-  /* --ink: text, pearl, barely warm (palette.css) */
-  --dim: #9a9a97;       /* quiet text */
-  --mute: #5c5c5a;      /* quieter still: ticks, glyphs at rest */
+  /* the base: set by look.ts from Settings (look.color / alpha / blur); these are the defaults */
+  --base-color: #000000;
+  --base-alpha: 0.78;
+  --base-blur: 48px;
+  /* "on": white on a dark base, black on a light one (relative colour syntax: a lightness far past 100 or 0 clamps).
+     look.ts sets --on too, from the same rule in JS, so a WebKit without this syntax still reads right. */
+  --on: lch(from var(--base-color) calc((50 - l) * 1000) 0 0);
+  --base: rgb(from var(--base-color) r g b / var(--base-alpha));   /* the window itself */
+  --page: rgb(from var(--base-color) r g b / 0.10);     /* a nested surface at the window's own depth (a step's detail, the pane) */
+  --side: rgb(from var(--base-color) r g b / 0.10);     /* the sidebar */
+  --surface: rgb(from var(--base-color) r g b / 0.25);  /* slabs, cards, fields */
+  --raised: rgb(from var(--base-color) r g b / 0.40);   /* hover, the active tab, the running step */
+  --island: rgb(from var(--base-color) r g b / 0.55);   /* the composer */
+  --pop: rgb(from var(--base-color) r g b / 0.96);      /* anything that pops open over the chat: a menu, a list, a card; near-solid so its words read over words (sitting 4) */
+  --pop-shadow: 0 12px 40px -12px rgba(0,0,0,.6);      /* the one drop every popover wears */
+  --line: rgb(from var(--on) r g b / 0.06);             /* every 1px line */
+  --edge: rgb(from var(--on) r g b / 0.10);             /* the window's own edge, a lifted thing's ring */
+  --ink: rgb(from var(--on) r g b / 0.92);              /* text */
+  --dim: rgb(from var(--on) r g b / 0.55);              /* quiet text */
+  --mute: rgb(from var(--on) r g b / 0.32);             /* quieter still: ticks, glyphs at rest */
   --glow: var(--candy); /* the one accent: the active seat's flat colour (set below from data-seat; palette.css) */
   --warn: var(--red-strong); /* a step that failed, the engine down */
   --ok: var(--green-strong); /* the engine is up */
@@ -17,22 +32,31 @@
   --r: 10px;
   --r-l: 14px;
   --pill: 999px;
-  --col: 680px;         /* one column: the talk, the box, the call lines, the chips, settings */
+  --col: 680px;         /* one column: the call lines, settings */
+  --col-max: 760px;     /* the chat column (sitting 4): the talk and the island share one box, one left edge and one right edge */
+  --col-pad: 24px;      /* its padding at both sides */
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
   font-size: 15px;
   line-height: 1.55;
 }
 :root { --shade: rgba(0,0,0,.55); --sheet: #fff; }
-/* Work mode shares Life's paper (Marco, 2026-10-15 evening, on seeing the inverse: "shouldn't it follow the same
-   colours as the usual"). The mode changes the sidebar, the chat and the panes, never the paper; the ring's colours
-   stay the creature's. The inverse (pearl under charcoal ink) was: page #ebebe8, side #e3e3df, surface #e2e2de,
-   raised #d8d8d3, line #cfcfca, ink #1a1a1a, dim #5e5e5b, mute #8f8f8b, shade rgba(0,0,0,.12), sheet #fafaf8. */
+/* Work mode shares Life's paper (Marco, 2026-10-15 evening). The mode changes the sidebar, the chat and the panes,
+   never the paper; the ring's colours stay the creature's. */
 :root[data-seat="home"] { --glow: var(--candy); }
 :root[data-seat="work"] { --glow: var(--amber); }
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; background: var(--page); color: var(--ink); }
+/* the glass: html is clear, the body is the base at its opacity. In a browser the body blurs what is behind it (a
+   preview's desktop image on html); inside Sol.app (data-app, main.tsx) the native effect blurs the desktop, so the
+   CSS blur is off there and would only double it. */
+html { height: 100%; margin: 0; background: transparent; }
+body, #root { height: 100%; margin: 0; color: var(--ink); }
 body { -webkit-font-smoothing: antialiased; overflow: hidden; }
+/* the glass is the face's alone (data-face, main.tsx): the notch, the grab sheet and the phone page load this file
+   too and keep their own windows clear (a blur on the notch's body would show as a grey slab over the desktop) */
+:root[data-face] body { background: var(--base); -webkit-backdrop-filter: blur(var(--base-blur)); backdrop-filter: blur(var(--base-blur)); }
+:root[data-face][data-app] body { -webkit-backdrop-filter: none; backdrop-filter: none; }
+#root { background: transparent; }
 button { font: inherit; }
 ::selection { background: color-mix(in srgb, var(--glow) 28%, transparent); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -46,8 +70,7 @@ canvas.creature { display: block; }
 /* the space under everything: the grain (a 16 px tile, Space.tsx), the empty-state tint in its corner, the seat wipe,
    the corner eye; the canvases are up only while they draw (#81) */
 .space { position: fixed; inset: 0; z-index: 0; pointer-events: none; background-repeat: repeat; background-position: 0 0; background-size: 16px 16px; }
-canvas.space-tint, canvas.space-wipe, canvas.space-eye { position: fixed; z-index: 0; pointer-events: none; }
-canvas.space-tint { left: 0; }
+canvas.space-wipe, canvas.space-eye { position: fixed; z-index: 0; pointer-events: none; }
 canvas.space-wipe { inset: 0; width: 100%; height: 100%; }
 canvas.space-eye { width: 60px; height: 40px; }
 .face > .bar, .face > .shell { position: relative; z-index: 1; }
@@ -67,7 +90,7 @@ canvas.space-eye { width: 60px; height: 40px; }
 
 /* ---- sidebar: history + settings, floating over the chat ---- */
 .side { position: fixed; left: 0; top: 44px; bottom: 0; width: 240px; z-index: 30; display: flex; flex-direction: column; min-height: 0; user-select: none;
-  background: var(--side); border-right: 1px solid var(--line); border-top-right-radius: var(--r-l);
+  background: var(--side); border-top-right-radius: var(--r-l);   /* one glass panel (sitting 2): no hairline at its right; no blur of its own, the window's glass is the blur (a second backdrop-filter recomposites every frame) */
   translate: -100% 0; visibility: hidden; pointer-events: none; box-shadow: 14px 0 32px -8px var(--shade); will-change: translate; }
 .side.pinned { box-shadow: none; }
 /* the head: the live mark and the word, centred together, nothing else */
@@ -81,11 +104,11 @@ canvas.space-eye { width: 60px; height: 40px; }
 .side-head .mark-small { flex: none; }
 .side-head .word { font-size: 14px; color: var(--ink); letter-spacing: 0.02em; }
 /* the foot: settings, under a line, on the sidebar's own paper; the list above scrolls and never runs under it */
-.side-foot { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; border-top: 1px solid var(--line); background: var(--side); }
+.side-foot { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px 14px; background: var(--side); }
 .side-foot .newc { width: 100%; margin: 0; }
 .newc.setc { color: var(--dim); }
 .newc.setc:hover, .newc.setc.on { color: var(--ink); }
-.newc.setc.on { border-color: var(--mute); }
+.newc.setc.on { box-shadow: inset 0 0 0 1px var(--mute); }
 .newc svg { flex: none; }
 /* status: a fragment of the creature with an eye (green up, ember down) */
 .status { display: inline-flex; flex: none; width: 18px; height: 16px; }
@@ -96,17 +119,17 @@ canvas.space-eye { width: 60px; height: 40px; }
 .health i.on { background: var(--dim); }
 .health i.off { border: 1px solid var(--mute); }
 .health i.wrong { background: var(--warn); }
-.newc { display: flex; align-items: center; gap: 8px; margin: 2px 10px 6px; padding: 7px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); color: var(--ink); font-size: 13px; cursor: pointer; text-align: left; }
+.newc { display: flex; align-items: center; gap: 8px; margin: 2px 10px 6px; padding: 7px 10px; background: var(--surface); border: 0; box-shadow: inset 0 1px 0 var(--edge); border-radius: var(--r); color: var(--ink); font-size: 13px; cursor: pointer; text-align: left; }
 .newc:hover { background: var(--raised); }
 .newc span { flex: 1; }
 .newc kbd { font: inherit; font-size: 11px; color: var(--dim); }
 .side-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 10px 16px; }
-.group { padding: 14px 10px 4px; font-size: 10px; letter-spacing: 0.08em; font-variant-caps: all-small-caps; color: var(--dim); opacity: 0.7; }
+.group { padding: 14px 10px 4px; font-size: 11px; letter-spacing: 0.08em; font-variant-caps: all-small-caps; color: var(--mute); }
 /* the one group the sidebar shows, "today", is its own fold: a 1-cell-stepped caret points right folded, down open */
 .group.tog { display: flex; align-items: center; gap: 6px; width: 100%; margin: 6px 0 2px; padding: 6px 10px; background: none; border: 0; border-radius: var(--r-s); font-family: inherit; text-align: left; cursor: pointer; }
-.group.tog:hover { opacity: 1; color: var(--ink); }
+.group.tog:hover { color: var(--dim); }
 .group.tog .caret { flex: none; }
-.group.tog small { margin-left: auto; font-size: 10px; font-variant-numeric: tabular-nums; }
+.group.tog small { margin-left: auto; font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; }
 .side-list .none { margin: 2px 10px; font-size: 12px; color: var(--mute); }
 .row { position: relative; display: flex; width: 100%; align-items: center; gap: 9px; background: none; border: 0; border-radius: var(--r-s); padding: 6px 8px 6px 10px; color: var(--dim); font-size: 13px; text-align: left; cursor: pointer; }
 .row:hover { color: var(--ink); }
@@ -114,8 +137,8 @@ canvas.space-eye { width: 60px; height: 40px; }
 .side-list { position: relative; }
 /* the pills that slide behind the rows: hover (raised) and the open conversation (surface) */
 .pill { position: absolute; left: 0; top: 0; z-index: 0; border-radius: var(--r-s); pointer-events: none; transform-origin: 0 50%; visibility: hidden; }
-.pill.hov { background: var(--raised); }
-.pill.on { background: var(--surface); }
+.pill.hov { background: var(--surface); }
+.pill.on { background: var(--raised); }   /* the open one is the raised row (sitting 2) */
 .swap { position: relative; overflow: hidden; }
 .swap-out { position: absolute; left: 0; right: 0; top: 0; }
 .glyph .swap { width: 16px; height: 16px; }
@@ -135,14 +158,28 @@ textarea { overflow-y: hidden; }
 .row.editing input { width: 100%; background: var(--page); border: 1px solid var(--mute); border-radius: var(--r-s); outline: 0; color: var(--ink); font: inherit; font-size: 13px; padding: 3px 6px; }
 
 /* ---- the conversation ---- */
-.talk { flex: 1; overflow-y: auto; padding: 8px 0 24px; }
-.talk-inner { max-width: calc(var(--col) + 48px); margin: 0 auto; padding: 0 24px; }
+/* the talk and the box are centred in the same width: the scrollbar's gutter is kept at both edges so the column does not shift 4 px against the island */
+.talk { flex: 1; overflow-y: auto; padding: 8px 0 24px; scrollbar-gutter: stable both-edges; }
+.talk-inner { max-width: var(--col-max); margin: 0 auto; padding: 0 var(--col-pad); }
 .empty { height: 100%; display: flex; align-items: center; justify-content: center; pointer-events: none; }
 .empty .mark-live { pointer-events: auto; cursor: pointer; touch-action: none; }
 .msg { margin: 0 0 20px; word-wrap: break-word; }
 .me-row { display: flex; justify-content: flex-end; margin: 8px 0 20px; }
+/* a long message of yours (a paste) shows its first lines and a quiet foot that unfolds it in place (board 16) */
+.msg.me .more { display: block; margin: 6px 0 -2px; padding: 0; background: none; border: 0; color: var(--dim); font-size: 12px; cursor: pointer; }
+.msg.me .more:hover { color: var(--ink); }
 .msg.me { margin: 0; max-width: 78%; padding: 9px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); border-bottom-right-radius: var(--r-s); color: var(--ink); white-space: pre-wrap; user-select: text; }
-.msg.you { color: var(--ink); user-select: text; cursor: text; }
+/* his bubble's style, a cosmetic pick in Settings → look (data-bubble on the root, look.ts). One block each.
+   slab: today's, the base laid again with a hairline (the rule above). */
+:root[data-bubble="glass"] .msg.me, [data-bubble="glass"] .msg.me { background: rgb(from var(--glow) r g b / 0.14); border-color: transparent; }
+:root[data-bubble="edge"] .msg.me, [data-bubble="edge"] .msg.me { border-color: transparent; box-shadow: inset -2px 0 0 var(--glow), inset 0 0 0 1px var(--line), 0 0 36px -4px rgb(from var(--glow) r g b / 0.35); }
+:root[data-bubble="classic"] .msg.me, [data-bubble="classic"] .msg.me { background: #0a84ff; border-color: transparent; color: #fff; }
+:root[data-bubble="classic"] .msg.me .more, [data-bubble="classic"] .msg.me .more { color: rgba(255,255,255,.7); }
+:root[data-bubble="outline"] .msg.me, [data-bubble="outline"] .msg.me { background: transparent; border: 1.5px solid var(--glow); }
+:root[data-bubble="bare"] .me-row, [data-bubble="bare"] .me-row { justify-content: flex-start; }
+:root[data-bubble="bare"] .msg.me, [data-bubble="bare"] .msg.me { max-width: 100%; padding: 0; background: transparent; border: 0; border-radius: 0; color: var(--glow); }
+/* Claude's words are bare on the glass (c-today): no card, 15 px on 1.6, one column; code keeps its surface */
+.msg.you { font-size: 15px; line-height: 1.6; color: var(--ink); user-select: text; cursor: text; }
 .sent-files { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; font-size: 12px; }
 .sent-files img { max-height: 120px; max-width: 200px; border-radius: var(--r-s); border: 1px solid var(--line); }
 .sent-files span { border: 1px solid var(--line); border-radius: var(--pill); padding: 1px 10px; color: var(--dim); }
@@ -174,15 +211,15 @@ textarea { overflow-y: hidden; }
 @keyframes blink { 50% { opacity: 0; } }
 @keyframes turn { to { transform: rotate(360deg); } }
 
-/* steps: one card for a run of the seat's work */
-.steps { position: relative; margin: 0 0 20px; padding: 4px 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); font-size: 13px; color: var(--dim); user-select: text; }
-.step-row { display: flex; align-items: center; gap: 10px; min-height: 30px; padding: 3px 12px; }
+/* steps (sitting 2, c-today): a run of the seat's work is a stack of thin slabs, 4 px apart, no card and no hairline;
+   each slab the surface, 36 px tall; the running one lifted (raised, an edge ring, a drop), its elapsed time in ink */
+.steps { position: relative; display: flex; flex-direction: column; gap: 4px; margin: 0 0 20px; padding: 0; font-size: 13px; color: var(--dim); user-select: text; }
+.step-row { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 12px; background: var(--surface); border-radius: var(--r-s); box-shadow: inset 0 1px 0 var(--edge); }
 .step.can > .step-row { cursor: pointer; }
 .step.can > .step-row:hover, .step.open > .step-row { color: var(--ink); }
 .glyph { display: flex; flex: none; width: 16px; height: 16px; color: var(--mute); }
 .glyph svg { width: 16px; height: 16px; }
 .step.running .glyph, .step.open .glyph, .step.can > .step-row:hover .glyph { color: var(--dim); }
-.step.error .glyph, .step.failed .glyph { color: var(--warn); }
 .step-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .step.reasoning .step-text { font-style: italic; opacity: 0.85; }
 .step.reasoning .pre { opacity: 0.7; }
@@ -190,18 +227,23 @@ textarea { overflow-y: hidden; }
 .step-state { flex: none; width: 10px; height: 10px; display: flex; align-items: center; justify-content: center; }
 /* a running step: the runner in the glyph's place, marching cells round the card (and its eye at the row's end) */
 .glyph canvas.runner { width: 16px; height: 16px; }
-.steps canvas.edge { position: absolute; inset: -2px; width: calc(100% + 4px); height: calc(100% + 4px); pointer-events: none; }
-.steps.live { border-color: transparent; }
+.step.running > .step-row { background: var(--raised); box-shadow: inset 0 1px 0 rgb(from var(--on) r g b / 0.16), inset 0 0 0 1px var(--edge), 0 10px 24px -12px var(--shade); color: var(--ink); translate: 0 -1px; }
+.step.running .elapsed { font-family: var(--mono); font-size: 11px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .cellcheck { display: block; }
 .spin { display: block; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--line); border-top-color: var(--glow); animation: turn 0.9s linear infinite; }
 i.bad { display: block; width: 6px; height: 6px; background: var(--warn); }   /* the dot only: a ticket, a run, a line can be .bad too */
-.step-detail { margin: 2px 12px 8px 38px; padding: 10px 12px; background: var(--page); border: 1px solid var(--line); border-radius: var(--r-s); font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; }
+/* a failed step (c-today scene 4): the ember mark, two hard bands like the tick; the row framed by a mute inset; the reason one dim line under it */
+.step.failed .step-state i.bad, .step.error .step-state i.bad { width: 10px; height: 10px; background: var(--ember); clip-path: polygon(12% 0, 50% 38%, 88% 0, 100% 12%, 62% 50%, 100% 88%, 88% 100%, 50% 62%, 12% 100%, 0 88%, 38% 50%, 0 12%); }
+.step.failed .step-state i.bad::after, .step.error .step-state i.bad::after { content: ""; display: block; width: 100%; height: 100%; background: color-mix(in srgb, var(--ember) 65%, black); clip-path: polygon(100% 0, 100% 100%, 0 100%); }
+.step.failed > .step-row, .step.error > .step-row { color: var(--ink); box-shadow: inset 0 1px 0 var(--edge), inset 0 0 0 1px var(--mute); }
+.step.failed .glyph, .step.error .glyph { color: var(--dim); }
+.step-why { margin: 0 0 2px 38px; font-size: 12.5px; line-height: 1.5; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step-detail { margin: 0 0 4px 26px; padding: 10px 12px; background: var(--page); border: 1px solid var(--line); border-radius: var(--r-s); font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; }
 .step-detail.prose { font-family: inherit; font-size: 13px; color: var(--dim); font-style: italic; }
-.step + .step > .step-row { border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
 
 /* ---- the box ---- */
-.ask { flex: none; padding: 0 24px 20px; }
-.ask-col { max-width: var(--col); margin: 0 auto; container-type: inline-size; }
+.ask { flex: none; padding: 0 0 20px; }
+.ask-col { max-width: var(--col-max); margin: 0 auto; padding: 0 var(--col-pad); container-type: inline-size; }
 /* the way to Work over the box (issue #26): a quiet pill; lit, with Sol's reason, when Sol offered it; a stamp once moved */
 .towork { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 0 2px 8px; font-size: 12px; }
 .towork .towhy { flex: 1; min-width: 0; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -209,11 +251,13 @@ i.bad { display: block; width: 6px; height: 6px; background: var(--warn); }   /*
 .handbtn { flex: none; height: 24px; padding: 0 11px; background: none; border: 1px solid var(--line); border-radius: var(--pill); color: var(--dim); font: inherit; font-size: 12px; cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
 .handbtn:hover:not(:disabled) { color: var(--ink); border-color: var(--mute); }
 .handbtn:disabled { opacity: .4; cursor: default; }
-.towork.lit .handbtn { background: var(--ink); border-color: var(--ink); color: var(--page); }
+.towork.lit .handbtn { background: var(--ink); border-color: var(--ink); color: var(--base-color); }
 .towork.moved .towhy { color: var(--mute); }
 .hrow .who.moved { color: var(--ink); }
-.chips { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 10px; }
-.chip { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-s); padding: 3px 8px; font-size: 12px; color: var(--dim); max-width: 220px; }
+/* the attachment chips: their own row inside the island, above the text line (sitting 4): 8 px apart, 10 px to the text */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 16px 0; }
+.chips + .ask-line { padding-top: 10px; }
+.chip { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 0; box-shadow: inset 0 0 0 1px var(--line); border-radius: var(--r-s); padding: 3px 8px; font-size: 12px; color: var(--dim); max-width: 220px; }
 .chip img { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; margin: 0 0 0 -4px; }
 .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip button { background: none; border: 0; color: var(--dim); cursor: pointer; padding: 0 2px; }
@@ -222,45 +266,96 @@ i.bad { display: block; width: 6px; height: 6px; background: var(--warn); }   /*
 .eback { margin: 0 16px 6px; font-size: 12px; color: var(--mute); }
 .eback button { background: none; border: 0; padding: 0; color: var(--ink); font: inherit; cursor: pointer; }
 .eback button:hover { text-decoration: underline; text-underline-offset: 3px; }
-.ask-inner { position: relative; display: flex; align-items: flex-end; gap: 12px; padding: 10px 12px 10px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); transition: border-color 0.15s; }
-.ask-inner:focus-within { border-color: var(--mute); }
-/* focused: a sparkling fringe of cells around the box, the small eye in its right padding */
-.ask-inner canvas.fringe { position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px); pointer-events: none; }
-.dropping .ask-inner { border-color: var(--ink); } /* plain: the chat box wears no colour (repair 2026-10-18) */
+/* the island (sitting 2, c-today scene 7): one floating slab, the text line on top, the row of pills under it.
+   Focused, its inner edge lights (no fringe); while a turn runs it breathes 1.0→1.006 at 2.4 s; a file dragged over rings it in the seat's colour. */
+.ask-inner { position: relative; display: flex; flex-direction: column; padding: 0; background: var(--island); border: 1px solid var(--edge); border-radius: 18px;
+  box-shadow: inset 0 1px 0 var(--edge), 0 18px 40px -18px var(--shade); transition: box-shadow 0.15s, border-color 0.15s; transform-origin: 50% 100%; }
+/* the rhythm (sitting 4, c-today-7): the text line 14/16 in, 10 px to the pill row, the row 12 in at its sides and foot, 8 px between pills */
+.ask-line { display: flex; align-items: flex-end; gap: 12px; min-height: 36px; padding: 14px 16px 0; }
+.ask-inner:focus-within { box-shadow: inset 0 1px 0 rgb(from var(--on) r g b / 0.16), inset 0 0 0 1px rgb(from var(--on) r g b / 0.12), 0 18px 40px -18px var(--shade); }
+.ask-inner.running { animation: isle 2.4s ease-in-out infinite; will-change: transform; }   /* its own layer: the breath moves a texture, it does not repaint the island */
+@keyframes isle { 50% { transform: scale(1.006); } }
+.dropping .ask-inner, .ask-inner.drop { border-color: rgb(from var(--glow) r g b / 0.35); box-shadow: inset 0 1px 0 var(--edge), 0 0 0 1px rgb(from var(--glow) r g b / 0.35), 0 18px 40px -18px var(--shade); }
+@media (prefers-reduced-motion: reduce) { .ask-inner.running { animation: none; } }
 textarea { flex: 1; resize: none; background: transparent; color: var(--ink); border: 0; outline: 0; font: inherit; line-height: 1.5; padding: 3px 0; max-height: 200px; }
 textarea::placeholder { color: var(--dim); }
 /* dictation as it goes: the words so far, faint, in the box's place; they enter the box only when it ends */
 .ask-inner .live { flex: 1; margin: 0; padding: 3px 0; min-height: 24px; color: var(--ink); font: inherit; line-height: 1.5; white-space: pre-wrap; max-height: 200px; overflow-y: auto; }
 .ask-inner .live .said { color: var(--dim); }
 .ask-inner .live + textarea { display: none; }
-button.stop { background: var(--raised); color: var(--dim); border: 1px solid var(--line); border-radius: var(--pill); font-size: 12px; padding: 4px 12px; cursor: pointer; margin-bottom: 1px; }
-button.stop:hover { color: var(--ink); border-color: var(--dim); }
+button.stop { align-self: flex-start; height: 26px; margin: -1px 0 0; padding: 0 12px; background: var(--surface); color: var(--dim); border: 0; box-shadow: inset 0 0 0 1px var(--line); border-radius: var(--pill); font: inherit; font-size: 12px; cursor: pointer; }
+button.stop:hover { color: var(--ink); box-shadow: inset 0 0 0 1px var(--mute); }
 
 /* the picker row under the box */
-.picker { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; row-gap: 6px; padding: 10px 4px 0; font-size: 12px; user-select: none; position: relative; }
+/* one row of pills: the seat, the model, the effort, the mode, the folder; then the mic, the dots, the ring and the creature as they are */
+.picker { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; padding: 10px 12px 12px; font-size: 12px; user-select: none; position: relative; }
+.picker .slider, .picker .wchip, .picker .seatsw { height: 26px; padding: 0 11px; background: var(--surface); border: 0; box-shadow: inset 0 0 0 1px var(--line); border-radius: var(--pill); color: var(--dim); font-size: 12px; }
+.picker .slider:hover, .picker .wchip:hover { color: var(--ink); }
 .picker button { background: none; border: 0; padding: 2px 0; font-size: 12px; color: var(--dim); cursor: pointer; letter-spacing: 0.02em; }
 .picker button:hover { color: var(--ink); }
-.picker .grow { flex: 1; }
+.picker .grow { flex: 1; flex-grow: 0.001; }   /* the slack goes to the chips and the name first; the spacer takes what is left (board 13) */
+/* the right-side group (the mic, the dots, the ring, the creature): 12 px apart, 4 px more from the last pill */
+.picker .grow ~ * { margin-left: 4px; }
+.picker .grow + * { margin-left: 8px; }
 .chev { position: absolute; right: 8px; top: 50%; margin-top: -4px; pointer-events: none; color: var(--dim); }
-/* home / work switch: a pill with a thumb that slides */
-.seatsw { position: relative; display: grid; grid-template-columns: 1fr 1fr; flex: none; height: 26px; padding: 2px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--pill); }
-.seatsw .thumb { position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: var(--pill); background: var(--raised); box-shadow: 0 0 0 1px var(--line); }
+/* home / work switch: a pill with a thumb that slides; the same 26 px as every other pill, the white one differs in fill alone */
+.seatsw { position: relative; display: grid; grid-template-columns: 1fr 1fr; flex: none; height: 26px; padding: 2px; background: var(--surface); border: 0; box-shadow: inset 0 0 0 1px var(--line); border-radius: var(--pill); }
+/* the seat's pill: the thumb is "on" (white-ish on a dark base), the name on it in the base colour, the seat's ring dot before it */
+.seatsw .thumb { position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 2px); border-radius: var(--pill); background: rgb(from var(--on) r g b / 0.88); box-shadow: none; }
+.picker .seatsw { padding: 2px; }
+.seatsw button::before { content: ""; position: absolute; left: 9px; top: 50%; width: 10px; height: 10px; margin-top: -5px; border-radius: 50%; border: 2px solid var(--mute); box-sizing: border-box; }
+.seatsw button.on::before { border-color: var(--glow); }
+.seatsw button.on { color: var(--base-color); }
 .seatsw canvas.seatcells { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
 .seatsw button, .picker .seatsw button { position: relative; min-width: 46px; padding: 0 10px 0 26px; background: none; border: 0; border-radius: var(--pill); font-size: 12px; color: var(--dim); cursor: pointer; letter-spacing: 0.02em; }
-.seatsw button.on, .picker .seatsw button.on { color: var(--ink); }
+.picker .seatsw button.on { color: var(--base-color); }
 .seatsw.locked { opacity: 0.55; }
 .seatsw.locked button { cursor: default; }
 .slider { display: flex; align-items: center; gap: 8px; }
 .track { position: relative; width: 60px; height: 20px; cursor: pointer; touch-action: none; }
+/* in the pill the track is the pill itself, unseen: a drag or a click across it still picks (left is the first option,
+   right the last); the model's name keeps its list over it. The drawn band and its knob are not shown (c-today: the tracks are gone). */
+.picker .slider { position: relative; }
+.picker .track { position: absolute; inset: 0; width: auto; height: auto; opacity: 0; }
+.picker .slider .name { position: relative; pointer-events: none; }
+/* the model pill (Picker.tsx ModelPill, sitting 5): the name is a button that opens the Sol menu above the pill; its reach is
+   the whole pill (the ::after), its look is the name's alone, no chrome of its own */
+.picker .slider button.name.list { pointer-events: auto; position: static; margin: 0; padding: 0; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; outline: none; }
+.picker .slider button.name.list::after { content: ""; position: absolute; inset: 0; border-radius: var(--pill); }
+.picker .slider:has(button.name.list:focus-visible) { box-shadow: inset 0 0 0 1px var(--mute); }
+.picker .slider:has(button.name.list[aria-expanded="true"]) { color: var(--ink); }
+.picker .slider .val { font-family: var(--mono); font-size: 11.5px; letter-spacing: -0.02em; color: inherit; min-width: 0; }
+.picker .slider:has(.name.list) { flex: 0 1 auto; }
+/* the effort pill that plays (EffortPill.tsx, mine/look/SITTING-4.md): one canvas on the creature's loop. At rest a small
+   knob, the level's lit cells, before the word; open, a track of cells with the creature's knob riding it (body in --on,
+   its one eye in --glow) and the level's word inside the pill to the right of the track */
+.picker .slider.epill { padding: 0 11px 0 28px; cursor: pointer; outline: none; display: flex; align-items: center; color: var(--ink); caret-color: var(--glow); }
+.epill:focus-visible { box-shadow: inset 0 0 0 1px var(--mute); }
+.epill.open .name { visibility: hidden; }
+.epill .eghost { position: absolute; left: 0; top: 0; visibility: hidden; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; letter-spacing: -0.02em; pointer-events: none; }
+.epill .eghost span { margin-right: 8px; }
+.epill .etrack { position: absolute; inset: -8px; width: calc(100% + 16px); height: calc(100% + 16px); pointer-events: none; color: var(--ink); caret-color: var(--glow); }
+.epill .eword { position: absolute; top: 0; bottom: 0; width: 72px; pointer-events: none; color: var(--dim); }
+.eword-c { position: absolute; inset: 0; width: 100%; height: 100%; }
+
 /* the cell slider: a dithered band, a 3x3 ink knob with an eye (the canvas only draws; the track owns the pointer) */
 .track canvas.cells, .crange canvas.creature { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.slider .val { color: var(--dim); min-width: 28px; white-space: nowrap; }
+.slider .val { color: var(--dim); min-width: 28px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the model's name gives way after the chips (board 13): the slider lays out at a short basis and grows to the name */
+.picker .slider:has(.name.list) { flex: 0.4 1 118px; max-width: max-content; min-width: 86px; }   /* the chips fill first; squeezed, the name ends in an ellipsis, never in nothing */
+/* one row, always (Marco, 2026-10-26). When the row is short of room, things give way in this order: the spacer, the
+   model's name (to 86 px), the folder chip (to 56 px), the mode chip (to 64 px); each shortens to an ellipsis. The seat
+   switch, the effort, the mic, the dots and the status never shrink. */
+.picker .seatsw, .picker .slider.epill, .picker .icon, .picker .health, .picker .state { flex: none; }
+.picker .wchip { flex: 0 1 auto; min-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker .wchip.leash { flex-shrink: 0.5; min-width: 64px; }
+.picker .slider:has(.name.list) .name { flex: 1; min-width: 0; }
+.picker .slider:has(.name.list) .track { flex: none; }
+.slider .val .swap-in { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* the model's name is its list too: the select lies over the name unseen, so a click opens the native list */
 .slider .name { position: relative; display: flex; }
 .slider .name.list:hover .val { color: var(--ink); }
-.slider .name select { position: absolute; inset: 0; width: 100%; opacity: 0; appearance: none; -webkit-appearance: none; border: 0; font: inherit; cursor: pointer; }
-.slider .name select option { background: var(--surface); color: var(--ink); }
-.picker .icon { display: flex; position: relative; width: 26px; height: 26px; align-items: center; justify-content: center; padding: 0; margin: 0 -4px; border-radius: var(--r-s); }
+.picker .icon { display: flex; position: relative; width: 26px; height: 26px; align-items: center; justify-content: center; padding: 0; margin: 0; border-radius: var(--r-s); }
 .picker .icon:hover { background: var(--raised); }
 .icon.rec { color: var(--ink); }
 .call-live { color: var(--glow); }
@@ -271,9 +366,9 @@ button.stop:hover { color: var(--ink); border-color: var(--dim); }
 .msg.me.call { color: var(--dim); }
 .msg.you.call.live::after { content: "…"; }
 .pulse { position: absolute; top: 3px; right: 3px; width: 4px; height: 4px; background: var(--glow); animation: blink 1s steps(2) infinite; }
-.picker .state { display: flex; align-items: center; gap: 8px; position: relative; }
+.picker .state { display: flex; align-items: center; gap: 12px; position: relative; }
 .ring { width: 14px; height: 14px; }
-.card { display: none; position: absolute; right: -4px; bottom: 100%; width: 250px; margin-bottom: 8px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); font-size: 12px; color: var(--dim); z-index: 5; box-shadow: 0 8px 24px color-mix(in srgb, var(--page) 70%, transparent); }
+.card { display: none; position: absolute; right: -4px; bottom: 100%; width: 250px; margin-bottom: 8px; padding: 12px 14px; background: var(--pop); border: 1px solid var(--edge); border-radius: var(--r); font-size: 12px; color: var(--dim); z-index: 5; box-shadow: var(--pop-shadow); }
 .state:hover .card { display: block; }
 .state:hover::before { content: ""; position: absolute; left: -20px; right: -20px; bottom: 100%; height: 12px; }
 .card-h { display: flex; justify-content: space-between; margin-bottom: 8px; }
@@ -285,7 +380,7 @@ button.stop:hover { color: var(--ink); border-color: var(--dim); }
 .card-r span { flex: 1; }
 .card-r b { font-weight: 400; color: var(--ink); }
 .card-f { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
-.notice { padding: 6px 4px 0; font-size: 12px; color: var(--dim); }
+.notice { padding: 0 16px 10px; font-size: 12px; color: var(--dim); }
 /* a narrow column (the pane open): the row stays one row */
 @container (max-width: 540px) {
   .picker { gap: 9px; }
@@ -293,7 +388,6 @@ button.stop:hover { color: var(--ink); border-color: var(--dim); }
   .slider { gap: 6px; }
   .slider .val { max-width: 104px; overflow: hidden; text-overflow: ellipsis; }   /* a model's whole name (claude-opus-5-5) still fits */
       .seatsw button { min-width: 38px; padding: 0 8px; }
-  .picker .icon { margin: 0 -5px; }
 }
 /* a new session's row carries the seat switch and its own chips too (#141): it tightens sooner, still one row */
 @container (max-width: 900px) {
@@ -302,14 +396,15 @@ button.stop:hover { color: var(--ink); border-color: var(--dim); }
   .picker:has(.wchip):has(.seatsw) .slider { gap: 6px; }
   .picker:has(.wchip):has(.seatsw) .seatsw button { min-width: 38px; padding: 0 8px 0 24px; }
 }
-/* narrower still (the pane open in a small window, or the side pinned too): one row no longer fits a long model name,
-   so the picker breaks into two rows on purpose. The grow takes a whole line of its own, which puts the sliders on the
-   first row and the voice keys on the second, with the state held to the right edge. Each line break costs a row-gap,
-   hence half of it here. */
-@container (max-width: 400px) {
-  .picker { row-gap: 5px; }
-  .picker .grow { flex-basis: 100%; }
-  .picker .state { margin-left: auto; }
+/* narrower still: the gaps and paddings tighten; the row stays one row (the give-way order is above). */
+@container (max-width: 640px) {
+  .picker { gap: 7px; }
+  .picker .slider .val { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
+}
+@container (max-width: 480px) {
+  .picker { gap: 6px; padding-left: 10px; padding-right: 10px; }
+  .picker .wchip { padding: 0 8px; }
+  .picker .seatsw button { min-width: 34px; padding: 0 6px 0 22px; }
 }
 
 /* ---- the browser pane ---- */
@@ -418,6 +513,22 @@ button.stop:hover { color: var(--ink); border-color: var(--dim); }
 .pick select option { background: var(--surface); color: var(--ink); }
 .pick select:disabled { opacity: 0.5; cursor: default; }
 .pair { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+/* settings → look (mine/look/SPEC.md): the base's swatches, the bubble pills, one bubble as a live preview */
+.swatches { display: flex; gap: 8px; align-items: center; }
+.swatch { position: relative; width: 24px; height: 24px; padding: 0; border: 1px solid var(--edge); border-radius: 50%; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+.swatch.on { box-shadow: 0 0 0 2px var(--base-color), 0 0 0 3.5px var(--ink); }
+.swatch:disabled { opacity: .5; cursor: default; }
+.swatch.any { display: grid; place-items: center; background: conic-gradient(var(--candy), var(--sun), var(--green), #4a9bff, var(--candy)); }
+.swatch.any input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.bubbles { align-items: flex-start; }
+.bubbles .pair { max-width: 330px; }
+.bpill { height: 26px; padding: 0 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--pill); color: var(--dim); font: inherit; font-size: 12px; cursor: pointer; }
+.bpill:hover:not(:disabled) { color: var(--ink); border-color: var(--mute); }
+.bpill.on { background: var(--ink); border-color: var(--ink); color: var(--base-color); }
+.bpill:disabled { opacity: .5; cursor: default; }
+.bpreview { margin: 2px 0 18px; padding: 14px 16px 4px; border: 1px dashed var(--line); border-radius: var(--r); }
+.bpreview .msg.me { font-size: 14px; }
+.bpreview .me-row { margin-bottom: 10px; }
 .hint-line { margin: 4px 0 0; font-size: 12px; color: var(--dim); }
 .hint-line.top { margin: 0 0 6px; }
 .hint-line.stale { margin: 0 0 14px; }
@@ -543,7 +654,7 @@ button.stop.sure { color: var(--ink); border-color: var(--ink); }
 .orb:hover { background: var(--line); border-color: var(--dim); }
 .orb:focus-visible { outline: 0; border-color: var(--mute); }
 .orb svg { display: block; }
-.orb .orb-dot { position: absolute; top: -1px; right: -1px; width: 7px; height: 7px; border-radius: var(--pill); background: var(--ink); box-shadow: 0 0 0 2px var(--page); scale: 0; transition: scale .18s cubic-bezier(.3,1.6,.5,1); }
+.orb .orb-dot { position: absolute; top: -1px; right: -1px; width: 7px; height: 7px; border-radius: var(--pill); background: var(--ink); box-shadow: 0 0 0 2px var(--base-color); scale: 0; transition: scale .18s cubic-bezier(.3,1.6,.5,1); }
 .orb.fresh .orb-dot { scale: 1; }
 @media (prefers-reduced-motion: reduce) { .orb .orb-dot { transition: none; } }
 .trail { position: absolute; top: 14px; bottom: 14px; right: 3px; width: 18px; cursor: pointer; touch-action: none; user-select: none; opacity: 0.5; transition: opacity 0.15s; }
@@ -581,3 +692,62 @@ canvas.scenes { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-
   box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ink) calc(var(--land, 0) * 55%), transparent);
   background-color: color-mix(in srgb, var(--ink) calc(var(--land, 0) * 7%), transparent);
 }
+
+
+/* ---- vibe mode (vibe.ts): the chat box wears a turning ring of Sol's colours, ticks and tickets take colour.
+   Everything arrives in order of distance from the sidebar's mark (--vd, set by vibe.ts). The text never moves.
+   --vibe-env (0..1, ten steps) is how loud the music is; without music it is 0 and the ring just turns. ---- */
+@property --vibe-a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@keyframes vibe-in { from { transform: scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes vibe-hue { to { filter: hue-rotate(360deg); } }
+@keyframes vibe-pulse { 0%, 100% { text-shadow: 0 0 0 transparent; } 50% { text-shadow: 0 0 10px currentColor; } }
+/* the ring: --vibe-a (its turn), --vibe-env (0..1, the loudness) and --vibe-beat (1 on a beat) are written on the box
+   by vibe.ts each frame; --vibe-ring (the colours) on the root. Thicker and brighter on the beat, calm without music. */
+body.vibe-ring .ask-inner { border-color: transparent; }
+body.vibe-ring .ask-inner::before, body.vibe-ring .ask-inner::after {
+  content: ""; position: absolute; inset: -2px; border-radius: inherit; pointer-events: none;
+  background: var(--vibe-ring, conic-gradient(from var(--vibe-a, 0deg), #fd69b9, #ff2e4e, #fb7129, #f4c82a, #70df45, #5ac8fa, #bf5af2, #fd69b9));
+  animation: vibe-in .5s var(--vd, 0s) both;
+}
+body.vibe-ring .ask-inner::before {
+  padding: calc(var(--vibe-ring-size, 2px) + var(--vibe-beat, 0) * 2px); inset: calc(-1 * var(--vibe-ring-size, 2px) - var(--vibe-beat, 0) * 2px);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+}
+body.vibe-ring .ask-inner::after {
+  inset: calc(-4px - var(--vibe-env, 0) * 6px); z-index: -1;
+  filter: blur(calc(12px + var(--vibe-beat, 0) * 10px));
+  opacity: calc(var(--vibe-ring-bright, .4) * (.55 + var(--vibe-env, 0) * 1.3 + var(--vibe-beat, 0) * .75));
+}
+body.vibe .verdict .ok, body.vibe .recap li.ok span, body.vibe .wst.done svg { animation: vibe-hue 2.4s linear infinite, vibe-pulse 1.2s ease-in-out infinite, vibe-in .4s var(--vd, 0s) both; color: var(--green-strong); }
+body.vibe .wticket i, body.vibe .mitem.on .tick { animation: vibe-hue 2.4s linear infinite, vibe-in .4s var(--vd, 0s) both; }
+body.vibe .brand .word { animation: vibe-hue 6s linear infinite, vibe-pulse 2.2s ease-in-out infinite; color: #fd69b9; }
+@media (prefers-reduced-motion: reduce) {
+  body.vibe-ring .ask-inner::before, body.vibe-ring .ask-inner::after, body.vibe .verdict .ok, body.vibe .recap li.ok span, body.vibe .wst.done svg, body.vibe .wticket i, body.vibe .mitem.on .tick, body.vibe .brand .word { animation: none; }
+}
+
+/* the colour swatches in the music drawer (Settings.tsx): each a colour input under a round of its colour */
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0 2px; }
+.swatch { position: relative; width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--line); overflow: visible; }
+.swatch input[type="color"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.swatch .x { position: absolute; top: -6px; right: -6px; width: 14px; height: 14px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--page); color: var(--dim); font-size: 10px; line-height: 12px; display: none; }
+.swatch:hover .x { display: block; }
+.swatch.add { background: none; color: var(--dim); font-size: 16px; line-height: 24px; padding: 0; }
+.swatch.add:hover { color: var(--ink); border-color: var(--mute); }
+
+/* the frame inside a full-screen window (vibe.ts): the colours round the edges, masked to a band, turning slowly;
+   with the music on it brightens with the loudness like the ring */
+.vibe-frame {
+  position: fixed; inset: 0; pointer-events: none; z-index: 2147483000;
+  background: var(--vibe-frame-ring, conic-gradient(from var(--vibe-a, 0deg), #fd69b9, #ff2e4e, #fb7129, #f4c82a, #70df45, #5ac8fa, #bf5af2, #fd69b9));
+  opacity: calc(var(--vibe-frame-bright, .2) * (1 + var(--vibe-env, 0) * .8 + var(--vibe-beat, 0) * .4));   /* its own brightness, size and colours: Settings → music */
+  -webkit-mask-image: linear-gradient(to bottom, #000, rgba(0,0,0,.3) calc(var(--vibe-frame-size, 56px) / 3), transparent var(--vibe-frame-size, 56px)), linear-gradient(to top, #000, rgba(0,0,0,.3) calc(var(--vibe-frame-size, 56px) / 3), transparent var(--vibe-frame-size, 56px)), linear-gradient(to right, #000, rgba(0,0,0,.3) calc(var(--vibe-frame-size, 56px) / 3), transparent var(--vibe-frame-size, 56px)), linear-gradient(to left, #000, rgba(0,0,0,.3) calc(var(--vibe-frame-size, 56px) / 3), transparent var(--vibe-frame-size, 56px));
+  -webkit-mask-composite: source-over; mask-composite: add;
+  animation: vibe-in .6s both;
+}
+
+/* the sidebar's mark as the vibe switch (Mark.tsx VibeMark) */
+.vibe-mark { display: inline-flex; cursor: pointer; user-select: none; -webkit-user-select: none; }
+
+/* one part of vibe mode in the music drawer (Settings.tsx PartRows) */
+.vpart { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.vpart-h { margin: 0 0 4px; font-size: 12px; color: var(--ink); }

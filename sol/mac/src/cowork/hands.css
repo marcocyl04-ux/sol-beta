@@ -39,7 +39,7 @@
 .hline button:hover:not(:disabled) { border-color: var(--mute); }
 .hline button:disabled { color: var(--mute); cursor: default; }
 .hline button.first { background: var(--ink); border-color: var(--ink); color: var(--page); }
-.hline button.first:hover:not(:disabled) { background: #fff; border-color: #fff; }
+.hline button.first:hover:not(:disabled) { background: var(--on); border-color: var(--on); }
 .hline button.take:active { background: var(--green-strong); border-color: var(--green-strong); }
 .hpass { align-items: center; margin: 8px 0 1px; }
 .hpass input { flex: 1; min-width: 0; padding: 5px 10px; background: var(--page); border: 1px solid var(--line); border-radius: var(--pill); color: var(--ink); font: inherit; font-size: 12.5px; outline: none; }

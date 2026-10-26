@@ -283,7 +283,7 @@ const PLACEHOLDER = /(^|\.)example\.ts\.net$/;
 const HOST = /[\w-]+(?:\.[\w-]+)*\.ts\.net/g;
 export function exportOffence(path: string, body: Buffer): string | null {
   const base = path.slice(path.lastIndexOf("/") + 1);
-  if (base === ".env" || base.startsWith(".env.") && base !== ".env.example" || base === "team.json") return `${path}: a private file`;
+  if (base === ".env" || base.startsWith(".env.") && base !== ".env.example" || base === "team.json" || base === "team.cloud.json") return `${path}: a private file`;
   if (body.includes(0)) return null;   // an image, a font: no words in it
   const lines = body.toString("utf8").split("\n");
   for (let i = 0; i < lines.length; i++) {

@@ -186,7 +186,9 @@ let cache: Board | null = null;
 // the read under way, and the repos it reads: a room switch (#154) starts its own read rather than wait on the old room's
 let reading: { repos: string; p: Promise<Board> } | null = null;
 const subs = new Set<(b: Board) => void>();
-const reposNow = () => getTeam().repos.join(",");
+// only repositories: a Drive room's "repos" are its folders (#152), which no board reads
+const boardRepos = () => getTeam().repos.filter((r) => /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(r));
+const reposNow = () => boardRepos().join(",");
 
 /** the board: the cached one at once when there is one (a stale one starts a fresh read behind it, told to onBoard, so a
  * face paints now and is corrected after); refresh waits for the read. Every fresh read is told to onBoard */
@@ -198,7 +200,7 @@ export function getBoard(refresh = false): Promise<Board> {
   return read();
 }
 function read(): Promise<Board> {
-  const repos = getTeam().repos, key = repos.join(",");
+  const repos = boardRepos(), key = repos.join(",");
   if (reading?.repos === key) return reading.p;
   const p: Promise<Board> = (async () => {
     const got = await Promise.allSettled(repos.map(readRepo));
@@ -218,6 +220,9 @@ function read(): Promise<Board> {
   reading = { repos: key, p };
   return p;
 }
+
+/** the board as last read, never a read of its own (the feed, #232): null until someone read it */
+export const peekBoard = (): Board | null => (cache && cache.repos.join(",") === reposNow() ? cache : null);
 
 export function onBoard(fn: (b: Board) => void) { subs.add(fn); return () => { subs.delete(fn); }; }
 

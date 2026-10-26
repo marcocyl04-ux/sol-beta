@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sites-clear"
+description = "Enables the sites_clear command without any pre-configured scope."
+commands.allow = ["sites_clear"]
+
+[[permission]]
+identifier = "deny-sites-clear"
+description = "Denies the sites_clear command without any pre-configured scope."
+commands.deny = ["sites_clear"]

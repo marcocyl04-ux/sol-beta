@@ -26,9 +26,14 @@
 //      { type: "hello", face }              window | notch | phone: which face this socket is (pings are routed by it)
 //      { type: "presence", focused, idleSeconds }   the main window: focus and system idle (src/creature.ts)
 //      { type: "dictation", on }            dictation started / stopped on this face
+//      { type: "eye", invisible }           the notch's eye, after each flick and on connect (src/eye.ts); no answer
+//      { type: "eye.list" } / { type: "eye.tick", bundle, on } / { type: "eye.add", name, bundle }   the private list
+//                                            (src/private.ts, home/private.json): { apps } back under type and rid
 //      { type: "arrange.get" } / { type: "arrange.set", patch }   the arrangement (src/arrange.ts) -> arrange.changed
 //      { type: "arrange.used", counts: { <button id>: n } }   presses on the rails, batched a minute; no answer
 //      { type: "arrange.undo" }   the agent's last change to the arrangement taken back, one step only
+//      { type: "dictated", raw, typed, app, name?, title, seconds, went }   the notch typed a dictation into an app
+//                                            (#110): appended to home/voice/dictations/<YYYY-MM-DD>.jsonl (src/dictations.ts)
 //      { type: "face.broken", site, error } / { type: "face.mended", site }   a part of the window threw when it drew, or
 //                                            drew again (Site.tsx); after a recent face edit, src/changing.ts may take it back
 // Out: { type: "start", seat, sessionId }
@@ -56,7 +61,7 @@
 //                                            { type: "creature.ask", ask } and { type: "creature.turn", turn } likewise (#6)
 //      { type: "health", health }            kept, build, face, reverted (src/health.ts), to every face when it changes;
 //                                            also in settings' up object
-// HTTP: GET /health, POST /letgo (a window going back to the NucBox, One Sol #62), GET /file?path= (only inside home/), GET /pane-image?path= (an image the file pane opened), GET /pane-asset/<folder>/<rel> (a page's own files, for the page pane, #54), POST /tool (used by src/mcp-stdio.ts; /browser is an alias).
+// HTTP: GET /health, POST /claim (the harness, a file another branch changed: a claim ping to its holder, #202), POST /letgo (a window going back to the NucBox, One Sol #62), GET /file?path= (only inside home/), GET /pane-image?path= (an image the file pane opened), GET /pane-asset/<folder>/<rel> (a page's own files, for the page pane, #54), POST /tool (used by src/mcp-stdio.ts; /browser is an alias).
 // Both seats also get the browser and desk tools as an MCP server named "sol" (src/browser.ts, src/desk.ts,
 // routed by src/tools.ts): one invisible Chromium, tabs per conversation; a desk of cards per conversation. What each seat may do is src/inventory.ts (Home: read anywhere, write in home/).
 
@@ -77,11 +82,12 @@ import { listThreads, openThread, codexLastUsage, threadExists, threadSettings, 
 import { saveFiles, attachedLines, serveFile, servePaneImage, type FileIn } from "./files.js";
 import { setBrowserProfile, browserProfileDir, addFace, removeFace, watch, openTab, closeTab, selectTab, navigateTab, resizeTab, inputTab, inspectTab, locateTab, adoptTabs, type TurnCtx } from "./browser.js";
 import { setDeskHome, addFace as addDeskFace, removeFace as removeDeskFace, adoptDesk, actDesk, deskMsg, takeDeskLines } from "./desk.js";
+import { addStickyFace, removeStickyFace, stickyMsg, actSticky } from "./sticky.js";
 import { SOL_TOOLS, runSolTool } from "./tools.js";
 import { HOME_INVENTORY, solScript, type Inventory } from "./inventory.js";
 import { transcribe, DICTATION_MODEL } from "./voice.js";
 import { Call, haveVoiceKey } from "./call.js";
-import { getSettings, patchSettings } from "./settings.js";
+import { getSettings, patchSettings, VOICE_OFF } from "./settings.js";
 import { setArrangeHome, arrangeMsg, setArrangement, undoArrangement, addUsage, oneAsk } from "./arrange.js";
 import { setTitle, nameConversation, namingModel } from "./titles.js";
 import { Sample } from "./sample.js";
@@ -93,26 +99,32 @@ import { servePaneAsset } from "./work/page.js";
 import { getRun, allRuns } from "./work/runs.js";
 import { renewOnBuild } from "./renew.js";
 import { addWorkFace, removeWorkFace, handleWork, setWorkChanging, broadcastSessions } from "./work/wire.js";
-import { addTeamFace, removeTeamFace, handleTeam, startTeam, setRegistry } from "./team/wire.js";
-import { relayServer, relayRoutes, RelayHub } from "./team/relay.js";
-import { Spool } from "./team/spool.js";
-import { Registry, Guesses } from "./team/registry.js";
-import { Proofs } from "./team/proof.js";
+import { addTeamFace, removeTeamFace, handleTeam, startTeam, setRegistry, hearClaim, moveNow } from "./team/wire.js";
+import { relayServer, relayRoutes, RelayHub, hubHttp, restartRelay, CLOUD_FILE, ENGINE_HUB } from "./team/relay.js";
+import { signIn, signOut, accounts as cloudAccounts } from "./team/cloud.js";
+import { Spool, Registry, Guesses, Proofs, REGISTRY_MAX, makeCode } from "./hub/index.js";   // the hub, built alone for the box as the package sol/hub (#208)
 import { ghVerify } from "./team/identity.js";
 import { hostedMembers } from "./team/members.js";
 import { startShip } from "./team/ship.js";
-import { getTeam, hostedRoom, speakParagraph, hubHosts } from "./team/settings.js";
+import { getTeam, hostedRoom, speakParagraph, hubHosts, sharedHub } from "./team/settings.js";
 import { guardSpeak } from "./team/control.js";
+import { ownGhOnPath } from "./team/gh.js";
 import { Changing } from "./changing.js";
 import { addPingFace, removePingFace, seenPing, ackPing, pingFaceIs } from "./ping.js";
 import { workState, STATE_DIR, mark } from "./work/state.js";
+import { storeDictation } from "./dictations.js";
 import { addCreatureFace, removeCreatureFace, setRole, setPresence, setDictation, sent as creatureSent, lifeTurn, type Role } from "./creature.js";
 import { watchHealth, noteRevert, type Health } from "./health.js";
 import { setShelfHome, startSweep } from "./shelf.js";
 import { handleGrab } from "./grab.js";
+import { setAnticipate, handleAnticipate } from "./anticipate.js";
+import { handleTalks, setTalks } from "./talks.js";   // Conversations (#253): the talks of home/voice/talks
+import { setSolHidden } from "./eye.js";
+import { setPrivateHome, handlePrivate } from "./private.js";
 
 // Keys live in sol/engine/.env (gitignored): GEMINI_API_KEY for the call.
 try { process.loadEnvFile(resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env")); } catch { /* no .env: no call */ }
+ownGhOnPath();   // Sol's own gh (~/.sol/gh/bin) first on PATH before anything spawns gh: PROTOCOL.md round 42
 
 const PORT = Number(process.env.SOL_PORT ?? process.env.PORT ?? 7777); // SOL_PORT: a second engine for tests
 const STARTED = new Date().toISOString();
@@ -140,6 +152,10 @@ setWorkHome(HOME, reviewThreads);   // Work's side lists GPT talks in folders, n
 setArrangeHome(HOME, (m) => everyone(m));   // the arrangement (#133): its own file in the back room, told to every face
 // the shelf (Grab and Shelf, #200): home/shelf/, its items served by GET /file, the whole list told to every face
 setShelfHome(HOME, (abs) => `http://${HOST}:${PORT}/file?path=${encodeURIComponent(abs)}`, (items) => everyone({ type: "shelf.items", items }));
+// Anticipate (#253): a talk's turns and cards, told to every face; the helper is sol/mac/listen/bin/listen
+setAnticipate(HOME, resolve(HERE, "..", ".."), (m) => everyone(m));
+setTalks(HOME, (m) => everyone(m));   // Conversations (talks.ts): talks.changed reaches every face
+setPrivateHome(HOME);   // the clean screen's private list (#253): home/private.json
 // every edit a seat makes to Sol's face, and every mutate and undo, goes out to every window (src/changing.ts)
 const changing = new Changing(HOME, (m) => {
   const r = m as { type?: string; line?: string };
@@ -354,6 +370,19 @@ async function nameThread(seat: Seat, sessionId: string, first: string, answer: 
   setTitle(sessionId, t);
   await broadcastThreads();
   broadcastSessions();   // a GPT talk in a folder is a row in Work's side (#182): it wears the name too
+}
+// Anticipate's typed asks (anticipate.ts): a say on the Claude seat by the notch's door, fresh the first time and named
+// "Talk · <day> <time>" as it starts (so the usual naming leaves it), its words read back for the card
+function talkSay(ws: Wire, text: string, sessionId?: string, title?: string): Promise<{ text: string; sessionId?: string }> {
+  let said = "", sid = sessionId;
+  const tap: Wire = { readyState: WebSocket.OPEN, send: (line) => {
+    const m = JSON.parse(line);
+    if (m.type === "start" && m.sessionId && !sid) { sid = m.sessionId; if (title) { named.add(m.sessionId); setTitle(m.sessionId, title); listSoon(); } }
+    else if (m.type === "delta") said += m.text;
+    send(ws, m);
+  } };
+  const say: Say = { type: "say", text, seat: "claude", door: "notch", ...(sessionId ? { sessionId } : { fresh: true, draft: randomUUID() }) };
+  return handleSay({ ws: tap, chars: 0, sessionId }, say, new AbortController()).then(() => ({ text: said, sessionId: sid }));
 }
 const settingsMsg = () => ({
   type: "settings",
@@ -745,10 +774,10 @@ function serveDist(rel: string, res: import("node:http").ServerResponse) {
   }
 }
 
-// The hub's rooms (#157, team/registry.ts): the share codes and names of the rooms that meet here, one file beside the
+// The hub's rooms (#157, hub/registry.ts): the share codes and names of the rooms that meet here, one file beside the
 // spool. The routes under /relay/rooms and /relay/names (#160) have the relay's own gate, so they come before the
 // door, as the /relay upgrade does.
-const registry = new Registry(join(STATE_DIR, "relay", "rooms.json"));
+const registry = new Registry(join(STATE_DIR, "relay", "rooms.json"), Date.now, () => makeCode(), { rooms: REGISTRY_MAX });   // its 300, as before (#208)
 setRegistry(registry);
 const hostOrg = () => hostedRoom(getTeam()).org;   // #154: the room that meets here, whichever room I am in
 const hostKey = () => (getTeam().relay.host ? getTeam().relay.key : "");
@@ -787,6 +816,53 @@ const http = createServer(async (req, res) => {
   if (path === "/file" && req.method === "GET") return serveFile(HOME, req, res);
   if (path === "/pane-image" && req.method === "GET") return servePaneImage(req, res);
   if (path.startsWith("/pane-asset/") && req.method === "GET") return servePaneAsset(req, res);   // a page's own files, the page pane (#54)
+  if (path === "/claim" && req.method === "POST") {
+    // the harness (sol/harness/guard), fire and forget: a hit becomes a claim ping to the holder (team/wire.ts hearClaim)
+    if (!(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(415); res.end(); return; }
+    let body = "";
+    for await (const chunk of req) { body += chunk; if (body.length > 4000) break; }
+    let ok = false;
+    try { ok = hearClaim(JSON.parse(body)); } catch {}
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok }));
+    return;
+  }
+  if ((path === "/cloud/signin" || path === "/cloud/signout") && req.method === "POST") {
+    // a Sol account on a cloud (#214, team/cloud.ts): sign in with Google in the system browser, or sign this machine
+    // out. A program of this Mac's or a page of Sol's own (the door let it in), and JSON, which a web page cannot send
+    // without a preflight. Waits for the person, up to ten minutes. { hub } names the cloud; none is SOL_HUB
+    if (!(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(415); res.end(); return; }
+    let body = "";
+    for await (const chunk of req) { body += chunk; if (body.length > 2000) break; }
+    let given = "";
+    try { const v = JSON.parse(body || "{}"); if (typeof v?.hub === "string") given = v.hub.trim(); } catch {}
+    const hub = hubHttp(given || sharedHub());
+    const out = !/^https:\/\//.test(hub) ? { ok: false, error: "which cloud? (SOL_HUB, or { hub: \"wss://…/relay\" })" }
+      : path === "/cloud/signin" ? await signIn(hub, { file: CLOUD_FILE })
+      : { ok: await signOut(hub, { file: CLOUD_FILE }) };
+    if (out.ok) restartRelay();   // the next knock carries the new ticket, or none
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify(out));
+    return;
+  }
+  if (path === "/cloud/move" && req.method === "POST") {
+    // a GitHub room of mine moved to the cloud (#216, C15; team/move.ts): backed up here first, then copied and read back.
+    // The same door and JSON as /cloud/signin. { room: <id>, as?: <a name on the cloud> }
+    if (!(req.headers["content-type"] ?? "").startsWith("application/json")) { res.writeHead(415); res.end(); return; }
+    let body = "";
+    for await (const chunk of req) { body += chunk; if (body.length > 2000) break; }
+    let v: Record<string, unknown> = {};
+    try { const x = JSON.parse(body || "{}"); if (x && typeof x === "object") v = x; } catch {}
+    const out = await moveNow(v.room, v.as).catch((e) => ({ error: String((e as Error)?.message ?? e).split("\n")[0].slice(0, 200) }));
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify("error" in out ? { ok: false, error: out.error } : { ok: true, ...out }));
+    return;
+  }
+  if (path === "/cloud/accounts" && req.method === "GET") {
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ accounts: cloudAccounts(CLOUD_FILE) }));   // names and hubs only, never a token
+    return;
+  }
   if ((path === "/tool" || path === "/browser") && req.method === "POST") { // /browser: alias for one round
     // Only the stdio MCP script uses this. Requires JSON, which a web page cannot send without a preflight.
     if (!(req.headers["content-type"] ?? "").startsWith("application/json")) {
@@ -820,7 +896,8 @@ const wss = new WebSocketServer({ noServer: true });
 // it knows people by their GitHub sign-in instead of the key
 // #157: rooms shared by a code meet apart on this hub, and a hello in one is written down in the registry
 const relayHub = relayServer(PORT, hostKey,
-  new RelayHub({ spool: new Spool(join(STATE_DIR, "relay", "spool")), people: () => (hostOrg() ? hostedMembers() : []), registry, guesses, open: () => !hostOrg() && hubOpen() }),
+  new RelayHub({ spool: new Spool(join(STATE_DIR, "relay", "spool")), people: () => (hostOrg() ? hostedMembers() : []), registry, guesses, open: () => !hostOrg() && hubOpen(),
+    ...ENGINE_HUB }),   // the cloud's caps (#208, #223: people a room, shows watched, rates, versions) are not this hub's: it had none
   { org: hostOrg, open: hubOpen, verify: hubVerify, proofs });
 http.on("upgrade", (req, socket, head) => {
   if ((req.url ?? "").split("?")[0] === "/relay") return relayHub.upgrade(req, socket, head);
@@ -894,6 +971,7 @@ wss.on("connection", (ws, req) => {
   addFace(face);
   if (REVERTED) send(ws, { type: "engine.reverted", at: REVERTED });
   addDeskFace(face);
+  addStickyFace(face);
   addWorkFace(face);
   addTeamFace(face);
   addPingFace(face);
@@ -912,7 +990,7 @@ wss.on("connection", (ws, req) => {
       // a window just went back to the NucBox (One Sol, #62): nothing new starts on this Mac meanwhile
       const message = "Sol is moving to the NucBox; say it again there in a moment";
       const m = msg as any;
-      return send(ws, msg.type.startsWith("work.") ? { type: "work.error", sessionId: m.sessionId, message } : msg.type.startsWith("team.") ? { type: "team.error", rid: m.rid, message } : /^(shelf|grab)\./.test(msg.type) ? { type: msg.type, rid: m.rid, error: message } : { type: "error", message });
+      return send(ws, msg.type.startsWith("work.") ? { type: "work.error", sessionId: m.sessionId, message } : msg.type.startsWith("team.") ? { type: "team.error", rid: m.rid, message } : /^(shelf|grab|anticipate|eye|talks)\./.test(msg.type) ? { type: msg.type, rid: m.rid, error: message } : { type: "error", message });
     }
     if (typeof msg.type === "string" && msg.type.startsWith("work.")) {
       // work.handover: no face sends it since Home (#132) holds chats and sessions in one window; kept unused for one
@@ -931,6 +1009,10 @@ wss.on("connection", (ws, req) => {
       catch (err) { send(ws, { type: "team.error", rid: (msg as any).rid, message: err instanceof Error ? err.message.split("\n")[0] : String(err) }); }
     } else if (typeof msg.type === "string" && (msg.type.startsWith("shelf.") || msg.type.startsWith("grab."))) {
       await handleGrab(face, msg);   // Grab and Shelf (grab.ts): answers with the same type and rid, or its error
+    } else if (typeof msg.type === "string" && msg.type.startsWith("anticipate.")) {
+      await handleAnticipate(face, msg, (text, sid, title) => talkSay(ws, text, sid, title));   // a talk (anticipate.ts): same type and rid back
+    } else if (typeof msg.type === "string" && msg.type.startsWith("talks.")) {
+      await handleTalks(face, msg, (text, sid, title) => talkSay(ws, text, sid, title));   // Conversations (talks.ts): same type and rid back
     } else if (msg.type === "face.broken" || msg.type === "face.mended") {
       const m = msg as any;   // only Sol's own windows: a page elsewhere must not make the engine take edits back
       if (fromSol && typeof m.site === "string") m.type === "face.broken" ? changing.broke(m.site, String(m.error ?? "")) : changing.mended(m.site);
@@ -944,8 +1026,15 @@ wss.on("connection", (ws, req) => {
     } else if (msg.type === "presence") {
       const m = msg as any;
       setPresence(ws, !!m.focused, typeof m.idleSeconds === "number" ? m.idleSeconds : null);
+    } else if (typeof msg.type === "string" && msg.type.startsWith("eye.")) {
+      await handlePrivate(face, msg);   // the private list (private.ts): eye.list / eye.tick / eye.add, same type and rid back
+    } else if (msg.type === "eye") {
+      setSolHidden((msg as any).invisible);   // the notch's eye (eye.ts): while closed, a Sol grab and File it's shot refuse
     } else if (msg.type === "dictation") {
       setDictation(ws, !!(msg as any).on);
+    } else if (msg.type === "dictated") {
+      // the notch typed a dictation into an app (#110): one line in home/voice/dictations/<day>.jsonl
+      try { storeDictation(HOME, msg as any); } catch (err) { console.log(`dictated: not stored: ${err instanceof Error ? err.message : err}`); }
     } else if (msg.type === "goback.plan" || msg.type === "goback") {
       // the Go back row (#18): only Sol's own windows; `goback` runs sol/back and ends this engine at once, not at a
       // quiet moment (it is for a broken Sol), so its keeper brings the good build up
@@ -1071,6 +1160,7 @@ wss.on("connection", (ws, req) => {
       const mine = (sample = new Sample(String((msg as any).voice ?? getSettings().voice), (o) => send(ws, o)));
       void mine.start().finally(() => { if (sample === mine) sample = null; });
     } else if (msg.type === "call") {
+      if (getSettings().voice === VOICE_OFF) return send(ws, { type: "call", ok: false, why: "voice is off: Sol listens and writes, it does not talk (settings → voice)" });
       if (!haveVoiceKey()) return send(ws, { type: "call", ok: false, why: "no voice key: put GEMINI_API_KEY in sol/engine/.env" });
       if ((call && !call.done) || dialing) return;
       const m = msg as any;
@@ -1116,6 +1206,10 @@ wss.on("connection", (ws, req) => {
       if (!fromSol) send(ws, { type: "ran", rid: String(m.rid ?? ""), done: true, code: null, why: "only Sol's own windows can run" });
       else if (m.type === "run.stop") stopBlock(String(m.rid));
       else void runBlock(m, (seat, id) => findRun(seat, id, !!m.work), HOME, (o) => send(ws, o));
+    } else if (typeof msg.type === "string" && msg.type.startsWith("sticky.")) {
+      // the sticky note (sticky.ts): get, add, mark, remove, turn
+      if (msg.type === "sticky.get") send(ws, stickyMsg());
+      else { const why = actSticky(msg as any); if (why) send(ws, { type: "sticky.refused", message: why }); }
     } else if (msg.type === "desk.act" || msg.type === "desk.get") {
       const m = msg as any;
       try {
@@ -1150,6 +1244,7 @@ wss.on("connection", (ws, req) => {
     sample?.cancel(); sample = null;
     removeFace(face);
     removeDeskFace(face);
+    removeStickyFace(face);
     removeWorkFace(face);
     removeTeamFace(face);
     removePingFace(face);

@@ -3,8 +3,9 @@ import { composing } from "../ime";
 import type { FileOut, Seat } from "../useEngine";
 import type { useEngine } from "../useEngine";
 import { EngineBack } from "../EngineBack";
-import { Fringe } from "../creature/indicators";
 import { Picker } from "../Picker";
+import { prettyModel } from "../models";
+import { Aurora } from "../creature/indicators";
 import { CFG, enter, reducedMotion, useSpring } from "../motion";
 import { startRecording, type Recorder } from "../voice";
 import { AsideCard } from "./Cards";
@@ -76,7 +77,7 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
   };
   const setDraft = (v: string | ((s: string) => string)) => setD((x) => ({ ...x, text: typeof v === "function" ? v(x.text) : v }));
   const setAtts = (v: Att[] | ((a: Att[]) => Att[])) => setD((x) => ({ ...x, atts: typeof v === "function" ? v(x.atts) : v }));
-  const [boxFocus, setBoxFocus] = useState(false);
+  const [, setBoxFocus] = useState(false);   // the box knows its focus (the engine asks); its look is CSS :focus-within since sitting 2
   const [pop, setPop] = useState<Pop | null>(null);
   const [hits, setHits] = useState<Hit[]>([]);
   const [hitsFor, setHitsFor] = useState("");   // the query the hits answer: older ones show, but Enter waits
@@ -264,7 +265,7 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
   pickMenu.current = (k) => {
     const r = askBox.current?.getBoundingClientRect();
     const items: MenuItem[] = k === "model"
-      ? [{ head: "the model" }, ...(info?.models ?? []).map((m) => ({ label: m, on: m === w.model, run: () => w.adjust({ model: m }) }))]
+      ? [{ head: "the model" }, ...(info?.models ?? []).map((m) => ({ label: prettyModel(m, "claude"), on: m === w.model, run: () => w.adjust({ model: m }) }))]
       : [{ head: "the effort" }, ...(info?.efforts ?? e.efforts).map((x) => ({ label: String(x), on: x === w.effort, run: () => w.adjust({ effort: String(x) }) }))];
     setMenu({ x: (r?.left ?? 40) + 10, y: (r?.top ?? 400) - 6, items });
   };
@@ -326,14 +327,6 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
   return (
     <div className="ask">
       <div className="ask-col">
-        {atts.length > 0 && (
-          <div className="chips">
-            {atts.map((a, i) => (
-              <div className="chip" key={i}>{a.thumb && <img src={a.thumb} alt="" />}<span>{a.name}</span>
-                <button onClick={() => setAtts((x) => x.filter((_, j) => j !== i))} title="remove">×</button></div>
-            ))}
-          </div>
-        )}
         <StableLine />
         <FileLine mode={cowork ? "cowork" : "work"} page={`${cowork ? "Cowork" : "Home"} · ${w.live ? "session" : "new session"} · ${cwd ? base(cwd) : "~"}`} conversation={w.live} />
         {held && !asideOn && (
@@ -347,8 +340,7 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
         )}
         {w.sideAnswer && <AsideCard key={w.sideAnswer.id} a={w.sideAnswer} onClose={() => w.dropAside()} />}
         <EngineBack up={e.up} />
-        <div className={`ask-inner ${asideOn ? "aside" : ""} ${drop ? "drop" : ""}`} ref={askBox} onFocus={() => setBoxFocus(true)} onBlur={() => setBoxFocus(false)}>
-          {boxFocus && <Fringe eye={!busy} />}
+        <div className={`ask-inner ${asideOn ? "aside" : ""} ${drop ? "drop" : ""} ${(busy || working) && !held ? "running" : ""}`} ref={askBox} onFocus={() => setBoxFocus(true)} onBlur={() => setBoxFocus(false)}>
           {shown && (
             <div ref={popRef} className={`wpop ${pop!.kind}`} role="listbox">
               {hits.map((h, i) => (
@@ -359,6 +351,15 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
               ))}
             </div>
           )}
+        {atts.length > 0 && (
+            <div className="chips">
+              {atts.map((a, i) => (
+                <div className="chip" key={i}>{a.thumb && <img src={a.thumb} alt="" />}<span>{a.name}</span>
+                  <button onClick={() => setAtts((x) => x.filter((_, j) => j !== i))} title="remove">×</button></div>
+              ))}
+            </div>
+          )}
+          <div className="ask-line">
           <button className="wplus" onClick={plus} title="attach, mention, a command">+</button>
           {rec !== "off" && (
             <p className="live" aria-live="polite">
@@ -384,15 +385,18 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
             }} />
           {(busy || working) && !held && <button className="stop" onClick={() => w.stop()}>stop</button>}
           <input ref={fileInput} type="file" multiple hidden onChange={(ev) => { const fs = Array.from(ev.target.files ?? []); ev.target.value = ""; if (fs.length) void attach(fs); }} />
-        </div>
+          </div>
         <Picker noSeat={!toChat} seat="claude" info={info} seats={e.models.seats} model={w.model} effort={w.effort as never} efforts={info?.efforts ?? e.efforts}
           up={e.up} health={e.health} context={w.run?.context ?? 0} win={w.run?.window || 200000} rec={rec !== "off"} notice={w.error}
           onSeat={(s) => { if (s !== "claude") (w.live ? switchTo : toChat)?.(s); }} onModel={(m) => w.adjust({ model: m })} onEffort={(v) => w.adjust({ effort: v })}
           onSeatModel={toChat ? (w.live ? switchTo : toChat) : undefined}
           onMicDown={micDown} onMicUp={micUp}>
-          <button className={`wchip leash ${w.mode}`} onClick={leash} title="mode: what Claude may do without asking (cmd+shift+M)">{mode.label}</button>
+          <button className={`wchip leash ${w.mode}`} onClick={leash} title="mode: what Claude may do without asking (cmd+shift+M)">
+            {w.mode === "bypassPermissions" && <Aurora />}<span className="leash-w">{mode.label}</span>
+          </button>
           {!w.live && <button className="wchip" onClick={folder} title={(w.freshCwd ? tilde(w.freshCwd) : "your home folder") + (w.copy ? "\nin a side copy of its repo (its own branch)" : "")}>in {atLabel}{w.copy ? " · side copy" : ""}</button>}
         </Picker>
+        </div>
       </div>
       {menu && <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-vibe-start"
+description = "Enables the vibe_start command without any pre-configured scope."
+commands.allow = ["vibe_start"]
+
+[[permission]]
+identifier = "deny-vibe-start"
+description = "Denies the vibe_start command without any pre-configured scope."
+commands.deny = ["vibe_start"]

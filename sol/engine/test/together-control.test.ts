@@ -170,4 +170,19 @@ test("my accounts: what claude, codex and gh print, read", () => {
   assert.equal(C.signinCommand("claude"), "claude auth login");
   assert.equal(C.signinCommand("codex"), "codex login");
   assert.equal(C.signinCommand("rm -rf /"), null);
+  assert.equal(C.signinCommand("github"), null);   // GitHub signs in from its card (#174, round 42), not a terminal line
+});
+
+test("the wire: GitHub's terminal line is gone (its card instead, round 42); a cancel with nothing waiting is still ok", async () => {
+  const W = await import("../src/team/wire.ts");
+  const got: any[] = [];
+  const face = { send: (m: object) => got.push(m) };
+  W.addTeamFace(face);
+  await W.handleTeam(face, { type: "team.signin", rid: "s1", seat: "github" });
+  await W.handleTeam(face, { type: "team.signin", rid: "s2", seat: "claude" });
+  await W.handleTeam(face, { type: "team.github.connect.cancel", rid: "s3" });
+  W.removeTeamFace(face);
+  assert.deepEqual(got[0], { type: "team.signin", rid: "s1", error: "GitHub signs in from the card (team.github.connect)" });
+  assert.deepEqual(got[1], { type: "team.signin", rid: "s2", command: "claude auth login" });
+  assert.deepEqual(got[2], { type: "team.github.connect.cancel", rid: "s3", ok: true });
 });

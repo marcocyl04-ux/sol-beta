@@ -17,6 +17,15 @@
 .ctl-term-h code { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
 .ctl-term-in { display: flex; height: 210px; }
 
+/* GitHub's sign-in card (#174): the code to copy, the page to open, then waiting for GitHub */
+.ctl-card { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 10px; padding: 0 12px 10px; border: 1px solid var(--line); border-radius: var(--r-s); font-size: 12.5px; color: var(--ink); }
+.ctl-card-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 -12px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--dim); }
+.ctl-card-row { display: flex; align-items: center; gap: 10px; min-height: 28px; }
+.ctl-card-n { width: 12px; font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+.ctl-code { font-family: var(--mono); font-size: 15px; letter-spacing: 0.12em; color: var(--ink); user-select: all; }
+.ctl-wait { margin: 0 0 0 22px; font-size: 12px; color: var(--dim); }
+.ctl-card-row.ctl-card-err { padding-left: 22px; color: var(--ink); }
+
 /* the "never" rows: a fixed capsule, not a switch */
 .ctl-never { flex: none; height: 24px; display: inline-flex; align-items: center; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--pill); font-size: 11.5px; color: var(--ink); }
 
@@ -33,3 +42,4 @@
 .ctl-add .wfield { flex: 1; width: auto; }
 .ctl-add .wfield.ctl-add-name { flex: none; width: 140px; font-family: inherit; }
 .ctl-namefield .wfield { font-family: inherit; }
+.ctl-acts { display: inline-flex; align-items: center; gap: 8px; }

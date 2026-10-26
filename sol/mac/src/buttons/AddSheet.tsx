@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCover } from "../cowork/thingView";
 import { createPortal } from "react-dom";
 import { CFG, enter } from "../motion";
 import { BUTTONS, button, grouped, type ButtonCtx, type ButtonDef, type Preset } from ".";
@@ -13,6 +14,7 @@ export function AddSheet({ r, c, id, presets, swap, change, onAll, onClose }: {
   r: DOMRect; c: ButtonCtx; id: string; presets: Record<string, Preset>; swap?: string;
   change: (patch: object, line?: string) => void; onAll: () => void; onClose: () => void;
 }) {
+  useCover(true);   // a thing's native page (#236) steps aside while this sheet is open
   const el = useRef<HTMLDivElement>(null);
   useSheet(el, onClose);
   const p = presets[id], list = p?.buttons ?? [], on = list.filter((b) => b !== "|");

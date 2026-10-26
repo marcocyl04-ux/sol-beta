@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-clean-open"
+description = "Enables the clean_open command without any pre-configured scope."
+commands.allow = ["clean_open"]
+
+[[permission]]
+identifier = "deny-clean-open"
+description = "Denies the clean_open command without any pre-configured scope."
+commands.deny = ["clean_open"]

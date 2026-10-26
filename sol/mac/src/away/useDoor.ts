@@ -182,6 +182,7 @@ export function useDoor(demo?: Demo) {
     window.clearTimeout(sampleTimer.current);
     if (demo) return;
     send({ type: "settings.set", patch: { voice } });
+    if (voice === "off") { setSampling(null); return; }   // nothing to hear
     send({ type: "voice.sample", voice });
   }, [send, demo]);
   const set = useCallback((patch: Partial<DoorSettings>) => {

@@ -18,7 +18,7 @@ process.env.SOL_HOME = tmp("sol-home-");
 
 const { RelayHub, RelayClient, relayGate, knock, relayServer, relayAuth } = await import("../src/team/relay.ts");
 const { orgGate, bearerOf, ghVerify } = await import("../src/team/identity.ts");
-const { Spool, trimSpool, SPOOL_MAX } = await import("../src/team/spool.ts");
+const { Spool, trimSpool, SPOOL_MAX } = await import("../src/hub/index.ts");
 const { membersOf, loginsOf } = await import("../src/team/members.ts");
 type RelayMsg = import("../src/team/relay.ts").RelayMsg;
 
@@ -113,19 +113,19 @@ test("the spool: talk kept for everyone away, a ping for its person only, handed
   assert.equal(sp.peek("frank").length, 2);
   assert.deepEqual(sp.peek("isaac").map((x) => x.kind), ["talk"], "a ping to frank is not kept for isaac");
   assert.equal(sp.peek("marco").length, 0, "nothing kept for the one who said it");
-  assert.ok(existsSync(join(dir, "frank.json")));
-  // frank opens Sol: what he missed, stamped as it passed, then the file is gone
+  assert.ok(existsSync(join(dir, "spool.db")), "kept in the spool's one file (SQLite since #208)");
+  // frank opens Sol: what he missed, stamped as it passed, then it is gone
   const f2 = fake();
   hub.join(f2); hub.message(f2, hello("frank"));
   const sp1 = f2.got.find((x) => x.kind === "spooled");
   assert.deepEqual(sp1.messages.map((x: RelayMsg) => [x.kind, x.from.login]), [["talk", "marco"], ["ping", "marco"]]);
   assert.equal(sp1.messages[0].text, "the build is up");
-  assert.ok(!existsSync(join(dir, "frank.json")));
+  assert.equal(sp.peek("frank").length, 0, "handed over, then gone");
   // while he is on, nothing more is kept for him
   hub.message(m, talk("second"));
   assert.equal(sp.peek("frank").length, 0);
   assert.equal(sp.peek("isaac").length, 2);
-  assert.deepEqual(JSON.parse(readFileSync(join(dir, "..", "seen.json"), "utf8")), ["frank", "isaac", "marco"]);
+  assert.deepEqual(sp.seen(), ["frank", "isaac", "marco"]);
   // a second hello from frank's other machine gets nothing twice
   const f3 = fake();
   hub.join(f3); hub.message(f3, hello("frank"));

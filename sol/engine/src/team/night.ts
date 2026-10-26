@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { cleanTeam, readTeam as fromDisk, activeRoom, type TeamSettings } from "./settings.js";
 import { sign } from "./note.js";
 import { makeGithubRecord, runGh } from "./record.js";
+import { ghHelper, ownGhOnPath } from "./gh.js";
 import { owners, type Owners } from "./claims.js";
 import { leads, routeIssues, mergeFlag, flagText, FLAG, type Leads, type MergedPr, type OpenIssue } from "./leads.js";
 import type { PingKind } from "./pings.js";
@@ -286,7 +287,7 @@ export async function night(d: NightDeps, o: { staleDays: number }): Promise<voi
   let f = await d.git(["fetch", "-q", "--prune", "origin"]);
   if (f.code !== 0) {
     const repo = (await rec(d).members.room()).trim();
-    f = await d.git(["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential", "fetch", "-q", "--prune",
+    f = await d.git([...ghHelper(), "fetch", "-q", "--prune",
       `https://github.com/${repo}.git`, "+refs/heads/*:refs/remotes/origin/*"]);
     if (f.code !== 0) throw new Error(`could not fetch origin: ${f.out.trim().split("\n")[0]}`);
   }
@@ -320,6 +321,7 @@ async function main(argv: string[]) {
   const team = readTeam();
   if (argv.includes("--hour")) { process.stdout.write(`${team.night.hour}\n`); return; }
   const root = resolve(ENGINE, "..", "..");
+  ownGhOnPath();   // a job's PATH is short too: Sol's own gh, as the engine finds it (gh.ts)
   const dryRun = argv.includes("--dry-run") || !team.speak.github;
   if (!team.speak.github && !argv.includes("--dry-run")) console.log("my agent may not speak on GitHub (Settings, my agent): a dry run, nothing is posted");
   const gh = (args: string[]) => runGh(args, root);

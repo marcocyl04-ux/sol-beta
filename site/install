@@ -12,7 +12,8 @@
 #   5. Node, one pinned version from nodejs.org into ~/.sol/node, its checksum checked before anything is unpacked
 #   6. the clone (SOL_REPO), on a branch of your own, <you>/mine, with sol/mine/setup
 #   7. Claude Code when missing, and its sign-in on the terminal (SOL_SKIP_CLAUDE=1 skips the step)
-#   8. bash sol/setup, with the install's node first on PATH: packages, the sol skill, your keys, the engine's job
+#   8. bash sol/setup, with the install's node first on PATH: packages, Sol's own gh (~/.sol/gh), the sol skill, your
+#      keys, the engine's job
 #   9. Mac, the line's door: Sol-mac.zip from the latest release (SOL_APP_URL), checked against its .sha256, into
 #      /Applications (SOL_APP_DIR), and opened (SOL_NO_OPEN=1 skips the open; SOL_SKIP_APP=1 skips the step)
 #  10. Linux and WSL: no app; the face is in the browser (sol/setup's own end)

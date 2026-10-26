@@ -5,6 +5,7 @@ import { Xterm } from "../work/TermPane";
 import { ENGINE, FAR_NAME, LIVE, NEXT, pickEngine, sameEngine, type Machine } from "../useEngine";
 import { useControl, DEV, DIAL_DEFAULTS, type Team, type Room, type Accounts, type PingKind, type Dial } from "./useControl";
 import { meets } from "../cowork/rooms";
+import { inShell, shell } from "../cowork/thingView";
 import "./control.css";
 
 // Control (#32): settings in plain words, the person's own. Six drawers at the top of Settings, in every mode: me, my
@@ -17,6 +18,7 @@ const ALL = DEV && new URLSearchParams(location.search).get("open") === "all";  
 type What = "claude" | "codex" | "github";
 const NAMES: Record<What, string> = { claude: "Claude Code", codex: "Codex", github: "GitHub" };
 const base = (u: string) => u.replace(/^wss?:\/\//, "").replace(/\/+$/, "");
+const openUrl = (url: string) => { import("@tauri-apps/plugin-opener").then((o) => o.openUrl(url)).catch(() => window.open(url, "_blank")); };
 // the five pings (#100), in the person's words: what it is, and what "when it matters" does with it
 const PINGS: [PingKind, string, string][] = [
   ["clash", "a clash", "someone's change will collide with my branch; my agent keeps it and tells me at its next pause"],
@@ -57,7 +59,51 @@ export function ControlDrawers({ open, toggle, onSet, flash }: {
     off = c.link?.on((m) => { if (m?.type === "work.term.out" && m.tid === tid) { window.clearTimeout(quiet); quiet = window.setTimeout(type, 500); } }) ?? off;
     window.setTimeout(type, 2500);
   };
+  const [signingSol, setSigningSol] = useState(false), [solNote, setSolNote] = useState("");
+  const signInSol = async () => {
+    setSigningSol(true); setSolNote("");
+    const r = await c.ask<{ ok?: boolean; error?: string }>("team.cloud.signin", {}, 11 * 60_000);
+    setSigningSol(false);
+    if (!r.ok) setSolNote(r.error ?? "the sign-in did not finish");
+    void c.loadAccounts();
+  };
   const closeTerm = () => { if (term) c.link?.send({ type: "work.term.close", tid: term.tid }); setTerm(null); void c.loadAccounts(); };
+  // GitHub signs in from a card (#174, round 42): the engine runs gh's device flow and hands back a code and the page;
+  // the person copies the code, opens the page, pastes it there; the engine tells every window when gh is in
+  const [card, setCard] = useState<{ code: string; url: string } | null>(null);
+  const [cardErr, setCardErr] = useState("");
+  const [copied, setCopied] = useState("");
+  const [ghNote, setGhNote] = useState("");
+  const connectGithub = async () => {
+    setGhNote(""); setCardErr(""); setCopied("");
+    const r = await c.ask<{ code?: string; url?: string; error?: string }>("team.github.connect", {}, 30_000);
+    if (r.code && r.url) return setCard({ code: r.code, url: r.url });
+    setCard(null); setGhNote(r.error ?? "GitHub did not answer");
+  };
+  const cancelGithub = () => { void c.ask("team.github.connect.cancel", {}, 5_000); setCard(null); setCardErr(""); };
+  const copyCode = (code: string) => navigator.clipboard.writeText(code).then(() => setCopied("copied"), () => setCopied("select it and copy"));
+  useEffect(() => c.link?.on((m) => {
+    if (m?.type === "team.github.connected") { setCard(null); setCardErr(""); void c.loadAccounts(); void c.load(); }
+    else if (m?.type === "team.github.connect.failed") setCardErr(String(m.error ?? "GitHub did not let it in"));
+  }), [c.link]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!copied) return; const t = window.setTimeout(() => setCopied(""), 2500); return () => window.clearTimeout(t); }, [copied]);
+  const ghCard = card ? (
+    <div className="ctl-card" role="group" aria-label="sign in to GitHub">
+      <div className="ctl-card-h"><span>sign in to GitHub</span><button className="wlink" onClick={cancelGithub}>cancel</button></div>
+      <div className="ctl-card-row">
+        <span className="ctl-card-n">1</span><span>copy this code</span>
+        <span className="ctl-code">{card.code}</span>
+        <button className="wlink" onClick={() => void copyCode(card.code)}>{copied || "copy"}</button>
+      </div>
+      <div className="ctl-card-row">
+        <span className="ctl-card-n">2</span>
+        <button className="wbtn" onClick={() => openUrl(card.url)}>open github.com</button><span>and paste it there</span>
+      </div>
+      {cardErr
+        ? <div className="ctl-card-row ctl-card-err"><span>{cardErr}</span><button className="wlink" onClick={() => void connectGithub()}>try again</button></div>
+        : <p className="ctl-wait">waiting for GitHub…</p>}
+    </div>
+  ) : null;
   const termWire = {
     ask: c.ask,
     term: (type: "in" | "size" | "close" | "list", a: object = {}) => { c.link?.send({ type: `work.term.${type}`, ...a }); },
@@ -81,11 +127,21 @@ export function ControlDrawers({ open, toggle, onSet, flash }: {
         <span className="ctl-namefield"><Field value={t?.me.name ?? ""} placeholder={login || "your name"} onSave={(v) => void c.set({ me: { name: v } })} /></span>
       </div>
       <div className="field-r">
-        <div className="lab"><span>GitHub</span><small>{login ? "read from GitHub on this machine" : "sign in with gh auth login in a terminal"}</small></div>
+        <div className="lab"><span>GitHub</span><small>{login ? "read from GitHub on this machine" : "sign in from here, for code rooms and rooms on GitHub; a cloud room needs none"}</small></div>
         {login ? <span className="ctl-val mono">{login}</span>
-          : <button className="wbtn" disabled={off && !DEV} onClick={() => void signIn("github")}>sign in</button>}
+          : c.accounts?.github.missing || card ? null
+          : <button className="wbtn" disabled={off && !DEV} onClick={() => void connectGithub()}>sign in</button>}
       </div>
-      {termBox("github")}
+      {!login && c.accounts?.github.missing && <p className="hint-line">Sol has no GitHub CLI here yet: in Terminal, bash sol/setup</p>}
+      {!login && ghCard}
+      {ghNote && <p className="hint-line stale">{ghNote}</p>}
+      {/* --- Sol account (S6b, #226): the cloud's own sign-in, by Google in the system browser */}
+      <div className="field-r">
+        <div className="lab"><span>Sol</span><small>{c.accounts?.sol?.in ? "my name on the cloud, where rooms meet" : solNote || "rooms meet on the cloud; sign in with Google once"}</small></div>
+        {c.accounts?.sol?.in ? <span className="ctl-val mono">{c.accounts.sol.who}</span>
+          : <button className="wbtn" disabled={(off && !DEV) || signingSol || !c.accounts?.sol?.hub} onClick={() => void signInSol()}>{signingSol ? "finish in the browser…" : "sign in"}</button>}
+      </div>
+      {/* --- end Sol account */}
       <div className="field-r">
         <div className="lab"><span>GitHub org</span><small>when set, the team knows people by their GitHub sign-in; the key is no longer needed</small></div>
         <span className="ctl-namefield"><Field value={t?.org ?? ""} placeholder="none yet" onSave={(v) => void c.set({ org: v.trim() })} /></span>
@@ -166,7 +222,42 @@ export function ControlDrawers({ open, toggle, onSet, flash }: {
         <Seg value={t?.leaves.audit ?? "ask"} disabled={off} options={[["ask", "asks me first"], ["never", "never"]]} onChange={(v) => void c.set({ leaves: { audit: v } })} />
       </div>
       <p className="hint-line">GitHub always has what I commit and push; nothing else goes on its own</p>
+      {/* a session started under a room shows to that room while it runs, live, never kept off this Mac (#238, #189) */}
+      {(t?.rooms ?? []).map((r) => (
+        <div className="field-r" key={`show-${r.id}`}>
+          <div className="lab"><span>show my room sessions to {r.name}</span><small>{r.quiet ? `${r.name} sees that I turned it off, and nothing of my sessions there` : `a session I start in ${r.name} shows there while it runs, read-only, live; never kept off this Mac. Home's sessions never show`}</small></div>
+          <OnOff on={!r.quiet} disabled={off} set={(on) => void c.ask<{ error?: string }>("team.room.show", { id: r.id, on }).then((x) => { if (x.error) flash?.(x.error); else c.patchRoom(r.id, { quiet: on ? undefined : true }); })} />
+        </div>
+      ))}
+      <SiteLogins flash={flash} />
     </Drawer>
+  </>);
+}
+
+// A room's Doc, Sheet or Figma file opens inside Sol (#236; POLICY.md §2): the sign-ins made there live in Sol's own
+// browser on this Mac, apart from Safari and Chrome, never shared, never read by the engine. Two ways to empty it.
+function SiteLogins({ flash }: { flash?: (s: string) => void }) {
+  const [sure, setSure] = useState(false);
+  const [said, setSaid] = useState("");
+  const [busy, setBusy] = useState(false);   // one at a time: the shell refuses a second while one runs
+  const say = (s: string) => { setSaid(s); flash?.(s); };
+  const run = (p: Promise<unknown>, ok: string, bad: string) => { setBusy(true); setSaid(""); void p.then(() => say(ok), (e) => say(`${bad}: ${String(e)}`)).finally(() => setBusy(false)); };
+  return (<>
+    <div className="field-r">
+      <div className="lab"><span>sites I sign in to</span><small>logins stay in Sol's own browser on this Mac: a Doc, a Sheet or Figma opened in a room uses them, nobody else, and the engine never reads them</small></div>
+      <span className="ctl-never" title="a fixed rule, not a switch">never</span>
+    </div>
+    <div className="field-r">
+      <div className="lab"><span>sign out of sites</span><small>every site signed in inside Sol forgets you; an open page loads again, signed out</small></div>
+      <button className="wbtn" disabled={!inShell() || busy} onClick={() => run(shell.signOut(), "signed out of every site in Sol's browser", "could not sign out")}>sign out of sites</button>
+    </div>
+    <div className="field-r">
+      <div className="lab"><span>clear</span><small>{sure ? "every open page closes, and every login, saved page and file of Sol's browser goes" : "Sol's browser forgets everything: logins, saved pages, its cache"}</small></div>
+      {sure ? <span className="ctl-acts"><button className="wbtn" autoFocus disabled={busy} onClick={() => { setSure(false); run(shell.clear(), "Sol's browser is cleared", "could not clear"); }}>clear it</button>
+        <button className="wlink" onClick={() => setSure(false)}>keep it</button></span>
+        : <button className="wlink" disabled={!inShell() || busy} onClick={() => setSure(true)}>clear</button>}
+    </div>
+    {said && <p className="hint-line" role="status">{said}</p>}
   </>);
 }
 
@@ -212,7 +303,7 @@ function Rooms({ team, onSwitch, onSave }: { team: Team | null; onSwitch: (id: s
           <div key={r.id} className={`ctl-machine ${here ? "here" : ""}`}>
             <span className="ctl-mname">{r.name}{r.code && <small className="ctl-code"> {r.code}</small>}</span>
             <span className="ctl-addr" title={`${r.provider} · ${r.org || r.repos.join(", ")} · meets on ${meets(r.hub)}`}>
-              {r.provider === "drive" ? "drive" : "github"} · {r.org || r.repos.join(", ") || "nothing yet"} · {meets(r.hub)}
+              {r.provider === "cloud" ? "kept on the cloud" : `${r.provider === "drive" ? "drive" : "github"} · ${r.org || r.repos.join(", ") || "nothing yet"}`} · {meets(r.hub)}
             </span>
             {here ? <span className="ctl-here">this one</span> : <button className="wlink" onClick={() => onSwitch(r.id)}>go there</button>}
             {list.length > 1 && (sure === r.id

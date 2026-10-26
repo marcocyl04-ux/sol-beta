@@ -8,16 +8,19 @@
 // A share code (#157): "join a room" under "new room" takes the six symbols a friend gave; the room in use has "share",
 // which asks the engine for its code, and a room's code shows in its row, a click copies it.
 import { useEffect, useRef, useState } from "react";
-import { Mark } from "../Mark";
+import { VibeMark } from "../Mark";
 import type { AppMode } from "../ModeSwitch";
 import { ModeWheel } from "../ModeWheel";
 import { useSideFloat } from "../sideFloat";
+import { useCover } from "./thingView";
 import { Fold, Pill, Turn } from "../MotionKit";
 import { Runner } from "../creature/indicators";
 import { working, type Work, type WorkSession } from "../work/useWork";
 import type { Team } from "./useTeam";
 import { DEV_TEAM } from "./useTeam";
 import { codeTyped } from "./rooms";
+import { GithubJoin } from "./GithubJoin";
+import { DriveConnect, DriveRow } from "./DriveRoom";   // a Drive room (#152)
 import { PersonDot, STATE_WORD, Sig } from "./bits";
 // --- Hand (#34)
 import { Menu, type MenuItem } from "../work/Menu";
@@ -27,15 +30,20 @@ import { HandedRows, sessionItems, useHandedCount } from "./Hands";
 import { TryingRow } from "./TryPane";
 // --- end Try
 
-export type Stage = { k: "dashboard" } | { k: "actions" } | { k: "shared" } | { k: "chat" } | { k: "member"; login: string } | { k: "session"; repo: string };
-export const stageKey = (s: Stage) => (s.k === "member" ? `member:${s.login}` : s.k === "session" ? `session:${s.repo}` : s.k);
+export type Stage = { k: "dashboard" } | { k: "repo" } | { k: "actions" } | { k: "shared" } | { k: "chat" } | { k: "member"; login: string }
+  // a thing open in the room's centre (S2), and a session with a thing beside it (S4; #236)
+  | { k: "thing"; id: string } | { k: "session"; repo: string; thing?: string }
+  // the room's goal as its own page (S6; #238); one of the room's own tools (#245)
+  | { k: "goal" } | { k: "tool"; id: "calendar" | "decisions" | "polls" };
+export const stageKey = (s: Stage) => (s.k === "member" ? `member:${s.login}` : s.k === "session" ? `session:${s.repo}` : s.k === "thing" ? `thing:${s.id}` : s.k === "tool" ? `tool:${s.id}` : s.k);
 
 const P = { fill: "none", stroke: "currentColor", strokeWidth: 1.2, strokeLinecap: "round", strokeLinejoin: "round" } as const;
 const Plus = () => <svg viewBox="0 0 16 16" width="14" height="14" {...P} aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>;
 const Caret = () => <svg className="caret" viewBox="0 0 6 6" width="6" height="6" shapeRendering="crispEdges" aria-hidden="true"><path d="M1 0h2v1h1v1h1v2h-1v1h-1v1h-2z" fill="currentColor" /></svg>;
 
-const FUNCS: { k: "dashboard" | "actions" | "shared" | "chat"; name: string; key?: string; later?: string }[] = [
-  { k: "dashboard", name: "dashboard", key: "⌘B" },
+const FUNCS: { k: "dashboard" | "repo" | "actions" | "shared" | "chat"; name: string; key?: string; later?: string }[] = [
+  { k: "dashboard", name: "the room", key: "⌘B" },   // the room's first page (#234)
+  { k: "repo", name: "the board" },                   // the board, as it was: the repo page (§7), every function on it
   { k: "actions", name: "action board" },
   // --- Share (#36)
   { k: "shared", name: "shared with me" },
@@ -47,7 +55,10 @@ const inFolder = (s: WorkSession, dir?: string) => !!dir && (s.cwd === dir || s.
 export function CoworkSidebar({ team, w, pinned, stage, onMode, onStage, onFresh }: {
   team: Team; w: Work; pinned: boolean; stage: Stage; onMode: (m: AppMode) => void; onStage: (s: Stage) => void; onFresh: (repo: string) => void;
 }) {
-  const f = useSideFloat(pinned, false, 272);
+  const [making, setMaking] = useState<"" | "new" | "join">("");
+  const [joining, setJoining] = useState(false);   // GitHub's sign-up pane is up (#252): the side, with its code and buttons, stays open
+  const f = useSideFloat(pinned, making === "new" && joining, 272);
+  useCover(!pinned && f.open, "side");   // floating over the pane, the thing's page steps aside (#236)
   const [folded, setFolded] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem("sol.cowork.folded") ?? "{}"); } catch { return {}; } });
   const fold = (k: string) => setFolded((x) => { const n = { ...x, [k]: !x[k] }; localStorage.setItem("sol.cowork.folded", JSON.stringify(n)); return n; });
   const s = team.state, b = team.board, me = team.me;
@@ -59,7 +70,6 @@ export function CoworkSidebar({ team, w, pinned, stage, onMode, onStage, onFresh
   const repos = s && b && s.settings.repos.join(",") !== b.repos.join(",") ? s.settings.repos : b?.repos ?? s?.settings.repos ?? [];
   const rooms = s?.settings.rooms ?? [], room = s?.settings.room ?? "";   // an engine from before rooms sends none
   const switchRoom = (id: string) => { if (id !== room) void team.ask("team.settings", { patch: { room: id } }); };
-  const [making, setMaking] = useState<"" | "new" | "join">("");
   // #157: a share under way, the code the engine just gave a room, or what went wrong, by room id. The settings' code
   // wins: an answer is dropped once team.state carries a code for its room, or when its room is gone
   const [shared, setShared] = useState<Record<string, { busy?: boolean; code?: string; error?: string }>>({});
@@ -94,10 +104,10 @@ export function CoworkSidebar({ team, w, pinned, stage, onMode, onStage, onFresh
     <aside ref={f.ref} className={`side wside cside ${f.open ? "open" : ""} ${pinned ? "pinned" : ""}`} onMouseEnter={f.onMouseEnter} onMouseLeave={f.onMouseLeave}
       aria-hidden={!f.open} inert={!f.open}>
       <div className="side-head" data-s>
-        <div className="brand"><Mark size={22} /><span className="word">sol</span></div>
+        <div className="brand"><VibeMark size={22} /><span className="word">sol</span></div>
         <ModeWheel mode="cowork" onPick={onMode} />
       </div>
-      {making === "new" ? <RoomForm team={team} onDone={(made) => { setMaking(""); if (made?.warn) setShared((x) => ({ ...x, [made.id]: { error: made.warn } })); }} />
+      {making === "new" ? <RoomForm team={team} onPane={setJoining} onDone={(made) => { setMaking(""); if (made?.warn) setShared((x) => ({ ...x, [made.id]: { error: made.warn } })); }} />
         : making === "join" ? <JoinForm team={team} onDone={() => setMaking("")} />
         : <>
           <button className="newc" data-s onClick={() => setMaking("new")}><Plus /><span>new room</span></button>
@@ -121,6 +131,7 @@ export function CoworkSidebar({ team, w, pinned, stage, onMode, onStage, onFresh
                 </div>
               );
             })}
+            {(() => { const r = rooms.find((x) => x.id === room); return r?.provider === "drive" && r.repos[0] ? <DriveRow team={team} folder={r.repos[0]} /> : null; })()}
           </Sec>
         )}
         <Sec k="team" label="the team" n={people.length}>
@@ -132,7 +143,7 @@ export function CoworkSidebar({ team, w, pinned, stage, onMode, onStage, onFresh
                 <span className="t">{who}{who === me && <small className="cdim"> (you)</small>}</span>
                 {/* Show (#101): someone showing a session says so here; their page opens the watch */}
                 {(() => { const sh = team.showing.find((x) => x.login === who); return sh
-                  ? <small className="cwhat cshowing" title={`${who} is showing #${sh.issue} ${sh.session.title}: open their page to watch`}>showing #{sh.issue}</small>
+                  ? <small className="cwhat cshowing" title={`${who} is ${sh.issue ? `showing #${sh.issue}` : "in a session of the room"} ${sh.session.title}: open their page to watch`}>{sh.issue ? `showing #${sh.issue}` : "live in a session"}</small>
                   : <small className="cwhat">{m?.session?.title ?? (m ? STATE_WORD[m.state] : who === me ? "" : "not seen")}</small>; })()}
               </div>
             );
@@ -200,8 +211,19 @@ export function CoworkSidebar({ team, w, pinned, stage, onMode, onStage, onFresh
 // the name is free on the hub, makes the room's repository under my GitHub account, adds the room as the one in use and
 // gives it its code. Under "more", where it meets (the shared hub unless blanked: this Mac) and the key that place gave.
 // Esc or "not now" closes. A room made without its code comes back with a warning, said on its share button.
-function RoomForm({ team, onDone }: { team: Team; onDone: (made?: { id: string; warn?: string }) => void }) {
+// Where its record lives (#152): Sol's cloud (when signed in there, the engine's own default), GitHub (a repository under
+// my account), or a Drive folder: its link pasted, read with my own Google Drive, which is connected here first.
+type Keeps = "cloud" | "github" | "drive";
+const KEEPS: { k: Keeps; word: string; title: string }[] = [
+  { k: "cloud", word: "Sol's cloud", title: "the room's things and goal on Sol's cloud" },
+  { k: "github", word: "GitHub", title: "a repository under your GitHub account, for a room that writes code" },
+  { k: "drive", word: "a Drive folder", title: "a Google Drive folder you pick: its people are the folder's" },
+];
+function RoomForm({ team, onDone, onPane }: { team: Team; onDone: (made?: { id: string; warn?: string }) => void; onPane?: (up: boolean) => void }) {
   const [name, setName] = useState("");
+  const signed = !!team.state?.cloud?.login;
+  const [keeps, setKeeps] = useState<Keeps>(signed ? "cloud" : "github");
+  const [folder, setFolder] = useState("");
   const [more, setMore] = useState(false);
   const [hub, setHub] = useState(team.state?.hub ?? "");   // #157: the shared hub, unless the person blanks it
   const [key, setKey] = useState("");
@@ -212,8 +234,10 @@ function RoomForm({ team, onDone }: { team: Team; onDone: (made?: { id: string; 
   const make = async () => {
     if (busy) return;
     if (!name.trim()) return setBad("a room needs a name");
+    if (keeps === "drive" && !folder.trim()) return setBad("paste the link of a Drive folder");
     setBusy(true);
-    const a = await team.ask<{ room?: { id: string }; warn?: string; error?: string }>("team.room.make", { name: name.trim(), hub: hub.trim(), key: key.trim() }, 90_000);
+    const a = await team.ask<{ room?: { id: string }; warn?: string; error?: string }>("team.room.make", { name: name.trim(), hub: hub.trim(), key: key.trim(),
+      ...(keeps === "github" ? { code: true } : {}), ...(keeps === "drive" ? { drive: folder.trim() } : {}) }, 90_000);
     setBusy(false);
     if (a.room) return onDone({ id: a.room.id, ...(a.warn ? { warn: a.warn } : {}) });
     setBad(a.error ?? "Sol did not make that room; try again");
@@ -229,6 +253,17 @@ function RoomForm({ team, onDone }: { team: Team; onDone: (made?: { id: string; 
   return (
     <div className="croomnew" data-s>
       {field(name, setName, "name", { ref: first })}
+      <div className="ckeeps" role="radiogroup" aria-label="where its record lives">
+        {KEEPS.filter((x) => x.k !== "cloud" || signed).map((x) => (
+          <button key={x.k} role="radio" aria-checked={keeps === x.k} className={`wlink ckeep ${keeps === x.k ? "on" : ""}`} title={x.title}
+            onClick={() => { setKeeps(x.k); setBad(""); }}>{x.word}</button>
+        ))}
+      </div>
+      {keeps === "drive" && <>
+        {field(folder, setFolder, "the Drive folder's link")}
+        <DriveConnect team={team} />
+      </>}
+      {keeps === "github" && <GithubJoin team={team} keeps={keeps} onPane={onPane} />}{/* no GitHub yet (#252, ADDITIONS §4c): GitHub rooms only */}
       <button className="wlink croommore" onClick={() => setMore((m) => !m)} aria-expanded={more}>{more ? "less" : "more"}</button>
       {more && <>
         {field(hub, setHub, "where it meets, blank: this Mac")}

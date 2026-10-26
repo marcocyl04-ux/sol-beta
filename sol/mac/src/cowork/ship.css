@@ -8,7 +8,7 @@
 .stamp > button:hover:not(:disabled) { border-color: var(--mute); }
 .stamp > button:disabled { color: var(--mute); cursor: default; }
 .stamp > button.first { background: var(--ink); border-color: var(--ink); color: var(--page); }
-.stamp > button.first:hover:not(:disabled) { background: #fff; border-color: #fff; }
+.stamp > button.first:hover:not(:disabled) { background: var(--on); border-color: var(--on); }
 .stamp > button.quiet { border-color: transparent; background: none; color: var(--dim); padding-inline: 6px; }
 .stamp > button.quiet:hover:not(:disabled) { color: var(--ink); border-color: transparent; }
 .stamp .q { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -40,5 +40,5 @@
 .sline .moves button { padding: 3px 11px; background: var(--page); border: 1px solid var(--line); border-radius: var(--pill); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
 .sline .moves button:hover:not(:disabled) { border-color: var(--mute); }
 .sline .moves button.first { background: var(--ink); border-color: var(--ink); color: var(--page); }
-.sline .moves button.first:hover { background: #fff; border-color: #fff; }
+.sline .moves button.first:hover { background: var(--on); border-color: var(--on); }
 @media (prefers-reduced-motion: reduce) { .sline.busy .what i { animation: none; } }

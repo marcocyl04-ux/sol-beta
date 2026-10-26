@@ -123,7 +123,7 @@ export function ThreadPane({ w, id, map, err }: { w: Work; id: string; map: Thre
           const isOpen = open.includes(s.id);
           const tgt = target(s.settled);
           return (
-            <div key={s.id} className={`wthend ${s.twig ? "twig" : s.settled ? "settled" : ""} ${keep === s.id ? "kept" : ""}`}>
+            <div key={s.id} className={`wthend ${s.twig ? "twig" : s.settled ? "settled" : ""} ${keep === s.id ? "wkept" : ""}`}>
               <div className="wthwho"><b>{WRITER[s.writer]}</b> <span>{model(s.model)}</span></div>
               <div className="wthwhat">
                 {s.turns} {s.turns === 1 ? "turn" : "turns"} · {s.replies} replies · {when(s.last)}

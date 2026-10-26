@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 // The trail: a thin strip down the right edge of the talk, one cell per message Marco sent, placed along the
 // conversation's length. Hover lights the nearest cell and names it; press glides the talk to it; drag runs through
@@ -6,7 +6,10 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 type Tick = { y: number; at: number; text: string };
 export function Trail({ scroller, version, goTo }: { scroller: RefObject<HTMLDivElement | null>; version: number; goTo: (y: number) => void }) {
   const [ticks, setTicks] = useState<Tick[]>([]);
-  const [win, setWin] = useState({ top: 0, h: 1 });
+  // the window on the trail is written straight to its element: a state set on every scroll event rendered the trail
+  // (and laid it out) once per wheel tick, ~3 ms a frame on the main thread while the hand scrolled (2026-10-25, SMOOTH.md)
+  const win = useRef<HTMLElement>(null);
+  const setWin = (w: { top: number; h: number }) => { const el = win.current; if (el) { el.style.top = `${w.top * 100}%`; el.style.height = `${Math.max(1, w.h * 100)}%`; } };
   const [near, setNear] = useState<number | null>(null);
   const [down, setDown] = useState(false);
   const trail = useRef<HTMLDivElement>(null);
@@ -45,11 +48,12 @@ export function Trail({ scroller, version, goTo }: { scroller: RefObject<HTMLDiv
   const onDown = (ev: React.PointerEvent) => { ev.currentTarget.setPointerCapture(ev.pointerId); setDown(true); const i = pick(ev.clientY); setNear(i); go(i); };
   const onUp = () => setDown(false);
   const onLeave = () => { if (!down) setNear(null); };
+  useLayoutEffect(() => { const el = scroller.current; if (el) setWin({ top: el.scrollTop / (el.scrollHeight || 1), h: el.clientHeight / (el.scrollHeight || 1) }); });
   if (ticks.length < 2) return null;
   return (
     <div ref={trail} className={`trail ${down ? "down" : ""}`} onPointerMove={onMove} onPointerDown={onDown} onPointerUp={onUp}
       onPointerCancel={onUp} onPointerLeave={onLeave} title="the messages you sent: hover to see, press to go">
-      <i className="win" style={{ top: `${win.top * 100}%`, height: `${Math.max(1, win.h * 100)}%` }} />
+      <i ref={win} className="win" />
       {ticks.map((t, i) => <i key={i} className={`cell ${i === near ? "near" : ""}`} style={{ top: `${t.at * 100}%` }} />)}
       {near !== null && ticks[near] && <span className="name" style={{ top: `${ticks[near].at * 100}%` }}>{ticks[near].text}</span>}
     </div>

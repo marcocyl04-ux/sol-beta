@@ -85,7 +85,8 @@ export interface RoomRecord {
     bytes(repo: string, path: string, ref?: string): Promise<Buffer>;
     readSha(repo: string, path: string, ref: string): Promise<string>;   // {sha, content (base64)} as JSON text
     put(repo: string, path: string, w: FileWrite, commit?: boolean): Promise<string>;   // commit: answers the commit's sha
-    putBody(repo: string, path: string, body: { message: string; branch: string; content: string }): Promise<string>;
+    putBody(repo: string, path: string, body: FileWrite): Promise<string>;   // the same write, the body on --input (a big file is too big for an argument)
+    branch(repo: string): Promise<string>;              // the default branch's name (#194); throws when the repo cannot be seen
     tree(repo: string): Promise<string>;                // every file of the default branch (JSON)
     list(repo: string, dir: string, ref: string): Promise<string>;   // one folder on one branch (JSON)
     lastCommits(repo: string, items: { path: string; ref: string }[]): Promise<(LastCommit | undefined)[] | null>;   // null: refused
@@ -120,7 +121,33 @@ export interface RoomRecord {
 export { makeGithubRecord, runGh, runners, ghWithInput } from "./record/github.js";
 
 let active: RoomRecord | null = null;
-/** the room's record, the one place a provider is picked: for now always GitHub, through the real gh */
+let cloud: RoomRecord | null = null;
+let drive: RoomRecord | null = null;
+/** the cloud provider (#216), given by relay.ts at load: it knows my tickets and my rooms' hubs, which this file must
+ *  not import (relay.ts reads the record) */
+export function setCloudRecord(r: RoomRecord | null) { cloud = r; active = null; }
+/** the Drive provider (#152), given by relay.ts at load: it knows my Drive token (drive.ts) */
+export function setDriveRecord(r: RoomRecord | null) { drive = r; active = null; }
+
+/** the room's record, the one place a provider is picked (#216, #152): a cloud room's record is named `cloud:<code>`
+ *  and a Drive room's `drive:<folder id>` where a repo's name goes (settings.ts recordOf), so their files go to the cloud
+ *  or to Google Drive, and everything else to GitHub, through the real gh. The file verbs pick by the repo they are
+ *  given; the others are a GitHub room's */
 export function record(): RoomRecord {
-  return (active ??= makeGithubRecord(runGh));
+  return (active ??= routed(makeGithubRecord(runGh), () => cloud, () => drive));
+}
+
+/** a record's name that is a repository's (pure): not a cloud room's, not a Drive room's, not none */
+export const isGithubRecord = (repo: string) => !!repo && !repo.startsWith("cloud:") && !repo.startsWith("drive:");
+
+/** a record whose file verbs go to the cloud for a `cloud:` repo, to Drive for a `drive:` one (pure, for the tests) */
+export function routed(gh: RoomRecord, cloudOf: () => RoomRecord | null, driveOf: () => RoomRecord | null = () => null): RoomRecord {
+  const pick = (repo: string) => (repo.startsWith("cloud:") ? cloudOf() : repo.startsWith("drive:") ? driveOf() : gh);
+  const via = <K extends keyof RoomRecord["files"]>(k: K) => ((repo: string, ...rest: unknown[]) => {
+    const r = pick(repo);
+    if (!r) return Promise.reject(new Error(`this room's record is ${repo.startsWith("drive:") ? "a Drive folder, and this Sol has no Drive" : "on the cloud, and this Sol has no cloud"} (HTTP 403)`));
+    return (r.files[k] as (...a: unknown[]) => unknown)(repo, ...rest);
+  }) as RoomRecord["files"][K];
+  const files = Object.fromEntries((Object.keys(gh.files) as (keyof RoomRecord["files"])[]).map((k) => [k, via(k)])) as RoomRecord["files"];
+  return { ...gh, files };
 }

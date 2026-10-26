@@ -16,9 +16,27 @@
     "allow-engine-port",
     "allow-notch-expand",
     "allow-notch-geometry",
+    "allow-notch-regions",
     "allow-face-log",
     "allow-face-mode",
     "allow-face-state",
-    "allow-grab-sheet"
+    "allow-type-text",
+    "allow-grab-sheet",
+    "allow-eye-set",
+    "allow-eye-get",
+    "allow-clean-open",
+    "allow-clean-set",
+    "allow-clean-close",
+    "allow-clean-get",
+    "allow-call-mute",
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "x-apple.systempreferences:*"
+        }
+      ]
+    }
   ]
 }

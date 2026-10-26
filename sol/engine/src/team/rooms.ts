@@ -6,10 +6,11 @@
 // into the rooms folder (#162, letin.ts). A room coded before rooms[].mine is registered again once a run (shareAgain),
 // which makes it mine only when the hub gives me its code back. Everything it touches is handed in, so the tests run
 // with no network.
-import { activeRoom, cleanRoom, slug, sharedHub, type Room, type TeamSettings } from "./settings.js";
+import { activeRoom, cleanRoom, slug, sharedHub, isCloud, type Room, type TeamSettings } from "./settings.js";
 import { asGitHub, hubHttp, safeForToken, thisMachine } from "./relay.js";
-import { normalCode, type Entry, type RoomIn } from "./registry.js";
+import { normalCode, type Entry, type RoomIn } from "../hub/index.js";
 import type { RoomRecord } from "./record.js";
+import { driveFolderId } from "./record/drive.js";
 
 export type RoomsDeps = {
   team: () => TeamSettings;
@@ -20,6 +21,8 @@ export type RoomsDeps = {
   ticket: (hub: string) => Promise<string>;   // my ticket for a hub (proof.ts, relay.ts hubTicket); "" when none
   record: () => Pick<RoomRecord, "room">;   // where a made room's repository is made (#160)
   clone?: (id: string) => Promise<{ folder: string } | { error: string }>;   // a made room's repository, cloned (#162, letin.ts)
+  cloudAt?: (hub: string) => boolean;   // do I have an account on the cloud at this http address (#216, cloud.ts accountOn)
+  driveCheck?: (folder: string) => Promise<string | null>;   // can I write in this Drive folder with my Google Drive, its record's files made there (#152): null yes, else why not
 };
 
 const WAIT = 8000;
@@ -35,6 +38,9 @@ const firstLine = async (r: Response) => {
 const REFUSED = "the hub refused";
 const refusedLine = async (r: Response) => { const said = await firstLine(r); return said === "403" ? `${REFUSED} (an older Sol there?)` : `${REFUSED}: ${said}`; };
 const CLEAR = "that hub is not https; Sol does not send your GitHub sign-in in the clear";
+// S6b (#226): Sol's cloud knows me by my Sol account only: a refusal there with no account is that
+export const SIGN_IN = "sign in to Sol first: Settings › me › Sol (the cloud knows you by your Sol account)";
+const unsigned = (d: RoomsDeps, hub: string) => !!d.cloudAt && isCloud(hub) && !d.cloudAt(hubHttp(hub));
 
 export { hubHttp, safeForToken };   // relay.ts's, for the socket too
 
@@ -51,7 +57,8 @@ async function call(d: RoomsDeps, room: Pick<Room, "hub" | "key" | "org" | "gate
   let clear = false;
   if (asGitHub(room.org, room)) {
     if (!safeForToken(url)) clear = true;
-    else { const t = await (thisMachine(url) ? d.token() : d.ticket(hub)).catch(() => ""); if (t) headers.authorization = `Bearer ${t}`; }
+    // a cloud I have an account on takes its ticket, on this machine too (a cloud run here): never my GitHub token (#216)
+    else { const t = await (thisMachine(url) && !d.cloudAt?.(hub) ? d.token() : d.ticket(hub)).catch(() => ""); if (t) headers.authorization = `Bearer ${t}`; }
   }
   return { url, headers, clear };
 }
@@ -80,7 +87,7 @@ const sameRepos = (a: Pick<Room, "repos">, b: Pick<Room, "repos">) => a.repos.jo
 // a room that may be registered again to see whether it is mine: it has a code, is not mine yet, came to me by no code
 // I typed (a joined room's repos are the word of whoever registered it: never claimed, renamed or not), and has no org
 // (an org room's people are the org's; nobody is let in by me)
-const claimable = (r: Room) => !!r.code && !r.mine && !r.joined && !r.org;
+const claimable = (r: Room) => !!r.code && !r.mine && !r.joined && !r.org && !r.was;   // a moved room's code is its old hub's (S6b)
 
 /** said when the hub could not be reached: the room's try is not spent (shareAgain) */
 export const NO_ANSWER = "the hub did not answer";
@@ -176,7 +183,7 @@ export async function joinRoom(d: RoomsDeps, typed: unknown): Promise<{ room: Ro
     if (!url.startsWith("http")) continue;
     let res: Response;
     try { res = await d.fetch(url, { headers, signal: AbortSignal.timeout(WAIT) }); } catch { continue; }
-    if (res.status === 403) { if (clear) inClear = true; else refused ||= await refusedLine(res); continue; }
+    if (res.status === 403) { if (clear) inClear = true; else refused ||= unsigned(d, hub) ? SIGN_IN : await refusedLine(res); continue; }
     if (res.status === 404) { missed = true; continue; }
     if (!res.ok) continue;
     const v = await res.json().catch(() => null) as { room?: Entry } | null;
@@ -212,11 +219,17 @@ export async function joinRoom(d: RoomsDeps, typed: unknown): Promise<{ room: Ro
  *  and its name are free again at once, not when the hub is full. Only rooms that are mine (a joined room's code is
  *  its maker's), and nothing is waited for: a hub that does not answer keeps the room until it is quiet. The codes sent */
 export async function forgetGone(d: RoomsDeps, before: TeamSettings, after: TeamSettings): Promise<string[]> {
-  const gone = before.rooms.filter((r) => r.mine && r.code && !after.rooms.some((x) => x.id === r.id));
+  // a cloud room is left, mine or not (#216): I am no longer one of its members, and it passes to the next member when I
+  // made it (C11, sol/cloud/src/rooms.ts); leaving, never the maker's forget, so another of my machines that made me a
+  // member again is answered the same way
+  // and so is any room on a cloud I have an account on (codex, #227): a GitHub room imported from the NucBox (S6b) has a
+  // maker no Sol name can be, so only leaving takes me out of it
+  const member = (r: Room) => r.provider === "cloud" || (!!r.hub && !!d.cloudAt?.(hubHttp(r.hub)));
+  const gone = before.rooms.filter((r) => (r.mine || member(r)) && r.code && !after.rooms.some((x) => x.id === r.id));
   const me = after.me.login, sent: string[] = [];
   for (const r of gone) {
     if (!r.hub) { if (d.local?.forget?.(r.code, me)) sent.push(r.code); continue; }
-    const { url, headers, clear } = await call(d, r, `/rooms/${r.code}`);
+    const { url, headers, clear } = await call(d, r, member(r) ? `/rooms/${r.code}/members/me` : `/rooms/${r.code}`);
     if (clear || !url.startsWith("http") || !headers.authorization) continue;   // only GitHub's word forgets a room
     const res = await d.fetch(url, { method: "DELETE", headers, signal: AbortSignal.timeout(WAIT) }).catch(() => null);
     if (res?.ok) sent.push(r.code);
@@ -228,9 +241,20 @@ export async function forgetGone(d: RoomsDeps, before: TeamSettings, after: Team
  *  account, the room is added as the room in use and registered at once, so its code is on it. hub: the one given,
  *  else the shared hub ("" is this Mac's own); a key given makes it a room met by that key, else one met as GitHub.
  *  A register that fails keeps the room with no code and says why in `warn` */
-export async function makeRoom(d: RoomsDeps, typed: { name?: unknown; hub?: unknown; key?: unknown }): Promise<{ room: Room; warn?: string } | { error: string }> {
+export async function makeRoom(d: RoomsDeps, typed: { name?: unknown; hub?: unknown; key?: unknown; code?: unknown; drive?: unknown }): Promise<{ room: Room; warn?: string } | { error: string }> {
   const name = typeof typed.name === "string" ? typed.name.trim().replace(/\s+/g, " ") : "";
   if (!name || name.length > 60) return { error: "a room needs a name" };
+  // a Drive room (#152): its record is the folder pasted, seen first with my own Google Drive, so a room is never made
+  // over a folder nobody here can open; then the name is checked and the room registered on its hub like any other
+  let folder = "";
+  if (typed.drive !== undefined) {
+    const f = driveFolderId(typed.drive);
+    if ("error" in f) return f;
+    if (!d.driveCheck) return { error: "this Sol has no Google Drive" };
+    const why = await d.driveCheck(f.id).catch((e) => String((e as Error)?.message ?? e).split("\n")[0].replace(/\s*\(HTTP \d{3}\)\s*$/, "").slice(0, 200));
+    if (why) return { error: why };
+    folder = f.id;
+  }
   const hub = typeof typed.hub === "string" ? typed.hub.trim() : sharedHub();
   if (hub && !/^wss?:\/\/\S+$/.test(hub)) return { error: "where it meets starts with ws:// or wss://, or stays blank for this Mac" };
   const key = typeof typed.key === "string" ? typed.key.trim() : "";
@@ -244,12 +268,17 @@ export async function makeRoom(d: RoomsDeps, typed: { name?: unknown; hub?: unkn
     if (!url.startsWith("http")) return { error: "where it meets is not an address" };
     let res: Response;
     try { res = await d.fetch(url, { headers, signal: AbortSignal.timeout(WAIT) }); } catch { return { error: "the hub did not answer" }; }
-    if (res.status === 403) return { error: clear ? CLEAR : await refusedLine(res) };
+    if (res.status === 403) return { error: clear ? CLEAR : unsigned(d, hub) ? SIGN_IN : await refusedLine(res) };
     if (res.status === 404) return { error: "that hub is an older Sol: it cannot make a room from a name yet" };
     if (!res.ok) return { error: `the hub said: ${await firstLine(res)}` };
     const v = await res.json().catch(() => null) as { free?: unknown } | null;
     if (v?.free !== true) return { error: "that name is taken" };
   }
+  // (b'') a Drive room's record is its folder: nothing is made, the room is added and registered at once
+  if (folder) return makeDriveRoom(d, name, folder, hub, key, gate);
+  // (b') on a cloud I am signed in to (#216), an ordinary room keeps its record there: no repository is made. Only a room
+  // for code (typed.code) is made the GitHub way, below
+  if (hub && !key && typed.code !== true && d.cloudAt?.(hubHttp(hub))) return makeCloudRoom(d, name, hub);
   // (b) its repository, under my account
   let repo = "";
   try { repo = (await d.record().room.make(name)).trim(); }
@@ -264,6 +293,33 @@ export async function makeRoom(d: RoomsDeps, typed: { name?: unknown; hub?: unkn
   // (e) its repository on this machine (#162), so a session can start in it soon: in the background, since a clone may
   // take longer than the face waits; cloneRoom says how it went in its own receipt
   if (d.clone) void d.clone(room.id).catch(() => {});
+  const now = d.team().rooms.find((r) => r.id === room.id) ?? room;
+  return "error" in shared ? { room: now, warn: shared.error } : { room: now };
+}
+
+/** a room whose record is the cloud's (#216): registered first, since its code is what it is, then added as the room in
+ *  use. Nothing is made on GitHub and nothing is cloned */
+async function makeCloudRoom(d: RoomsDeps, name: string, hub: string): Promise<{ room: Room } | { error: string }> {
+  const s = d.team();
+  const draft: Room = { id: "", name, provider: "cloud", org: "", repos: [], hub, key: "", code: "", gate: "github", folder: "", mine: true, joined: false };
+  const got = await register(d, draft, s.me.login);
+  if ("error" in got) return got;
+  const room = cleanRoom({ ...draft, id: freeId(s.rooms, name), code: got.code });
+  if (!room) return { error: "the cloud's answer was not a room" };
+  const after = d.patch({ rooms: [...d.team().rooms, room], room: room.id });
+  const kept = after.rooms.find((r) => r.id === room.id);
+  return kept ? { room: kept } : { error: "Sol did not keep that room; try again" };
+}
+
+/** a room whose record is a Drive folder (#152): added as the room in use, then registered, so its code is on it. Like a
+ *  room made from a repository, a register that fails keeps the room with no code and says why. Nothing is cloned */
+async function makeDriveRoom(d: RoomsDeps, name: string, folder: string, hub: string, key: string, gate: "key" | "github"): Promise<{ room: Room; warn?: string } | { error: string }> {
+  const s = d.team();
+  const room = cleanRoom({ id: freeId(s.rooms, name), name, provider: "drive", org: "", repos: [folder], hub, key, code: "", gate, mine: true });
+  if (!room) return { error: "that folder is not one a room can keep its record in" };
+  const after = d.patch({ rooms: [...d.team().rooms, room], room: room.id });
+  if (!after.rooms.some((r) => r.id === room.id)) return { error: "Sol did not keep that room; try again" };
+  const shared = await shareRoom(d, room.id);
   const now = d.team().rooms.find((r) => r.id === room.id) ?? room;
   return "error" in shared ? { room: now, warn: shared.error } : { room: now };
 }

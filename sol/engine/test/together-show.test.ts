@@ -146,8 +146,8 @@ test("a teammate's show heard: kept to the last 200 lines in memory, told to the
 });
 
 test("the hub carries show to everyone else, stamped, and drops it to a connection that is behind", async () => {
-  const { RelayHub } = await import("../src/team/relay.ts");
-  const hub = new RelayHub();
+  const { RelayHub, ENGINE_HUB } = await import("../src/team/relay.ts");
+  const hub = new RelayHub(ENGINE_HUB);   // the engine's own hub: every line to the room (the cloud's sends to watchers, #223)
   const got: Record<string, string[]> = { a: [], b: [], c: [] };
   const conn = (k: string, behind = false) => ({ send: (l: string) => got[k].push(l), behind: () => behind });
   const a = conn("a"), b = conn("b"), c = conn("c", true);

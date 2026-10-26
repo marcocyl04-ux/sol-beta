@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
 import { pingKey } from "../land";
-import { CardEdge, CellCheck, Runner } from "../creature/indicators";
-import { GLYPH, html } from "../Message";
+import { CellCheck, Runner } from "../creature/indicators";
+import { GLYPH, html, reason } from "../Message";
 import { CFG, enter, growTo, useSpring } from "../motion";
 import { Fold, Swap } from "../MotionKit";
 import type { Kind } from "../useEngine";
@@ -120,7 +120,6 @@ export function WorkSteps({ items, all, view, old, nested }: { items: Item[]; al
   if (!list.length) return null;
   return (
     <div ref={card} className={`steps wsteps ${live && !nested ? "live" : ""} ${nested ? "nested" : ""}`}>
-      {live && !nested && <CardEdge />}
       {list.map((r) => {
         if (r.it && r.it.done === false) ran.current.add(r.key);
         return <StepRow key={r.key} r={r} all={all} view={view} arrive={mounted.current && !old} ran={ran.current.has(r.key)} />;
@@ -129,7 +128,12 @@ export function WorkSteps({ items, all, view, old, nested }: { items: Item[]; al
   );
 }
 
-function StepRow({ r, all, view, arrive, ran }: { r: Row; all: Item[]; view: TalkView; arrive: boolean; ran: boolean }) {
+// a row renders again only when its own item (or one of its group) is another object, the thread's items changed (a
+// helper's children live there) or the view did: rows() makes new Row objects on every render, so the compare looks inside
+const sameRow = (a: { r: Row; all: Item[]; view: TalkView; arrive: boolean; ran: boolean }, b: typeof a) =>
+  a.r.key === b.r.key && a.r.it === b.r.it && a.all === b.all && a.view === b.view && a.arrive === b.arrive && a.ran === b.ran &&
+  (a.r.group === b.r.group || (!!a.r.group && !!b.r.group && a.r.group.length === b.r.group.length && a.r.group.every((x, i) => x === b.r.group![i])));
+const StepRow = memo(function StepRow({ r, all, view, arrive, ran }: { r: Row; all: Item[]; view: TalkView; arrive: boolean; ran: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [mine, setOpen] = useState<boolean | null>(null);
   const [seenView, setSeenView] = useState(view);
@@ -138,7 +142,7 @@ function StepRow({ r, all, view, arrive, ran }: { r: Row; all: Item[]; view: Tal
   const draw = useSpring(0, CFG.slide, (v) => { if (ref.current) ref.current.style.clipPath = v > 0.5 ? `inset(-4px ${v}% -4px 0)` : ""; });
   useLayoutEffect(() => { if (ref.current && arrive) { enter(ref.current, { x: -16, cfg: CFG.arrive }); growTo(ref.current, 0); draw.set(100); draw.to(0); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  let k: Kind = "note", text = "", meta: React.ReactNode = null, detail: React.ReactNode = null, running = false, ok: boolean | undefined, cls = "";
+  let k: Kind = "note", text = "", meta: React.ReactNode = null, detail: React.ReactNode = null, running = false, ok: boolean | undefined, cls = "", why = "";
   if (r.group) {
     k = "read"; text = groupLine(r.group); ok = r.group.every((x) => x.ok !== false); cls = "quiet";
     detail = <WorkSteps items={r.group} all={all} view="verbose" old nested />;
@@ -152,6 +156,7 @@ function StepRow({ r, all, view, arrive, ran }: { r: Row; all: Item[]; view: Tal
       const name = String(it.name), input = it.input ?? {};
       k = KIND[name] ?? "note"; text = toolLine(name, input); running = !it.done; ok = it.done ? it.ok !== false : undefined;
       const out = it.out ? String(it.out) : "";
+      if (it.done && it.ok === false) why = reason(out);
       const m = mcp(name);
       const d = editDiff(name, input);
       if (name === "Bash") {
@@ -197,7 +202,8 @@ function StepRow({ r, all, view, arrive, ran }: { r: Row; all: Item[]; view: Tal
         {meta && <span className="step-meta">{meta}</span>}
         <span className="step-state">{running ? <Elapsed at={r.it?.at} /> : ok === false ? <i className="bad" /> : ok === true ? <CellCheck land={ran} /> : null}</span>
       </div>
+      {why && <div className="step-why" title={why}>{why}</div>}
       {can && <Fold open={open} lazy from={{ y: 8 }} gap={0}>{detail}</Fold>}
     </div>
   );
-}
+}, sameRow);

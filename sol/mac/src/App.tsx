@@ -11,6 +11,7 @@ import { startPresence } from "./creature/state";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { onOpenAsk, wireSend } from "./renovation";
 import { migrate } from "./migrate";
+import { applyLook } from "./look";
 
 // The app has its modes, picked on the wheel at the top of the side: Home (#132: sessions in folders and chats, on
 // Work's shell, work/WorkApp.tsx) and Cowork (Home with the team, Together #31: its own side). Social waits off the
@@ -26,6 +27,7 @@ export default function App() {
   const [mode, setMode] = useState<AppMode>(MODE0);
   const pick = (m: AppMode) => { localStorage.setItem("sol.mode", m); setMode(m); };
   useLayoutEffect(() => { document.documentElement.dataset.mode = mode; setPaper(mode === "home" ? "home" : "work"); }, [mode]);   // Cowork is on Work's paper
+  useLayoutEffect(() => { if (e.settings) applyLook(e.settings.look); }, [e.settings]);   // the look, whenever settings arrive (look.ts)
   // ctrl+cmd+M: pressed, it flips Home and Cowork; held 350 ms, it opens the wheel (ModeWheel.tsx).
   // WebKit sends no keyup for M while cmd is down, so letting go of cmd or ctrl counts as letting go of the keys.
   useEffect(() => {

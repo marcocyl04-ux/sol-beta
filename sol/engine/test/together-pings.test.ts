@@ -66,6 +66,7 @@ test("the dial table: kind × dial → a card, or absorbed by the agent (and wri
     claim: { always: card, matters: kept, never },
     decision: { always: card, matters: card, never },
     chat: { always: card, matters: card, never },
+    alert: { always: card, matters: card, never },   // #225: the cloud's on-call, its admins only
   };
   for (const k of P.PING_KINDS) for (const d of P.DIALS) assert.deepEqual(P.route(k, d), want[k][d], `${k} × ${d}`);
 });
@@ -73,7 +74,7 @@ test("the dial table: kind × dial → a card, or absorbed by the agent (and wri
 test("the dials in team.json: 'when it matters' for every kind unless set, anything wrong dropped", () => {
   assert.deepEqual(cleanTeam({}).dials, P.DIAL_DEFAULTS);
   const t = cleanTeam({ dials: { clash: "always", chat: "never", claim: "loud", other: "always" } });
-  assert.deepEqual(t.dials, { clash: "always", contract: "matters", claim: "matters", decision: "matters", chat: "never" });
+  assert.deepEqual(t.dials, { clash: "always", contract: "matters", claim: "matters", decision: "matters", chat: "never", alert: "matters" });
 });
 
 test("a relay ping: its kind from pingKind, chat for an old sender, junk refused", () => {
@@ -83,6 +84,7 @@ test("a relay ping: its kind from pingKind, chat for an old sender, junk refused
   assert.deepEqual([p.issue, p.repo, p.from.agent], [91, "acme/sol", true]);
   assert.equal(P.pingOf({ kind: "ping", from: { login: "frank", agent: false }, line: "audit please", at: 1 })!.kind, "chat");
   assert.equal(P.pingOf({ kind: "ping", pingKind: "loud", from: { login: "frank" }, line: "x" })!.kind, "chat");
+  assert.equal(P.pingOf({ kind: "ping", pingKind: "alert", from: { login: "frank" }, line: "the cloud is down" })!.kind, "chat", "an alert never comes from a teammate (#225)");
   assert.equal(P.pingOf({ kind: "ping", from: { login: "" }, line: "x" }), null);
   assert.equal(P.pingOf({ kind: "ping", from: { login: "frank" }, line: "" }), null);
   assert.equal(P.pingOf({ kind: "ping", from: { login: "frank" }, line: "x", repo: "not a repo" })!.repo, undefined);

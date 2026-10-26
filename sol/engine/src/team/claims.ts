@@ -106,3 +106,19 @@ export function overlap(mine: string[], others: Claim[]): Overlap[] {
   }
   return out;
 }
+
+/** the claims that change this very file (exact repo-relative match; the folder-level `overlap` is the brief's).
+ * Live claims (#202): the harness asks this on every edit, in inline node, a copy of these lines. */
+export function fileOverlap(path: string, claims: Claim[]): Overlap[] {
+  const p = path.replace(/^\/+/, "");
+  if (!p) return [];
+  return claims.filter((c) => c.paths.includes(p)).map((c) => ({ ...c, shared: [p] }));
+}
+
+/** the one line the editing agent reads on a hit: a PR to read and build on, or a side copy on this machine. Never a
+ * refusal. The harness carries the same words (sol/harness/guard, claimLine); the two change together. */
+export function claimLine(path: string, c: Pick<Claim, "branch" | "login" | "pr">): string {
+  return c.pr
+    ? `claim: ${path} is also changed on #${c.pr} (${c.login}, ${c.branch}): read it (gh pr diff ${c.pr} -- ${path}) and build on it, or say in your PR how yours differs.`
+    : `claim: ${path} is also being changed on ${c.branch} (${c.login}, a side copy on this machine): build on it or say so in your PR.`;
+}

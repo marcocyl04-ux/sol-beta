@@ -2,22 +2,23 @@
 // room by typing a six-symbol code; the code lives on the hub the room meets on, here. One small file on the hub,
 // `<state dir>/relay/rooms.json`, the way the spool keeps its own: what a room is (its provider, org and repos, a name),
 // who registered it, and who has said hello in it. Never anything from anyone's home: no prompt, no file, no key.
-// At most 300 rooms and 5 a maker (the stack's review: an open hub, any GitHub account, so throwaway accounts must not
-// fill it for a month). On a full hub a room nobody but its maker ever said hello in, quiet for three days, makes way
-// first, then one quiet for 30 days; else the hub is full. A maker may forget their own room. A file that is
+// At most 5 rooms a maker (the stack's review: an open hub, any GitHub account, so throwaway accounts must not fill it for
+// a month), and 20 for every key holder together. A hub-wide cap is the host's choice (#208, MASTER A8: the cloud has
+// none, its disk is the limit; the engine's own hub keeps REGISTRY_MAX, 300): on a full hub a room nobody but its maker
+// ever said hello in, quiet for three days, makes way first, then one quiet for 30 days; else the hub is full. A maker may forget their own room. A file that is
 // missing or broken reads as no rooms. Guesses counts codes tried that no room has: a code is 30 bits, typed by hand
 // like a meeting code, so guessing is the only way at one, and it is made slow. A name is one a hub (#160): trimmed,
 // spaces collapsed and case aside, another room's name is refused, so a room made from a name alone is told apart.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
-import { CODE, REPO, LOGIN } from "./settings.js";
+import { CODE, REPO, LOGIN } from "./hub-types.js";   // the hub's own rules, never the engine's settings (#206)
 
 export { CODE };
-export type Entry = { code: string; name: string; provider: "github" | "drive"; org: string; repos: string[]; by: string; at: number; people: string[]; seen: number };
+export type Entry = { code: string; name: string; provider: "github" | "drive" | "cloud"; org: string; repos: string[]; by: string; at: number; people: string[]; seen: number };
 export type RoomIn = { name?: unknown; provider?: unknown; org?: unknown; repos?: unknown };
 
-export const REGISTRY_MAX = 300;
+export const REGISTRY_MAX = 300;   // the engine's own hub's cap (index.ts); a Registry has none unless given one
 export const PEOPLE_MAX = 200;
 export const PER_MAKER = 5;
 export const KEY_ROOMS = 20;
@@ -38,9 +39,24 @@ export function makeCode(random: (n: number) => Uint8Array = randomBytes): strin
 /** a code as typed: trimmed and upper-cased (the alphabet has no 0, O, 1 or I to confuse), or "" when it is not one */
 export const normalCode = (v: unknown) => { const c = typeof v === "string" ? v.trim().toUpperCase() : ""; return CODE.test(c) ? c : ""; };
 
-/** a room as sent, made valid, or a plain Error saying what is wrong (pure) */
-export function cleanEntryRoom(v: RoomIn): Pick<Entry, "name" | "provider" | "org" | "repos"> {
-  const provider = v.provider === "drive" ? "drive" : "github";
+/** what a registry is to the hub (#216, S5): the JSON file below (the engine's own hub) or the cloud's SQLite one
+ *  (sol/cloud/src/rooms.ts). `lookup` with `by`, a login a gate vouched for, is that person asking for the room by its
+ *  code: a registry that keeps members (the cloud's) makes them one; this file ignores it */
+export type RoomRegistry = {
+  register(room: RoomIn, by: string): Entry;
+  forget(code: string, by: string): boolean;
+  taken(name: string): boolean;
+  lookup(code: string, by?: string): Entry | null;
+  saw(code: string, login: string, at: number): void;
+  all(): Entry[];
+};
+
+/** a room as sent, made valid, or a plain Error saying what is wrong (pure). A `cloud` room (#216) keeps its record on
+ *  the cloud itself: no org, no repositories, only its name */
+export function cleanEntryRoom(v: RoomIn, o: { cloud?: boolean } = {}): Pick<Entry, "name" | "provider" | "org" | "repos"> {
+  const provider = v.provider === "drive" ? "drive" : v.provider === "cloud" ? "cloud" : "github";
+  // a cloud room's record is the cloud's (sol/cloud): a hub that keeps no files (the engine's own) takes none
+  if (provider === "cloud" && !o.cloud) throw new Error("this hub keeps no room's record: a cloud room is made on the cloud");
   const org = typeof v.org === "string" ? v.org.trim() : "";
   if (!LOGIN.test(org)) throw new Error("a room's org is a GitHub login");
   if (v.repos !== undefined && !Array.isArray(v.repos)) throw new Error("a room's repositories are a list");
@@ -49,7 +65,8 @@ export function cleanEntryRoom(v: RoomIn): Pick<Entry, "name" | "provider" | "or
   if (provider === "github" && list.some((x) => !REPO.test(x))) throw new Error("a room's repository is owner/name");
   if (provider === "drive" && list.some((x) => !x || x.length > 200)) throw new Error("a room's folder is an id");
   const repos = [...new Set(list)].sort();
-  if (!org && !repos.length) throw new Error("a room is an org or at least one repository");
+  if (provider === "cloud" && (org || repos.length)) throw new Error("a cloud room has no org and no repositories");
+  if (provider !== "cloud" && !org && !repos.length) throw new Error("a room is an org or at least one repository");
   const name = (typeof v.name === "string" ? v.name.trim().replace(/\s+/g, " ") : "").slice(0, 60) || org || (repos[0] ?? "").split("/").pop()!.slice(0, 60) || "room";
   return { name, provider, org, repos };
 }
@@ -60,35 +77,38 @@ const lonely = (e: Entry) => e.people.every((p) => p.toLowerCase() === e.by.toLo
 /** a room's name as the hub compares it (#160): trimmed, runs of space as one, case aside */
 export const nameKey = (name: string) => name.trim().replace(/\s+/g, " ").toLowerCase();
 
-const sameRoom = (e: Entry, r: Pick<Entry, "provider" | "org" | "repos">, by: string) =>
-  e.provider === r.provider && e.org.toLowerCase() === r.org.toLowerCase() && e.by.toLowerCase() === by.toLowerCase()
+/** the same room by the same maker: the same record; a cloud room's record is the room itself, so its name too (#216) */
+export const sameRoom = (e: Pick<Entry, "provider" | "org" | "repos" | "by" | "name">, r: Pick<Entry, "provider" | "org" | "repos" | "name">, by: string) =>
+  e.provider === r.provider && (r.provider !== "cloud" || nameKey(e.name) === nameKey(r.name)) && e.org.toLowerCase() === r.org.toLowerCase() && e.by.toLowerCase() === by.toLowerCase()
   && e.repos.map((x) => x.toLowerCase()).join(",") === r.repos.map((x) => x.toLowerCase()).join(",");
 
 /** an entry read from the file, or null when it is not one (a hand edit, an older shape) */
-function readEntry(v: unknown): Entry | null {
+export function readEntry(v: unknown, o: { cloud?: boolean } = {}): Entry | null {
   if (!v || typeof v !== "object") return null;
   const e = v as Record<string, unknown>;
   if (typeof e.code !== "string" || !CODE.test(e.code)) return null;
   let room: ReturnType<typeof cleanEntryRoom>;
-  try { room = cleanEntryRoom(e); } catch { return null; }
+  try { room = cleanEntryRoom(e, o); } catch { return null; }
   const by = typeof e.by === "string" && LOGIN.test(e.by) ? e.by : "";
   const num = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
   const people = Array.isArray(e.people) ? [...new Set(e.people.filter((x): x is string => typeof x === "string" && SOMEONE.test(x)))].slice(-PEOPLE_MAX) : [];
   return { code: e.code, ...room, by, at: num(e.at), people, seen: num(e.seen) };
 }
 
-export class Registry {
+export class Registry implements RoomRegistry {
   private list: Entry[] | null = null;
 
-  /** file: the registry's one file; now: the clock; random: a new code (both injected for the tests) */
-  constructor(private file: string, private now: () => number = Date.now, private random: () => string = () => makeCode()) {}
+  /** file: the registry's one file; now: the clock; random: a new code (both injected for the tests); limits.rooms: the
+   *  most rooms on this hub (none when not given) */
+  constructor(private file: string, private now: () => number = Date.now, private random: () => string = () => makeCode(),
+    private limits: { rooms?: number; cloud?: boolean } = {}) {}   // cloud: it may keep cloud rooms (the tests; the cloud has its own)
 
   private read(): Entry[] {
     if (this.list) return this.list;
     try {
       const v = JSON.parse(readFileSync(this.file, "utf8"));
       const out: Entry[] = [];
-      for (const x of Array.isArray(v) ? v : []) { const e = readEntry(x); if (e && !out.some((y) => y.code === e.code)) out.push(e); }
+      for (const x of Array.isArray(v) ? v : []) { const e = readEntry(x, this.limits); if (e && !out.some((y) => y.code === e.code)) out.push(e); }
       this.list = out;
     } catch { this.list = []; }
     return this.list;
@@ -105,7 +125,7 @@ export class Registry {
 
   /** a room's code: the same one again for the same provider, org, repos and maker; else a new one. Throws on a bad room */
   register(room: RoomIn, by: string): Entry {
-    const r = cleanEntryRoom(room);
+    const r = cleanEntryRoom(room, this.limits);
     const who = typeof by === "string" && LOGIN.test(by) ? by : "";
     if (by && !who) throw new Error("who registers a room is a GitHub login");
     const all = this.read();
@@ -118,7 +138,7 @@ export class Registry {
     }
     // a register by the key alone is by nobody (""): every key holder together may share KEY_ROOMS, never the hub's all
     if (all.filter((e) => e.by.toLowerCase() === who.toLowerCase()).length >= (who ? PER_MAKER : KEY_ROOMS)) throw new Error(who ? `one person may share at most ${PER_MAKER} rooms on a hub; forget one first` : `the key's holders may share at most ${KEY_ROOMS} rooms on a hub`);
-    if (all.length >= REGISTRY_MAX) {
+    if (all.length >= (this.limits.rooms ?? Infinity)) {
       // full: the room seen least lately goes, but only one nobody else came into, quiet for three days, or one quiet for
       // 30 days; a room in use is never dropped for a new one
       const quiet = all.filter((e) => this.now() - e.seen > (lonely(e) ? LONELY : QUIET)).sort((a, b) => Number(lonely(b)) - Number(lonely(a)) || a.seen - b.seen)[0];
@@ -178,6 +198,9 @@ export class Registry {
 
 export const GUESS_MAX = 20;
 export const KEY_GUESS_MAX = 200;   // every key holder together (relay.ts guessers): a dead room's loop never reaches it
+export const IP_GUESS_MAX = 50;     // one address, every account on it (#208, A12): a school's one address has room for many
+/** the most misses a caller may have in ten minutes, by what kind of caller it is (guessers in relay-hub.ts) */
+const maxOf = (who: string) => (who === "key" ? KEY_GUESS_MAX : who.startsWith("ip ") ? IP_GUESS_MAX : GUESS_MAX);
 const GUESS_WINDOW = 10 * 60_000;
 
 /** codes tried that no room has, per caller (a GitHub login, or "key" for a key holder), over the last ten minutes.
@@ -196,8 +219,9 @@ export class Guesses {
     const list = this.recent(who);
     list.push(this.now());
     this.tries.set(who.toLowerCase(), list);
-    if (list.length === (who === "key" ? KEY_GUESS_MAX : GUESS_MAX)) console.log(`relay: ${who} tried ${GUESS_MAX} codes no room has in ten minutes; slowed`);
+    if (list.length === maxOf(who)) console.log(`relay: ${who.startsWith("ip ") ? "an address" : who} tried ${maxOf(who)} codes no room has in ten minutes; slowed`);   // never the address itself
   }
-  /** has this caller missed 20 times in ten minutes (every key holder together, `key`, 200): the next is not looked up */
-  over(who: string) { return this.recent(who).length >= (who === "key" ? KEY_GUESS_MAX : GUESS_MAX); }
+  /** has this caller missed 20 times in ten minutes (every key holder together, `key`, 200; an address, 50): the next is
+   *  not looked up */
+  over(who: string) { return this.recent(who).length >= maxOf(who); }
 }

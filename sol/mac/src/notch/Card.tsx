@@ -22,24 +22,60 @@
 // Notch.tsx (act.shelf, act.grab, act.page, act.shot, act.sol, act.all): no done ring here; a Shot's ring runs when it lands.
 // The capsules (Allow, Deny, Stop, …) are habits and do not change.
 //
+// The eye (#253): on the quiet card (nothing to answer: plain, Grab's and Shelf's
+// rows) a small eye sits in the corner, the pills' 14 px stroke, no label. Open = Sol can be seen in a screen share
+// (the default); closed with a stroke across = every Sol window is skipped by any share or screenshot. A press flicks
+// it (Notch.tsx calls the app's eye_set, then tells the engine; the flick never waits on it). The closed notch shows
+// nothing new. A 500 ms hold on it (part 3, the clean screen) fills the eye pearl and opens PrivateRow under the card:
+// the private list (the apps cut out of the clean screen, the engine's home/private.json), each a chip with a tick, a
+// press ticks or unticks it, and "Clean screen" last, pearl, which opens the clean screen (or, open, closes it).
+//
+// Anticipate (#253): the quiet card's third pill is an
+// ear. While a talk is on the card stays the quiet card; the ear is lit (Buttons `lit`: a red dot, its name "Anticipate ·
+// 12:34") and a press on it opens the drawer (Drawer.tsx) under the notch. TalkDrop is the card that drops under the
+// notch while the drawer is closed: a headline, up to two bullets, the dim source and the seconds the notch's own clock
+// measured; a card Sol volunteered carries the red "spoke up" mark; a spoken question's answer has the question above
+// it (`q`). Notch.tsx asks the app for room under the slab (notch_expand `room`) and draws it there; an app from before
+// that cannot grow its window, so there the same card is drawn inside the slab, over the line.
+//
 // Dev only: ?card=ask|ask3|askping|question|plan|turn|call|ping|unplugged|starting|stable|handed|review|plain|grabbing|shelf
 // fakes the card's content (as ?creature= fakes the state; grabbing and shelf open those rows, with three made-up
 // things on the shelf), and ?press=<n> holds the n-th button mid-press, for shots. Pressing a faked ask moves on to the next.
+// ?eye=on|off fakes the eye (on: open, Sol visible; off: closed, invisible).
+// Anticipate: ?card=listening (a talk on, 12:34, the lit pill), anticard (and a pressed card under the notch; &why=question
+// for one Sol volunteered), drawer, drawer-cards, drawer-ask, drawer-pin, drawer-muted (the drawer open on a made-up talk,
+// talk.ts devFill; &turns=1000 for the hour-long one); pressing in them moves on with made-up cards, no engine.
+// The clean screen: ?card=private (the quiet card, the eye held, the private list's row under it, four made-up apps).
+//
+// The free notch (#253): a session's ask, question or running turn is one line on the
+// open card: the line, its own buttons small under it (LineBtns, with the meta), the pills at the right (LinePills:
+// Shelf · Grab · Anticipate, the eye in the corner as on the quiet card). Esc folds it into FoldCount, a small count with
+// one red dot beside the mark; a press on the count unfolds the newest fold. useCard takes the folded keys and draws the
+// card without them (answer.ts folds), so a folded ask is never what Return or a press answers.
+// Dev: ?card=ask-line (a question with three choices as a line), ask-line-listening (the same while a talk is on, the
+// pill lit), ask-folded (two asks folded: the count says 2; a press unfolds, both are answered in turn).
+// The half moon (#254; Moon.tsx draws it): only a decision buds out as a card; a running turn is a
+// row under the Sessions disc's name (hover it). ?card=two (an ask out as a card, 1 of 3, and a running turn in the
+// hover list), folded2 (a one-question ask folded into the Sessions disc, which says 1, the turn in the hover list),
+// running (a running turn only: no card out, nothing folded, the disc's hover list alone). Moon.tsx's ?t=0.4 freezes a
+// card mid-bud.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cardNow, flashNow } from "../creature/state";
 import { wireSend, askOpen, seen as seenPing } from "../renovation";
 import { CFG, Spring } from "../motion";
-import { ICONED, LABEL, TINT, cardKey, cardOf, keyAction, stillShown, type Ask, type Btn, type Card, type CardIn, type PingIn, type StableIn, type Turn } from "./answer";
+import { CHOICES, ICONED, LABEL, OWN_ROWS, TINT, cardKey, cardOf, choiceLabel, folds, keyAction, stillShown, type Ask, type Btn, type Card, type CardIn, type PingIn, type StableIn, type Turn } from "./answer";
 // --- Hand (#34)
 import type { HandIn } from "./answer";
 // --- end Hand
-import type { ShelfItem } from "./useNotch";
+import type { ShelfItem, TalkCard } from "./useNotch";
 
 export type { Card, CardIn };
 
 const dev = import.meta.env.DEV ? new URLSearchParams(location.search) : null;
 export const DEV_CARD = dev?.get("card") ?? null;
 const DEV_PRESS = dev?.get("press") != null ? Number(dev.get("press")) : -1;
+/** the eye faked for shots: true = invisible (?eye=off), false = visible (?eye=on), null = ask the app */
+export const DEV_EYE: boolean | null = dev?.get("eye") === "off" ? true : dev?.get("eye") === "on" ? false : null;
 
 const devAsk = (n: number, of: number, i: number): Ask => [
   { id: "perm:dev-edit", sessionId: "dev-work", seat: "claude", tool: "Edit", title: "Claude wants to edit Notch.tsx", path: "/Users/marcol04/computer/personal/projects/ecosystem/sol/mac/src/notch/Notch.tsx", n, of },
@@ -47,6 +83,12 @@ const devAsk = (n: number, of: number, i: number): Ask => [
   { id: "perm:dev-write", sessionId: "dev-work-3", seat: "claude", tool: "Write", title: "Claude wants to write RUBRIC.md", path: "/x/design/notch-buttons/RUBRIC.md", n, of },
 ][i % 3];
 const DEV_TURN: Turn = { seat: "claude", sessionId: "dev-work", title: "ecosystem", kind: "work" };
+// the free notch: a session's question with its three choices (the still's)
+const DEV_CHOOSE: Ask = { id: "perm:dev-choose", sessionId: "dev-work", seat: "claude", tool: "AskUserQuestion", title: "Claude has a question for you",
+  question: "Anime, dramas, or reality shows?", options: ["Anime", "Dramas", "Reality"], n: 1, of: 1 };
+/** the folds a dev state starts with (Notch.tsx's folded keys) */
+export const DEV_FOLDED: string[] = DEV_CARD === "ask-folded" ? ["ask:dev-work/perm:dev-edit"]
+  : DEV_CARD === "folded2" ? ["ask:dev-work/perm:dev-edit"] : [];   // the half moon: the ask in the Sessions disc (a turn is never folded)
 const DEV_PING: PingIn = { id: "ping:dev", seat: "work", sessionId: "dev-work", line: "the sidebar's timer row is in" };
 // --- Hand (#34)
 const DEV_HAND: HandIn = { id: "marcocyl04-ux/sol-dev#34", from: "frank", issue: 34, title: "Hand: give a session, issue or PR to a teammate" };
@@ -74,18 +116,38 @@ function fake(kind: string | null, step: number): Partial<CardIn> | null {
     case "plain": return {};
     // Grab and Shelf: the rows are the page's own state (Notch.tsx starts them from DEV_CARD), so a press still moves them
     case "grabbing": case "shelf": return {};
+    // Anticipate: the talk is the page's own state too (Notch.tsx starts it from DEV_CARD), so presses move it on
+    case "listening": case "anticard": case "drawer": case "drawer-cards": case "drawer-ask": case "drawer-pin": case "drawer-muted": return {};
+    // the clean screen: the eye's row is the page's own state too (Notch.tsx starts it from DEV_CARD)
+    case "private": return {};
+    // the free notch: a question as a line (with a talk on too); two asks folded, then answered in turn
+    case "ask-line": case "ask-line-listening": return step ? { ask: null } : { ask: DEV_CHOOSE };
+    case "ask-folded": return step >= 2 ? { ask: null } : { ask: devAsk(1, 2 - step, step) };
+    // the half moon (#254): an ask out as a card and a running turn in the disc's hover list (two); a one-question ask
+    // folded in the disc, which counts it 1 (an ask counts every question it holds), the turn in the list (folded2);
+    // a running turn only, in the list, nothing out (running)
+    case "two": return step ? { turn: DEV_TURN } : { ask: devAsk(1, 3, 0), turn: DEV_TURN };
+    case "folded2": return step ? { turn: DEV_TURN } : { ask: devAsk(1, 1, 0), turn: DEV_TURN };
+    case "running": return { turn: DEV_TURN };
+    // centre field: a talk on with its drawer out (the big one, in the middle), an ask card in the column at its left
+    case "drawer-two": return step ? { turn: DEV_TURN } : { ask: devAsk(1, 3, 0), turn: DEV_TURN };
     default: return null;
   }
 }
 
-/** the card for this moment: the live inputs, or the dev fake over them; `step` moves a faked ask on after a press */
-export function useCard(c: CardIn): { card: Card; advance: () => void; liveAsk: () => Ask | null } {
+/** the card for this moment: the live inputs, or the dev fake over them; `step` moves a faked ask on after a press.
+ *  `folded` (the free notch): the folded asks and turns are left out of `card`; `whole` is the card with them (the
+ *  notch stands ajar for a folded ask too), `count` what waits folded, `live` the fold keys that still exist */
+export function useCard(c: CardIn, folded: readonly string[] = []): { card: Card; whole: Card; count: number; live: string[]; advance: () => void; liveAsk: () => Ask | null; input: CardIn } {
   const [step, setStep] = useState(0);
   const f = fake(DEV_CARD, step);
   const input: CardIn = f ? { ...c, ask: null, turn: null, ping: null, call: false, unplugged: false, starting: false, stable: null, hand: null, ...f } : c;
-  const card = cardOf(input);
+  const fo = folds(input.ask, input.turn, folded);
+  const card = cardOf({ ...input, ask: fo.ask, turn: fo.turn });
+  const whole = fo.count ? cardOf(input) : card;
   const liveAsk = () => (f ? (fake(DEV_CARD, step)?.ask ?? null) : (cardNow().ask as Ask | null));
-  return { card, advance: () => setStep((s) => s + 1), liveAsk };
+  // input: what the card was made from, fakes and all (the half moon splits it into its own cards: answer.ts decisionCards, and runningRows for the Sessions disc's list)
+  return { card, whole, count: fo.count, live: fo.live, advance: () => setStep((s) => s + 1), liveAsk, input };
 }
 
 // --- Grab and Shelf: three made-up things on the shelf (twelve counted), drawn as small pictures, for shots
@@ -106,6 +168,15 @@ export const DEV_SHELF: ShelfItem[] | null = DEV_CARD ? Array.from({ length: 12 
 })) : null;
 // --- end Grab and Shelf
 
+// --- Anticipate: made-up talk content for shots and for pressing through without the engine
+export const DEV_TALK = DEV_CARD === "listening" || DEV_CARD === "anticard" || DEV_CARD === "ask-line-listening" || DEV_CARD?.startsWith("drawer") ? DEV_CARD : null;
+export const DEV_WHY: "pressed" | "question" = dev?.get("why") === "question" ? "question" : "pressed";
+export const DEV_TALK_CARDS: Record<"pressed" | "question", TalkCard> = {
+  pressed: { head: "Relay key stays until the org", bullets: ["docs/provenance.md names it", "Frank asked at 2:10"], source: "docs/provenance.md · the talk" },
+  question: { head: "He asked when you'll send it", bullets: ["Frank, 2:31: \"when do I get the key?\"", "You said at 0:40: after the org is set"], source: "the talk · a question to you" },
+};
+// --- end Anticipate
+
 /** what a press does: send the answer up, flash the ring once; false when it was dropped (the ask changed under it) or
  *  could not leave (act.failed: the socket is down) */
 // update / later: the stable card's (Ship #33), handed in by Notch.tsx from cowork/stable.ts
@@ -113,13 +184,20 @@ export const DEV_SHELF: ShelfItem[] | null = DEV_CARD ? Array.from({ length: 12 
 // shelf / grab / shot / sol / all: Grab and Shelf's rows, handed in by Notch.tsx (the wire is useNotch's)
 export function answer(card: Card, b: Btn, liveAsk: Ask | null, act: { hangup: () => void; start: () => void; close: () => void; advance: () => void; failed: () => void; update?: () => void; later?: () => void
   take?: () => void; pass?: () => void; handLater?: () => void; handOpen?: () => void
-  shelf?: () => void; grab?: () => void; page?: () => void; shot?: () => void; sol?: () => void; all?: () => void }): boolean {
+  shelf?: () => void; grab?: () => void; page?: () => void; shot?: () => void; sol?: () => void; all?: () => void
+  anticipate?: () => void; answer?: () => void; next?: () => void; recap?: () => void; who?: () => void; ear?: () => void }): boolean {
   if (!stillShown(card, liveAsk)) return false;   // the card redraws with what is open now
   const faked = !!DEV_CARD;
   if ((b === "allow" || b === "deny") && card.ask) {
     // ordinary tools only (AskUserQuestion / ExitPlanMode show Open): { allow } alone, no always, no note
     if (!faked) { if (!wireSend({ type: "work.perm", sessionId: card.ask.sessionId, id: card.ask.id, allow: b === "allow" })) return fail(act); }
     else window.setTimeout(act.advance, 320);   // a fake moves on as the engine would, after the tint has shown
+  } else if (CHOICES.includes(b) && card.ask?.question && card.ask.options) {
+    // the free notch: a question's choice, answered as the window's Questions card answers it (one question, one pick)
+    const pick = card.ask.options[CHOICES.indexOf(b)];
+    if (pick === undefined) return false;
+    if (!faked) { if (!wireSend({ type: "work.perm", sessionId: card.ask.sessionId, id: card.ask.id, allow: true, answers: { [card.ask.question]: pick } })) return fail(act); }
+    else window.setTimeout(act.advance, 320);
   } else if (b === "open" && card.ask) {
     askOpen({ seat: "work", sessionId: card.ask.sessionId, id: `${card.ask.id}@${Date.now()}`, itemId: card.ask.id });
     act.close();
@@ -145,7 +223,8 @@ export function answer(card: Card, b: Btn, liveAsk: Ask | null, act: { hangup: (
   // --- end Hand
   // --- Grab and Shelf: each press opens a row or carries the grab on (the crosshair, the sheet); nothing is answered
   // here, so no ring (a Shot rings when it lands on the shelf)
-  } else if (ICONED.has(b) && (card.kind === "plain" || card.kind === "grabbing" || card.kind === "shelf")) {
+  // Anticipate's row is the same kind of row: its presses are this page's (Notch.tsx), never an answer to an ask
+  } else if (ICONED.has(b) && OWN_ROWS.has(card.kind)) {
     (act as Record<string, (() => void) | undefined>)[b]?.();
     return true;
   // --- end Grab and Shelf
@@ -170,8 +249,10 @@ export function onKey(card: Card, key: string, liveAsk: Ask | null, act: Paramet
 // new ask gets fresh buttons, never the last one's pressed look.
 // A row of icons only (Grab and Shelf) draws as discs (IconRow); `lead` sits left of them (the shelf's thumbs) and
 // `meta` replaces the card's own small text (the shelf's count); onHover says which icon the pointer is on, for the creature
-export function Buttons({ card, keys, onPress, onHover, lead, meta }: { card: Card; keys: boolean; onPress: (b: Btn) => void
-  onHover?: (b: Btn | null, el: HTMLElement | null) => void; lead?: ReactNode; meta?: string }) {
+// onPress's downAt (performance.now() at the pointer's down; Anticipate) lets a hold be told from a press
+// lit (Anticipate, sitting 2): that pill carries the red dot and `label` as its name (a talk is on)
+export function Buttons({ card, keys, onPress, onHover, lead, meta, lit }: { card: Card; keys: boolean; onPress: (b: Btn, downAt?: number) => void
+  onHover?: (b: Btn | null, el: HTMLElement | null) => void; lead?: ReactNode; meta?: string; lit?: { b: Btn; label: string } | null }) {
   if (!card.buttons.length) return null;
   const ret = keys ? keyAction(card, "Return") : null;
   const icons = card.buttons.every((b) => ICONED.has(b));
@@ -181,7 +262,7 @@ export function Buttons({ card, keys, onPress, onHover, lead, meta }: { card: Ca
       <div className="card-row">
         {lead}
         {icons
-          ? <IconRow rowKey={`${cardKey(card)}:${card.buttons.join("+")}`} btns={card.buttons} onPress={onPress} onHover={onHover} />
+          ? <IconRow rowKey={`${cardKey(card)}:${card.buttons.join("+")}`} btns={card.buttons} onPress={onPress} onHover={onHover} lit={lit} />
           : card.buttons.map((b, i) => <Button key={`${cardKey(card)}-${b}`} b={b} first={i === 0} ret={ret === b} held={DEV_PRESS === i} onPress={() => onPress(b)} />)}
       </div>
       {m && <span className="card-meta">{m}</span>}
@@ -191,20 +272,31 @@ export function Buttons({ card, keys, onPress, onHover, lead, meta }: { card: Ca
 
 // ---- Grab and Shelf: the icons, the row that sinks and rises, the disc, the thumbs ----
 // the motion study's SVGs (ICONS), in currentColor so the hovered disc turns them black
-const ICON: Partial<Record<Btn, ReactNode>> = {
+export const ICON: Partial<Record<Btn, ReactNode>> = {
   grab: <svg viewBox="0 0 16 16" aria-hidden><path d="M2 5V3a1 1 0 0 1 1-1h2M11 2h2a1 1 0 0 1 1 1v2M14 11v2a1 1 0 0 1-1 1h-2M5 14H3a1 1 0 0 1-1-1v-2" /><circle cx="8" cy="8" r="2.2" /></svg>,
   shelf: <svg viewBox="0 0 16 16" aria-hidden><path d="M2 10h12M3 10V5.5M13 10V5.5M2 10l1.2 3h9.6L14 10" /><path d="M6 7.5h4" /></svg>,
   page: <svg viewBox="0 0 16 16" aria-hidden><rect x="3.5" y="1.5" width="9" height="13" rx="1.5" /><path d="M6 4.5h4M6 7h4M8 9v3.2M6.4 10.8L8 12.4l1.6-1.6" /></svg>,
   shot: <svg viewBox="0 0 16 16" aria-hidden><rect x="2" y="4" width="12" height="9" rx="2" /><circle cx="8" cy="8.5" r="2.4" /><path d="M6 4l1-1.5h2L10 4" /></svg>,
   sol: <svg viewBox="0 0 16 16" aria-hidden><circle cx="8" cy="8" r="5.5" /><circle cx="6.2" cy="7.5" r=".9" fill="currentColor" stroke="none" /><circle cx="9.8" cy="7.5" r=".9" fill="currentColor" stroke="none" /></svg>,
   all: <svg viewBox="0 0 16 16" aria-hidden><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" /><rect x="9" y="9" width="4.5" height="4.5" rx="1" /></svg>,
+  // Anticipate (mock.html's own paths): an ear (the outer curl, the inner fold); Answer a bubble with a plus; Say next
+  // an arrow to a bar; Recap three lines, the last short; Who a head and shoulders. The stop is the same ear, lit.
+  anticipate: <svg viewBox="0 0 16 16" aria-hidden><path d="M4 6.7a4.7 4.7 0 1 1 8.7 2.4 6.7 6.7 0 0 1-1.3 1.3 5.3 5.3 0 0 0-1.3 2 3 3 0 0 1-4.5.9" /><path d="M6.7 6.7a2 2 0 1 1 3.3 1.5" /></svg>,
+  answer: <svg viewBox="0 0 16 16" aria-hidden><path d="M13.5 7.5c0 2.8-2.5 4.8-5.5 4.8-.8 0-1.6-.1-2.3-.4L2.5 13l.9-2.5C2.8 9.6 2.5 8.6 2.5 7.5c0-2.8 2.5-4.8 5.5-4.8s5.5 2 5.5 4.8z" /><path d="M8 5.6v3.8M6.1 7.5h3.8" /></svg>,
+  next: <svg viewBox="0 0 16 16" aria-hidden><path d="M2.5 8h8.5M8 4.5L11.5 8 8 11.5" /><path d="M13.5 3.5v9" /></svg>,
+  recap: <svg viewBox="0 0 16 16" aria-hidden><path d="M3 4h10M3 8h10M3 12h6" /></svg>,
+  who: <svg viewBox="0 0 16 16" aria-hidden><circle cx="8" cy="5.5" r="2.6" /><path d="M3 13.8c.7-2.6 2.7-3.9 5-3.9s4.3 1.3 5 3.9" /></svg>,
 };
+ICON.ear = ICON.anticipate;
+/** Anticipate: a hold this long on Answer (or on Fn) adds the front window's picture */
+export const HOLD_MS = 500;
 const STAGGER = 70, SINK_MS = 300;
 const SINK = { k: 330, z: 0.95 };   // CFG.away's numbers: about 240 ms, no settle
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 /** one set of discs; when the set changes, the old ones stay a moment over the same spot, sinking, and the new rise */
-function IconRow({ rowKey, btns, onPress, onHover }: { rowKey: string; btns: Btn[]; onPress: (b: Btn) => void; onHover?: (b: Btn | null, el: HTMLElement | null) => void }) {
+function IconRow({ rowKey, btns, onPress, onHover, lit }: { rowKey: string; btns: Btn[]; onPress: (b: Btn, downAt?: number) => void; onHover?: (b: Btn | null, el: HTMLElement | null) => void
+  lit?: { b: Btn; label: string } | null }) {
   const last = useRef({ k: rowKey, btns });
   const [gone, setGone] = useState<{ k: string; btns: Btn[] } | null>(null);
   useLayoutEffect(() => {
@@ -217,15 +309,27 @@ function IconRow({ rowKey, btns, onPress, onHover }: { rowKey: string; btns: Btn
   }, [rowKey]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="ib-row">
-      {btns.map((b, i) => <IconButton key={`${rowKey}-${b}`} b={b} delay={i * STAGGER} held={DEV_PRESS === i} onPress={() => onPress(b)} onHover={onHover} />)}
-      {gone && <div className="ib-gone" aria-hidden>{gone.btns.map((b) => <IconButton key={`${gone.k}-${b}`} b={b} delay={0} leaving held={false} onPress={() => {}} />)}</div>}
+      {btns.map((b, i) => [
+        b === "ear" && <span key={`${rowKey}-sep`} className="ib-sep" aria-hidden />,   // Anticipate: a hairline before the stop
+        <IconButton key={`${rowKey}-${b}`} b={b} delay={i * STAGGER} held={DEV_PRESS === i} onPress={(at) => onPress(b, at)} onHover={onHover} label={lit?.b === b ? lit.label : undefined} />,
+      ])}
+      {gone && <div className="ib-gone" aria-hidden>{gone.btns.map((b) => [
+        b === "ear" && <span key={`${gone.k}-sep`} className="ib-sep" />,
+        <IconButton key={`${gone.k}-${b}`} b={b} delay={0} leaving held={false} onPress={() => {}} />,
+      ])}</div>}
     </div>
   );
 }
 
-function IconButton({ b, delay, leaving, held, onPress, onHover }: { b: Btn; delay: number; leaving?: boolean; held: boolean; onPress: () => void; onHover?: (b: Btn | null, el: HTMLElement | null) => void }) {
+function IconButton({ b, delay, leaving, held, onPress, onHover, label }: { b: Btn; delay: number; leaving?: boolean; held: boolean; onPress: (downAt?: number) => void; onHover?: (b: Btn | null, el: HTMLElement | null) => void
+  label?: string }) {
   const ref = useRef<HTMLButtonElement>(null), disc = useRef<HTMLSpanElement>(null), name = useRef<HTMLSpanElement>(null);
   const hovered = useRef(false);
+  // Anticipate: when the pointer went down, and the name's word while Answer is held long enough to add the screen
+  const downAt = useRef<number | undefined>(undefined), holdT = useRef<number | undefined>(undefined);
+  // only Answer has a hold: the other names are React's (the lit pill's changes every second)
+  const holdWord = (on: boolean) => { if (b === "answer" && name.current) name.current.textContent = on ? "Answer with the screen" : LABEL[b]; };
+  useEffect(() => () => window.clearTimeout(holdT.current), []);
   const sp = useRef<{ lift: Spring; squash: Spring; nm: Spring; rise: Spring; sink: Spring } | null>(null);
   if (!sp.current) {
     // the disc: the capsule's lift and squash, from its foot
@@ -278,17 +382,26 @@ function IconButton({ b, delay, leaving, held, onPress, onHover }: { b: Btn; del
       ref={ref}
       type="button"
       data-nopress
-      className="ibtn"
-      aria-label={LABEL[b]}
+      className={`ibtn${b === "ear" ? " lit" : ""}${label ? " dot" : ""}`}
+      aria-label={label ?? LABEL[b]}
       tabIndex={leaving ? -1 : undefined}
       onPointerEnter={() => hover(true)}
-      onPointerLeave={() => hover(false)}
-      onPointerDown={(e) => { e.stopPropagation(); sp.current!.squash.to(1, { cfg: CFG.press }); }}
-      onPointerUp={() => { if (!held) sp.current!.squash.to(0, { cfg: CFG.pop }); }}
-      onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new Event("sol-greet")); onPress(); }}
+      onPointerLeave={() => { hover(false); window.clearTimeout(holdT.current); holdWord(false); downAt.current = undefined; }}
+      onPointerDown={(e) => {
+        e.stopPropagation(); sp.current!.squash.to(1, { cfg: CFG.press });
+        downAt.current = performance.now();
+        if (b === "answer") { window.clearTimeout(holdT.current); holdT.current = window.setTimeout(() => holdWord(true), HOLD_MS); }
+      }}
+      onPointerUp={() => { if (!held) sp.current!.squash.to(0, { cfg: CFG.pop }); window.clearTimeout(holdT.current); }}
+      onClick={(e) => {
+        e.stopPropagation(); window.dispatchEvent(new Event("sol-greet"));
+        const at = downAt.current; downAt.current = undefined;
+        window.setTimeout(() => holdWord(false), 600);
+        onPress(at);
+      }}
     >
       <span className="ib-disc" ref={disc}>{ICON[b]}</span>
-      <span className="ib-name" ref={name} aria-hidden>{LABEL[b]}</span>
+      <span className="ib-name" ref={name} aria-hidden>{label ?? LABEL[b]}</span>
     </button>
   );
 }
@@ -333,7 +446,129 @@ function Thumb({ it, delay }: { it: ShelfItem; delay: number }) {
 }
 // ---- end Grab and Shelf
 
-function Button({ b, first, ret, held, onPress }: { b: Btn; first: boolean; ret: boolean; held: boolean; onPress: () => void }) {
+// ---- The eye (#253): the mark in the quiet card's corner ----
+// an eye, open; closed: the lid down, its lashes, and a stroke across it
+export const EYE_OPEN = <svg viewBox="0 0 16 16" aria-hidden><path d="M1.5 8S3.9 3.5 8 3.5 14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z" /><circle cx="8" cy="8" r="2.1" /></svg>;
+export const EYE_SHUT = <svg viewBox="0 0 16 16" aria-hidden><path d="M1.5 7.2S3.9 10.8 8 10.8s6.5-3.6 6.5-3.6M4.3 9.6l-1 1.5M8 10.8v1.8M11.7 9.6l1 1.5" /><path d="M2.5 2.5l11 11" /></svg>;
+
+/** the eye: a press flicks it; held HOLD_MS it calls `onHold` instead (the private row) and that press flicks nothing.
+ *  `held`: the row is open, the eye is drawn filled. Its own pointer handling, so a press never reaches the slab (the call) */
+export function EyeMark({ invisible, held, onFlick, onHold }: { invisible: boolean; held?: boolean; onFlick: () => void; onHold?: () => void }) {
+  const [on, setOn] = useState(false);
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  // the hold: a timer from the pointer going down; when it fires, the click that follows is the hold's, not a flick
+  const holdT = useRef<number | undefined>(undefined), wasHold = useRef(false);
+  useEffect(() => () => window.clearTimeout(holdT.current), []);
+  return (
+    <button
+      type="button"
+      data-nopress
+      className={`eye${invisible ? " shut" : ""}${on ? " on" : ""}${held ? " held" : ""}`}
+      aria-label={invisible ? "Sol invisible to screen share" : "Sol visible to screen share"}
+      aria-pressed={invisible}
+      aria-expanded={onHold ? !!held : undefined}
+      onPointerEnter={() => setOn(true)}
+      onPointerLeave={() => { setOn(false); window.clearTimeout(holdT.current); }}
+      onPointerDown={(e) => {
+        stop(e); wasHold.current = false; window.clearTimeout(holdT.current);
+        if (onHold) holdT.current = window.setTimeout(() => { wasHold.current = true; onHold(); }, HOLD_MS);
+      }}
+      onPointerUp={(e) => { stop(e); window.clearTimeout(holdT.current); }}
+      onMouseDown={stop} onMouseUp={stop}
+      onClick={(e) => { e.stopPropagation(); if (wasHold.current) { wasHold.current = false; return; } onFlick(); }}
+    >{invisible ? EYE_SHUT : EYE_OPEN}</button>
+  );
+}
+
+// ---- The clean screen (#253): the row the eye's hold opens under the card ----
+/** an app on the private list as the engine keeps it (engine/src/private.ts) */
+export type PrivateApp = { name: string; bundle: string; on: boolean };
+/** made up for ?card=private: the engine's own first list */
+export const DEV_PRIVATE: PrivateApp[] | null = DEV_CARD === "private" ? [
+  { name: "WeChat", bundle: "com.tencent.xinWeChat", on: true }, { name: "WhatsApp", bundle: "net.whatsapp.WhatsApp", on: true },
+  { name: "Claude", bundle: "com.anthropic.claudefordesktop", on: true }, { name: "ChatGPT", bundle: "com.openai.chat", on: true },
+] : null;
+const TICK = <svg viewBox="0 0 16 16" aria-hidden><path d="M3.5 8.4l2.9 2.8 6.1-6.4" /></svg>;
+const SCREEN = <svg viewBox="0 0 16 16" aria-hidden><rect x="2" y="3" width="12" height="8.5" rx="1.5" /><path d="M6 14h4M8 11.5V14" /><path d="M5.5 7.2l1.7 1.6 3.3-3.3" /></svg>;
+/** the private list under the card: a chip per app (ticked = cut out of the clean screen; a press ticks or unticks),
+ *  then "Clean screen" (or "Close clean screen" while it is open). `apps` null: the engine has not answered yet.
+ *  Its own pointer handling, so a press never reaches the slab (the call) */
+export function PrivateRow({ apps, clean, busy, top, rowRef, onTick, onClean }: { apps: PrivateApp[] | null; clean: boolean; busy: boolean; top: number
+  rowRef?: React.Ref<HTMLDivElement>; onTick: (a: PrivateApp) => void; onClean: () => void }) {
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  return (
+    <div className="priv-row" ref={rowRef} style={{ top }} data-nopress onPointerDown={stop} onPointerUp={stop} onMouseDown={stop} onMouseUp={stop} onClick={stop}>
+      <h5><span>private · cut out of the clean screen</span><span className="r">a press unticks</span></h5>
+      <div className="priv-chips">
+        {apps === null ? <span className="priv-wait">reading the list…</span>
+          : apps.map((a) => (
+            <button key={a.bundle} type="button" className={`chip${a.on ? "" : " off"}`} aria-pressed={a.on} title={a.bundle}
+              onClick={(e) => { e.stopPropagation(); onTick(a); }}>{a.on ? TICK : <i className="chip-dot" aria-hidden />}{a.name}</button>
+          ))}
+      </div>
+      <hr />
+      <button type="button" className={`chip go${clean ? " open" : ""}`} disabled={busy} onClick={(e) => { e.stopPropagation(); onClean(); }}>
+        {SCREEN}{busy ? "Opening…" : clean ? "Close clean screen" : "Clean screen"}</button>
+    </div>
+  );
+}
+// ---- end The clean screen
+// ---- end The eye
+
+// ---- Anticipate: the card that drops under the notch ----
+/** a card under the notch: six words, two bullets, where it came from, and how long it took (`secs`: null until drawn) */
+export function TalkDrop({ card, why, secs, inside, leaving, top, boxRef, onOpen, q }: { card: TalkCard; why: "pressed" | "question" | "name"; secs: number | null
+  inside: boolean; leaving: boolean; top?: number; boxRef?: React.Ref<HTMLDivElement>; onOpen?: () => void; q?: string }) {
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  return (
+    <div ref={boxRef} className={`talk-drop${inside ? " inside" : ""}${leaving ? " leaving" : ""}${onOpen ? " opens" : ""}`} style={top !== undefined ? { top } : undefined}
+      data-nopress onPointerDown={stop} onPointerUp={stop} onMouseDown={stop} onMouseUp={stop}
+      onClick={(e) => { e.stopPropagation(); onOpen?.(); }} title={onOpen ? "Open the talk in the window" : undefined}>
+      {q && <p className="talk-q">🌐 {q}</p>}
+      <h3><span className="head">{card.head}</span>{why !== "pressed" && <span className="spoke"><i />spoke up</span>}</h3>
+      {card.bullets.length > 0 && <ul>{card.bullets.slice(0, 2).map((b, i) => <li key={i}>{b}</li>)}</ul>}
+      <div className="src"><span>{card.source}</span><span>{secs === null ? "" : `${secs.toFixed(1)} s`}</span></div>
+    </div>
+  );
+}
+// ---- end Anticipate
+
+// ---- The free notch (PRD-2 part 7): a session's line, its small buttons, the pills beside it, the count of folds ----
+/** under the line: the card's own buttons small (the choices, Allow · Deny, Open or Stop) and its meta, dim */
+export function LineBtns({ card, keys, onPress }: { card: Card; keys: boolean; onPress: (b: Btn) => void }) {
+  const ret = keys ? keyAction(card, "Return") : null;
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  return (
+    <div className="fl-row" onClick={stop} onMouseDown={stop} onMouseUp={stop}>
+      {card.buttons.map((b, i) => <Button key={`${cardKey(card)}-${b}`} b={b} first={i === 0 && !CHOICES.includes(b)} ret={ret === b} held={DEV_PRESS === i}
+        label={choiceLabel(card, b)} small onPress={() => onPress(b)} />)}
+      {card.meta && <span className="fl-meta">{card.meta}</span>}
+    </div>
+  );
+}
+const PILLS: Btn[] = ["shelf", "grab", "anticipate"];
+/** the quiet card's pills, at the right of a session's line; they work as on the quiet card (Notch.tsx folds the line
+ *  before Shelf or Grab opens its row) */
+export function LinePills({ onPress, onHover, lit }: { onPress: (b: Btn, downAt?: number) => void; onHover?: (b: Btn | null, el: HTMLElement | null) => void; lit?: { b: Btn; label: string } | null }) {
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  return (
+    <div className="card-btns" onClick={stop} onMouseDown={stop} onMouseUp={stop}>
+      <div className="card-row"><IconRow rowKey="line-pills" btns={PILLS} onPress={onPress} onHover={onHover} lit={lit} /></div>
+    </div>
+  );
+}
+/** what waits folded, beside the mark: one red dot and the number; a press unfolds the newest */
+export function FoldCount({ n, onUnfold }: { n: number; onUnfold: () => void }) {
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+  return (
+    <button type="button" data-nopress className="fl-count" aria-label={`${n} waiting: show the newest`} title="show what waits"
+      onPointerDown={stop} onPointerUp={stop} onMouseDown={stop} onMouseUp={stop}
+      onClick={(e) => { e.stopPropagation(); onUnfold(); }}><i aria-hidden />{n}</button>
+  );
+}
+// ---- end The free notch
+
+export function Button({ b, first, ret, held, onPress, label, small }: { b: Btn; first: boolean; ret: boolean; held: boolean; onPress: () => void; label?: string; small?: boolean }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [pressed, setPressed] = useState(held);
   const sp = useRef<{ lift: Spring; squash: Spring } | null>(null);
@@ -355,12 +590,12 @@ function Button({ b, first, ret, held, onPress }: { b: Btn; first: boolean; ret:
       type="button"
       data-nopress
       data-tint={TINT[b] || undefined}
-      className={`cbtn ${first ? "first" : ""} ${pressed ? "pressed" : ""}`}
+      className={`cbtn ${first ? "first" : ""} ${pressed ? "pressed" : ""}${small ? " fl-btn" : ""}`}
       onPointerEnter={() => sp.current!.lift.to(1, { cfg: CFG.pop })}
       onPointerLeave={() => { sp.current!.lift.to(0, { cfg: CFG.pop }); release(); if (!held) setPressed(false); }}
       onPointerDown={(e) => { e.stopPropagation(); sp.current!.squash.to(1, { cfg: CFG.press }); setPressed(true); }}
       onPointerUp={release}
       onClick={(e) => { e.stopPropagation(); onPress(); window.setTimeout(() => { if (!held) setPressed(false); }, 420); }}
-    >{LABEL[b]}{ret && <span className="ret" aria-hidden>⏎</span>}</button>
+    >{label ?? LABEL[b]}{ret && <span className="ret" aria-hidden>⏎</span>}</button>
   );
 }

@@ -23,6 +23,9 @@ export type Marks = {
   settled?: Record<string, string>;   // thread map ends already reconciled: an end's last entry -> "fold" | "fork:<id>" | "kept:<id>"
   moved?: string;     // its kept end went on in this session (reconcile could not write on here)
   folder?: string;    // shown under this folder instead of its own (its cwd stays as it is)
+  room?: string;      // the room it was started under (#230): only such a session says its title to that room
+  goalv?: string;     // the room's goal it started with (#234): the first turn carried that snapshot
+  thing?: string;     // the room's thing beside it when it started (#238): its room show names it
 };
 // folders: whole folders in it (one group each). in: a topic group inside that folder, holding that folder's sessions
 // only (never folders). about: one line on what it is for, so a fresh session there can be filed in it by the model
@@ -84,7 +87,7 @@ function save() {
   }, 150);
 }
 
-const KEYS = ["pinned", "done", "unread", "archived", "group", "parent", "seen", "failed", "mode", "card", "moved", "folder"] as const;
+const KEYS = ["pinned", "done", "unread", "archived", "group", "parent", "seen", "failed", "mode", "card", "moved", "folder", "room", "goalv"] as const;
 export function mark(sessionId: string, patch: Partial<Record<keyof Marks, unknown>>) {
   const s = workState();
   const m = { ...(s.marks[sessionId] ?? {}) } as Record<string, unknown>;
@@ -92,7 +95,7 @@ export function mark(sessionId: string, patch: Partial<Record<keyof Marks, unkno
     if (!(k in patch)) continue;
     const v = patch[k];
     if (v === null || v === false || v === "" || v === undefined) delete m[k];
-    else m[k] = k === "group" || k === "parent" || k === "card" || k === "moved" || k === "folder" ? String(v) : k === "seen" ? Number(v) : k === "mode" ? (v === "life" || v === "cowork" ? v : "work") : true;
+    else m[k] = k === "group" || k === "parent" || k === "card" || k === "moved" || k === "folder" || k === "room" || k === "goalv" ? String(v) : k === "seen" ? Number(v) : k === "mode" ? (v === "life" || v === "cowork" ? v : "work") : true;
   }
   if (patch.settled && typeof patch.settled === "object") m.settled = { ...(m.settled as object ?? {}), ...(patch.settled as Record<string, string>) };
   if (Object.keys(m).length) s.marks[sessionId] = m as Marks; else delete s.marks[sessionId];

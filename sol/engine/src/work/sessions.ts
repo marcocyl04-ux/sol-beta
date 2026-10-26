@@ -8,7 +8,7 @@
 // disk (#181: renaming it in the side renames the folder, rename.ts), or parent/name when two listed share one.
 // A GPT talk in a folder (a Codex thread whose cwd is not Sol's home, threads.ts codexTalks, #182) files the same way,
 // beside Claude's, with seat "codex": the face tags it gpt and opens it as a talk with the GPT seat.
-import { existsSync, watch, type FSWatcher } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readSync, watch, type FSWatcher } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { listSessions, getSessionMessages, type SDKSessionInfo } from "@anthropic-ai/claude-agent-sdk";
@@ -72,9 +72,47 @@ const transcript = (id: string, ...cwds: string[]) => {
 let cache: { at: number; list: SDKSessionInfo[] } | null = null;
 async function all(): Promise<SDKSessionInfo[]> {
   if (cache && Date.now() - cache.at < 10_000) return cache.list;
-  const list = await listSessions();
+  const list = (await listSessions()).map(withCwd);
   cache = { at: Date.now(), list };
   return list;
+}
+
+// The SDK reads a session's folder off its transcript's first line. A transcript that opens with queue bookkeeping
+// ("queue-operation" lines, written when the first prompt was queued) gives it no folder, and a session with no folder
+// fell out of the side (2026-10-25: a pinned session gone). The folder is on the first message line instead: read the
+// head of the file, found by its id under ~/.claude/projects, once per transcript
+const cwdOf = new Map<string, string>();
+function withCwd(s: SDKSessionInfo): SDKSessionInfo {
+  if (s.cwd) return s;
+  const hit = cwdOf.get(s.sessionId);
+  if (hit !== undefined) return hit ? { ...s, cwd: hit } : s;
+  let cwd = "";
+  try {
+    const root = join(homedir(), ".claude", "projects");
+    for (const dir of readdirSync(root)) {
+      const f = join(root, dir, `${s.sessionId}.jsonl`);
+      if (!existsSync(f)) continue;
+      // the first message line can run to megabytes (pasted screenshots come before its cwd field): scan the head in
+      // chunks for the field itself rather than parse a line, up to a few MB
+      const fd = openSync(f, "r");
+      try {
+        const buf = Buffer.alloc(256 * 1024);
+        let at = 0, tail = "";
+        while (at < 8 * 1024 * 1024) {
+          const n = readSync(fd, buf, 0, buf.length, at);
+          if (n <= 0) break;
+          const text = tail + buf.toString("utf8", 0, n);
+          const m = /"cwd":"((?:[^"\\]|\\.)+)"/.exec(text);
+          if (m) { cwd = JSON.parse(`"${m[1]}"`); break; }
+          tail = text.slice(-64);   // a field cut by the chunk edge
+          at += n;
+        }
+      } finally { closeSync(fd); }
+      break;
+    }
+  } catch { /* no projects folder: nothing to recover */ }
+  cwdOf.set(s.sessionId, cwd);
+  return cwd ? { ...s, cwd } : s;
 }
 
 // GPT talks in folders (#182): Sol's home (its own chats stay Life's) and the threads that are not talks (`skip`, the

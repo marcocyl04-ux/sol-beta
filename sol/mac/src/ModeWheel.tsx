@@ -10,6 +10,7 @@ import { SeatCells } from "./creature/indicators";
 import type { Life } from "./creature/Widget";
 import type { AppMode } from "./ModeSwitch";
 import "./cowork/cowork.css";
+import { useCover } from "./cowork/thingView";
 
 type Spot = { id: AppMode; name: string; title: string; sx: number; sy: number };
 // the ring: home above the pill, cowork below (sx, sy: which quarter)
@@ -25,6 +26,7 @@ export function ModeWheel({ mode, onPick }: { mode: AppMode; onPick: (m: AppMode
   const pill = useRef<HTMLDivElement>(null);
   const life = useRef<Life | null>(null);
   const [open, setOpen] = useState<null | { kind: "hold" | "stick"; r: DOMRect }>(null);
+  useCover(!!open);   // the wheel's scrim is over everything, a thing's native page too (#236)
   const held = useRef(false), timer = useRef<number | undefined>(undefined);
   const pair = ORDER, at = Math.max(0, pair.indexOf(mode));
   // the thumb: the seat switch's spring, stretching while it travels and landing with one overshoot

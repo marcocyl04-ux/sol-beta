@@ -70,6 +70,7 @@ fn make(app: &AppHandle, mode: &str) -> Result<tauri::WebviewWindow, String> {
         .accept_first_mouse(true)
         .focusable(true)
         .disable_drag_drop_handler()   // the page's own drags (shelf thumbs out) reach it as HTML drags
+        .content_protected(crate::eye::invisible())   // born with the eye (eye.rs): hidden from a share while it is closed
         .visible(false)
         .build()
         .map_err(|e| format!("could not make the grab sheet: {e}"))?;

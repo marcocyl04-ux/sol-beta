@@ -1,7 +1,13 @@
+mod clean;
+mod dictate;
+mod eye;
 mod grab;
 mod hot;
+mod mute;
 mod permit;
 mod root;
+mod thing;
+mod vibe;
 mod welcome;
 
 use std::net::TcpStream;
@@ -89,7 +95,9 @@ fn system_idle() -> Option<f64> {
 fn system_idle() -> Option<f64> { None }
 
 fn show_main(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
+    // the window, not the "webview window": with a thing open inside (thing.rs) it holds more than one web view, and
+    // get_webview_window then answers None
+    if let Some(w) = app.get_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
@@ -107,6 +115,12 @@ fn show_main(app: &AppHandle) {
 // frames of the opening); the page draws the closed shape inside it. Closed, the window ignores the mouse so the menu
 // bar under its transparent part stays clickable, and the app's own poll (poll_hover) decides when the mouse is over
 // the closed shape; opening, the page asks for the mouse back (notch_expand).
+// One exception grows it (#253): while something hangs under the open card (Anticipate's card, the
+// questions' taller card, the eye's private row) the page asks for room (notch_expand `room`) and the window grows
+// downward by that much, from its top edge, so nothing moves sideways; it is given back when the thing goes.
+// A second one widens it (Anticipate sitting 2): while a talk is on, the drawer under the card is wider than the card,
+// so the page asks for `wide` once at the talk's start and the window grows by that much, half to each side, centred
+// on the cutout as before. It is asked once, not when the drawer opens, so the frame never changes under a moving slab.
 #[derive(Clone, Copy, PartialEq, Debug, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 enum Form { Notch, Island }
@@ -139,6 +153,7 @@ struct Spot {
     bar: f64,     // menu bar height on that screen
     notch_w: f64, // the cutout's width (0 on a monitor)
     notch_h: f64, // the cutout's height (0 on a monitor)
+    sh: f64,      // the screen's height: the room under the card is capped by it (max_room)
 }
 
 #[derive(Default)]
@@ -150,7 +165,11 @@ struct Outside {
     keys: std::collections::HashSet<String>,    // windows whose open card has buttons (notch_expand keys)
     keys_on: bool,                              // Return and Escape are registered as Sol's (poll_hover keeps it true to the moment)
     opened_at: std::collections::HashMap<String, std::time::Instant>,   // when each form last opened (notch_expand)
+    room: std::collections::HashMap<String, f64>,   // extra height under the open card (notch_expand room): a card dropped under it
+    wide: std::collections::HashMap<String, f64>,   // extra width of the open window (notch_expand wide): a talk's drawer
     last_mouse: (f64, f64),                     // where the mouse was on the last tick
+    regions: std::collections::HashMap<String, Vec<Rect>>,   // the half moon: the parts of an open window that are Sol's (notch_regions)
+    ignoring: std::collections::HashMap<String, bool>,       // what set_ignore_cursor_events was last told, per window
     moved_over: Option<std::time::Instant>,     // the mouse last moved over a form's rectangle
 }
 // the keys come to Sol only for a pointer that is moving over the card: a movement over it in the last KEYS_MOVED, and
@@ -160,6 +179,10 @@ const KEYS_MOVED: std::time::Duration = std::time::Duration::from_millis(2000);
 const KEYS_DWELL: std::time::Duration = std::time::Duration::from_millis(300);
 #[derive(Default)]
 struct Spots(std::sync::Mutex<Outside>);
+/// A rectangle of the page that is Sol's, in window coordinates (CSS px from the window's top left): the slab or the
+/// moon, a floating card, a name bud (notch_regions).
+#[derive(Clone, Copy, PartialEq, Debug, serde::Deserialize)]
+struct Rect { x: f64, y: f64, w: f64, h: f64 }
 
 const CHIN: f64 = 30.0;     // the tab under the cutout, closed: the creature lives there
 const ISLAND_W: f64 = 150.0; // the capsule in the menu bar, closed
@@ -187,9 +210,9 @@ fn screens(shape: Shape) -> (f64, Vec<Spot>) {
             let r = s.auxiliaryTopRightArea();
             let x0 = l.origin.x + l.size.width;
             let x1 = r.origin.x;
-            out.push(Spot { form: Form::Notch, shape, cx: (x0 + x1) / 2.0, top, bar, notch_w: x1 - x0, notch_h: inset });
+            out.push(Spot { form: Form::Notch, shape, cx: (x0 + x1) / 2.0, top, bar, notch_w: x1 - x0, notch_h: inset, sh: f.size.height });
         } else {
-            out.push(Spot { form: Form::Island, shape, cx: f.origin.x + f.size.width / 2.0, top, bar, notch_w: 0.0, notch_h: 0.0 });
+            out.push(Spot { form: Form::Island, shape, cx: f.origin.x + f.size.width / 2.0, top, bar, notch_w: 0.0, notch_h: 0.0, sh: f.size.height });
         }
     }
     (ph, out)
@@ -208,7 +231,7 @@ fn mouse(_ph: f64) -> (f64, f64) { (-1.0, -1.0) }
 
 /// Above the menu bar (NSStatusWindowLevel), on every space, over full-screen apps too. Main thread only.
 #[cfg(target_os = "macos")]
-fn raise(w: &tauri::WebviewWindow) {
+pub(crate) fn raise(w: &tauri::WebviewWindow) {
     use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
     if let Ok(p) = w.ns_window() {
         let ns: &NSWindow = unsafe { &*(p as *const NSWindow) };
@@ -222,28 +245,64 @@ fn raise(w: &tauri::WebviewWindow) {
     }
 }
 #[cfg(not(target_os = "macos"))]
-fn raise(_w: &tauri::WebviewWindow) {}
+pub(crate) fn raise(_w: &tauri::WebviewWindow) {}
 
-/// The window's rectangle (x, y, w, h) for a spot, closed or open.
-fn frame(s: &Spot, expanded: bool) -> (f64, f64, f64, f64) {
+/// WebKit tracks the mouse for the page (hover, pointerenter: a disc lifting, a name budding) only while its window is
+/// key (its tracking area is NSTrackingActiveInKeyWindow), and the notch window never is: on the real notch no name ever
+/// budded from a disc, while a press worked (2026-10-26). The same tracking areas, owner and rect kept, are re-added as
+/// ActiveAlways, and the window told to accept mouse-moved events. WebKit rebuilds its areas now and then (a resize), so
+/// poll_hover runs this again each time the mouse comes onto a window. Main thread only.
+#[cfg(target_os = "macos")]
+fn wake_hover(w: &tauri::WebviewWindow) {
+    use objc2::AllocAnyThread;
+    use objc2_app_kit::{NSTrackingArea, NSTrackingAreaOptions, NSView, NSWindow};
+    fn fix(v: &NSView) {
+        for a in v.trackingAreas().iter() {
+            let o = a.options();
+            if !o.contains(NSTrackingAreaOptions::ActiveInKeyWindow) || !o.contains(NSTrackingAreaOptions::MouseMoved) { continue; }
+            let o2 = (o - NSTrackingAreaOptions::ActiveInKeyWindow) | NSTrackingAreaOptions::ActiveAlways;
+            let owner = a.owner();
+            let info = a.userInfo();
+            let n = unsafe { NSTrackingArea::initWithRect_options_owner_userInfo(NSTrackingArea::alloc(), a.rect(), o2, owner.as_deref(), info.as_deref()) };
+            v.removeTrackingArea(&a);
+            v.addTrackingArea(&n);
+        }
+        for s in v.subviews().iter() { fix(&s); }
+    }
+    let Ok(p) = w.ns_window() else { return };
+    let ns: &NSWindow = unsafe { &*(p as *const NSWindow) };
+    ns.setAcceptsMouseMovedEvents(true);
+    if let Some(cv) = ns.contentView() { fix(&cv); }
+}
+#[cfg(not(target_os = "macos"))]
+fn wake_hover(_w: &tauri::WebviewWindow) {}
+
+/// The window's rectangle (x, y, w, h) for a spot, closed or open. `room`: extra height under the open card, asked for
+/// by the page while something hangs below it (Anticipate's card, the questions' taller card, the eye's private row);
+/// the window grows downward only, so the slab never moves sideways. `wide`: extra width while a talk's drawer may
+/// show, half on each side, so the centre stays on the cutout. Closed, both are ignored.
+fn frame(s: &Spot, expanded: bool, room: f64, wide: f64) -> (f64, f64, f64, f64) {
+    let room = if expanded { room } else { 0.0 };
+    let wide = if expanded { wide } else { 0.0 };
     let (ww, wh) = match (s.form, expanded) {
         (Form::Notch, false) => { let (extra, chin) = s.shape.closed(); (s.notch_w + extra, s.notch_h + chin) }
         (Form::Notch, true) => { let (w, h) = s.shape.open(); (w + 36.0, s.notch_h + h + 16.0) }
         (Form::Island, false) => (ISLAND_W, s.bar),
         (Form::Island, true) => (OPEN_W + 36.0, s.bar + OPEN_H + 16.0),
     };
-    (s.cx - ww / 2.0, s.top, ww, wh)
+    let ww = ww + wide;
+    (s.cx - ww / 2.0, s.top, ww, wh + room)
 }
 
-fn place(w: &tauri::WebviewWindow, s: &Spot) {
-    let (x, y, ww, wh) = frame(s, true);
+fn place(w: &tauri::WebviewWindow, s: &Spot, room: f64, wide: f64) {
+    let (x, y, ww, wh) = frame(s, true, room, wide);
     let _ = w.set_size(LogicalSize::new(ww, wh));
     let _ = w.set_position(LogicalPosition::new(x, y));
 }
 
 /// The webview's own hover tracking sleeps while the window is not key (and the closed window ignores the mouse), so
 /// the app watches the mouse itself: entering the closed shape's rectangle, or leaving the open card's, sends the page
-/// "notch-hover" true/false. Main thread, every 30 ms.
+/// "notch-hover" true/false. Main thread, every 16 ms (a display frame).
 ///
 /// Notch buttons (#6): the same tick decides whether Return and Escape are Sol's. They are, as global shortcuts, only
 /// while a form is hovered AND open AND its card has buttons (hover && open && keys, per form), and they come on only
@@ -259,11 +318,25 @@ fn poll_hover(app: &AppHandle) {
         o.last_mouse = (mx, my);
         for label in ["notch", "island"] {
             let Some(Some(s)) = o.spots.get(label).copied() else { continue };
-            let (x, y, w, h) = frame(&s, o.open.contains(label));
-            let inside = mx >= x && mx <= x + w && my >= y && my <= y + h;
+            let open = o.open.contains(label);
+            let (x, y, w, h) = frame(&s, open, o.room.get(label).copied().unwrap_or(0.0), o.wide.get(label).copied().unwrap_or(0.0));
+            // the half moon: a window that sent its regions is Sol's only over them, open or closed; the rest of its frame
+            // lets the mouse through to the menu bar and the desktop (each tick, so a card dragged away frees its old
+            // place). The regions are in window coordinates, and the window's frame is always the placed one.
+            let regions = o.regions.get(label).filter(|r| !r.is_empty());
+            let (fx, fy, _, _) = frame(&s, true, o.room.get(label).copied().unwrap_or(0.0), o.wide.get(label).copied().unwrap_or(0.0));
+            let inside = match regions {
+                Some(rs) => rs.iter().any(|r| mx >= fx + r.x && mx <= fx + r.x + r.w && my >= fy + r.y && my <= fy + r.y + r.h),
+                None => mx >= x && mx <= x + w && my >= y && my <= y + h,
+            };
+            if regions.is_some() && o.ignoring.get(label).copied() != Some(!inside) {
+                if let Some(win) = app.get_webview_window(label) { let _ = win.set_ignore_cursor_events(!inside); }
+                o.ignoring.insert(label.to_string(), !inside);
+            }
             if inside && moved { o.moved_over = Some(std::time::Instant::now()); }
             if inside == o.hover.contains(label) { continue; }
             if inside { o.hover.insert(label.to_string()); } else { o.hover.remove(label); }
+            if inside { if let Some(win) = app.get_webview_window(label) { wake_hover(&win); } }   // the page's own hover, see wake_hover
             let _ = app.emit_to(label, "notch-hover", inside);   // this window only (emit would reach both forms)
         }
     }
@@ -312,9 +385,13 @@ fn place_all(app: &AppHandle) {
         }
         o.spots.insert(label.to_string(), spot);
         o.open.remove(label);
+        o.room.remove(label);
+        o.wide.remove(label);
+        o.regions.remove(label);
+        o.ignoring.remove(label);
         match spot {
             Some(s) if on => {
-                place(&w, &s);
+                place(&w, &s, 0.0, 0.0);
                 let _ = w.set_ignore_cursor_events(true);
                 let _ = app.emit_to(label, "notch-geometry", s);
                 let _ = w.show();
@@ -326,17 +403,71 @@ fn place_all(app: &AppHandle) {
 
 /// The page opened or closed its card; `keys`: the open card has buttons (Notch buttons #6), so while the mouse is on it
 /// Return and Escape may be Sol's (poll_hover decides, every tick). A page from before #6 sends no `keys`: never.
+/// `room` (#253): the height the page needs under the open card, in px (0 gives it back); the
+/// window grows downward by it and the hover rectangle with it, so the mouse on a card below still counts as on the
+/// notch. No `room` leaves it as it is; closing always gives it back. Capped by max_room.
+/// `wide` (Anticipate sitting 2): extra width in px for a talk's drawer, the same way: the window widens by it, centred,
+/// and the hover rectangle with it; no `wide` keeps it, 0 or closing gives it back. Capped at MAX_WIDE.
 #[tauri::command]
-fn notch_expand(app: AppHandle, window: tauri::Window, expanded: bool, keys: Option<bool>) {
+fn notch_expand(app: AppHandle, window: tauri::Window, expanded: bool, keys: Option<bool>, room: Option<f64>, wide: Option<f64>) {
+    let label = window.label().to_string();
     let st = app.state::<Spots>();
     let mut o = st.0.lock().unwrap();
-    if expanded && o.open.insert(window.label().to_string()) { o.opened_at.insert(window.label().to_string(), std::time::Instant::now()); }
-    if !expanded { o.open.remove(window.label()); }
-    if expanded && keys.unwrap_or(false) { o.keys.insert(window.label().to_string()); } else { o.keys.remove(window.label()); }
+    if expanded && o.open.insert(label.clone()) { o.opened_at.insert(label.clone(), std::time::Instant::now()); }
+    if !expanded { o.open.remove(&label); }   // the regions stay: a moon page keeps the window big while closed and sends the slab's
+    o.ignoring.insert(label.clone(), !expanded);   // set below; poll_hover narrows it to the regions on its next tick
+    if expanded && keys.unwrap_or(false) { o.keys.insert(label.clone()); } else { o.keys.remove(&label); }
+    // the room under the card: a change resizes the window from its top edge down (x, y and width stay)
+    let spot = o.spots.get(&label).copied().flatten();
+    let cap = spot.map(|s| max_room(&s)).unwrap_or(MIN_ROOM_CAP);
+    let was = o.room.get(&label).copied().unwrap_or(0.0);
+    // (a moon page sends room and wide while closed too, so the window never resizes at the first frame of an open or a
+    // close; a page from before sends 0 when closed, as ever)
+    let now = room.map(|r| if r.is_finite() { r.round().clamp(0.0, cap) } else { 0.0 }).unwrap_or(if expanded { was } else { 0.0 });
+    if now > 0.0 { o.room.insert(label.clone(), now); } else { o.room.remove(&label); }
+    // the width beside it: a change widens the window on both sides, so the card stays centred on the cutout
+    let was_w = o.wide.get(&label).copied().unwrap_or(0.0);
+    let now_w = wide.map(|v| if v.is_finite() { v.round().clamp(0.0, MAX_WIDE) } else { 0.0 }).unwrap_or(if expanded { was_w } else { 0.0 });
+    if now_w > 0.0 { o.wide.insert(label.clone(), now_w); } else { o.wide.remove(&label); }
     drop(o);
-    if let Some(w) = app.get_webview_window(window.label()) {
+    if let Some(w) = app.get_webview_window(&label) {
+        if now != was || now_w != was_w { if let Some(s) = spot { place(&w, &s, now, now_w); } }
         let _ = w.set_ignore_cursor_events(!expanded);
     }
+}
+/// The most a page may ask for under its card (a card, the private row, a talk's drawer): the whole window no taller
+/// than 45% of the screen it is on, so the drawer never covers more than the top of the screen. Never less than the
+/// fixed 360 of sitting 1, so a short screen (on a MacBook 45% minus the card is below it) keeps what it had.
+fn max_room(s: &Spot) -> f64 {
+    let (_, _, _, card) = frame(s, true, 0.0, 0.0);
+    (0.45 * s.sh - card).max(MIN_ROOM_CAP)
+}
+const MIN_ROOM_CAP: f64 = 360.0;
+/// the most a page may widen the open window by (the drawer is 520 px; the open card is 360 to 440): short of any screen
+const MAX_WIDE: f64 = 800.0;
+
+/// The half moon (#254): the open window is 760 x 460 while the moon or its cards
+/// are out, far bigger than what is Sol's in it. The page sends the rectangles that are (the slab or the moon, every
+/// card, every name bud; window coordinates) on every layout change and on drag frames; poll_hover then tests the mouse
+/// against them instead of the whole frame and lets the mouse through everywhere else (set_ignore_cursor_events). An
+/// empty list, or a closed window, is today's behaviour: the whole frame. A page from before the moon never sends any.
+#[tauri::command]
+fn notch_regions(app: AppHandle, window: tauri::Window, rects: Vec<Rect>) {
+    let label = window.label().to_string();
+    let st = app.state::<Spots>();
+    let mut o = st.0.lock().unwrap();
+    let rects: Vec<Rect> = rects.into_iter().filter(|r| [r.x, r.y, r.w, r.h].iter().all(|v| v.is_finite()) && r.w > 0.0 && r.h > 0.0).take(64).collect();
+    if rects.is_empty() {
+        o.regions.remove(&label);
+        // back to the whole frame taking the mouse, as notch_expand left it
+        if o.ignoring.get(&label).copied() != Some(false) {
+            o.ignoring.insert(label.clone(), false);
+            drop(o);
+            if let Some(w) = app.get_webview_window(&label) { let _ = w.set_ignore_cursor_events(false); }
+        }
+        return;
+    }
+    o.regions.insert(label, rects);
 }
 
 #[tauri::command]
@@ -365,7 +496,7 @@ fn set_notch_visible(app: &AppHandle, on: bool) {
 /// A line from a page into ~/Library/Logs/<bundle>/face.log: the only way to see inside the notch and the island.
 #[tauri::command]
 fn face_log(app: AppHandle, line: String) { log_line(&app, &line); }
-fn log_line(app: &AppHandle, line: &str) {
+pub(crate) fn log_line(app: &AppHandle, line: &str) {
     use std::io::Write;
     let Ok(d) = app.path().app_log_dir() else { return };
     let _ = std::fs::create_dir_all(&d);
@@ -397,7 +528,14 @@ fn hot_check(app: &AppHandle) {
         for label in ["notch", "island"] {
             o.open.remove(label);
             o.hover.remove(label);
-            if let Some(w) = app.get_webview_window(label) { let _ = w.set_ignore_cursor_events(true); }
+            o.regions.remove(label);
+            o.ignoring.remove(label);
+            let grown = o.room.remove(label).is_some() | o.wide.remove(label).is_some();   // a card hung under it, or a drawer widened it: back to the open card's size
+            let spot = o.spots.get(label).copied().flatten();
+            if let Some(w) = app.get_webview_window(label) {
+                if let (true, Some(s)) = (grown, spot) { place(&w, &s, 0.0, 0.0); }
+                let _ = w.set_ignore_cursor_events(true);
+            }
         }
     }
 }
@@ -407,6 +545,11 @@ fn engine_port() -> u16 {
     ENGINE_PORT
 }
 
+/// The dictation fallback key (#110): Ctrl+Space, registered only while Fn cannot be watched (dictate.rs).
+fn is_dictate_key(s: &Shortcut) -> bool {
+    s.matches(Modifiers::CONTROL, Code::Space)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -414,6 +557,12 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
+                    // the dictation fallback key (#110), while Accessibility is not granted: down opens the notch's mic,
+                    // up sends the last clip and says which app is in front
+                    if is_dictate_key(shortcut) {
+                        dictate::emit(app, event.state() == ShortcutState::Pressed);
+                        return;
+                    }
                     // Return's key-up goes to both forms: one held Return answers one ask, the next needs the key-up
                     if event.state() == ShortcutState::Released && shortcut.matches(Modifiers::empty(), Code::Enter) {
                         for label in ["notch", "island"] { let _ = app.emit_to(label, "notch-key", serde_json::json!({ "key": "Return", "up": true })); }
@@ -441,10 +590,16 @@ pub fn run() {
         )
         .manage(Spots::default())
         .manage(hot::Hot::default())
-        .invoke_handler(tauri::generate_handler![engine_port, engine_phase, engine_start, idle_seconds, notch_expand, notch_geometry, face_log, face_mode, face_state,
-            welcome::install_run, welcome::claude_login, welcome::welcome_done, grab::grab_sheet, grab::page_scroll,
-            permit::permit_state, permit::permit_open, permit::permit_back])
+        .manage(thing::Tabs::default())
+        .invoke_handler(tauri::generate_handler![engine_port, engine_phase, engine_start, idle_seconds, notch_expand, notch_regions, notch_geometry, face_log, face_mode, face_state,
+            welcome::install_run, welcome::claude_login, welcome::welcome_done, dictate::type_text, grab::grab_sheet, grab::page_scroll, eye::eye_set, eye::eye_get,
+            clean::clean_open, clean::clean_set, clean::clean_close, clean::clean_get,
+            permit::permit_state, permit::permit_open, permit::permit_back, mute::call_mute,
+            vibe::vibe_start, vibe::vibe_stop, vibe::vibe_glow,
+            thing::thing_open, thing::thing_show, thing::thing_bounds, thing::thing_close, thing::thing_nav, thing::thing_outside, thing::sites_sign_out, thing::sites_clear])
         .setup(|app| {
+            eye::load(app.handle());        // the eye as it was left, before any window is shown (eye.rs)
+            eye::apply_all(app.handle());   // the main window was made before setup
             start_engine_if_needed(app.handle());
 
             let open = MenuItem::with_id(app, "open", "Open", true, None::<&str>)?;
@@ -514,9 +669,11 @@ pub fn run() {
                     .resizable(false)
                     .accept_first_mouse(true)
                     .disable_drag_drop_handler()
+                    .content_protected(eye::invisible())   // born with the eye: hidden from a share while it is closed
                     .visible(false)
                     .build()?;
                 raise(&w);
+                wake_hover(&w);
             }
             place_all(app.handle());
             // screens come and go: re-read them every two seconds (place_all only touches what changed)
@@ -528,7 +685,9 @@ pub fn run() {
             });
             let h = app.handle().clone();
             std::thread::spawn(move || loop {
-                std::thread::sleep(Duration::from_millis(30));
+                // 16 ms, a display frame: at 30 the moon began up to two frames after the mouse arrived (Marco, 2026-10-26:
+                // "high latency"); the tick is one mouse read and a few compares
+                std::thread::sleep(Duration::from_millis(16));
                 let h2 = h.clone();
                 let _ = h.run_on_main_thread(move || poll_hover(&h2));
             });
@@ -537,6 +696,16 @@ pub fn run() {
             let combo = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space);
             if let Err(e) = app.global_shortcut().register(combo) {
                 eprintln!("global shortcut not registered: {e}");
+            }
+            // the dictation hold-key (#110): Fn, watched as a modifier, once Accessibility is granted (the monitor
+            // sees nothing without it); until then Ctrl+Space, which clashes with macOS's input-source switch
+            if permit::trusted() && dictate::watch_fn(app.handle()) {
+                log_line(app.handle(), "[app] dictate key: Fn (hold)");
+            } else {
+                match app.global_shortcut().register(Shortcut::new(Some(Modifiers::CONTROL), Code::Space)) {
+                    Ok(()) => log_line(app.handle(), "[app] dictate key: Ctrl+Space; Fn takes over at the next launch once Accessibility is granted"),
+                    Err(e) => log_line(app.handle(), &format!("[app] dictate key: Ctrl+Space refused ({e}); no dictation key until Accessibility is granted and Sol restarts")),
+                }
             }
             Ok(())
         })

@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { useCover } from "../cowork/thingView";
 import { createPortal } from "react-dom";
 import { Menu, type MenuItem } from "../work/Menu";
 import { OWN_BROKEN, button, grouped, type ButtonCtx, type ButtonDef, type Preset, type RailDef } from ".";
@@ -17,6 +18,7 @@ export function Shelf({ r, c, rails, presets, at, onAt, change, foot, onClose }:
   r: DOMRect; c: ButtonCtx; rails: Record<string, RailDef[]>; presets: Record<string, Preset>; at: string; onAt: (id: string) => void;
   change: (patch: object, line?: string) => void; foot?: MenuItem[]; onClose: () => void;
 }) {
+  useCover(true);   // a thing's native page (#236) steps aside while this sheet is open
   const el = useRef<HTMLDivElement>(null);
   useSheet(el, onClose);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
@@ -137,7 +139,7 @@ export function Shelf({ r, c, rails, presets, at, onAt, change, foot, onClose }:
           {list.map((b, i) => {
             const d = b === "|" ? null : button(b);
             return (
-              <span key={`${b}${i}`} className={`rbslot ${b === "|" ? "line" : ""} ${b !== "|" && !d ? "gone" : ""} ${d && notHere(d, c) ? "rfaint" : ""}`} draggable
+              <span key={`${b}${i}`} className={`rbslot ${b === "|" ? "rbline" : ""} ${b !== "|" && !d ? "gone" : ""} ${d && notHere(d, c) ? "rfaint" : ""}`} draggable
                 onDragStart={(ev) => { ev.dataTransfer.setData("sol/bench", String(i)); ev.dataTransfer.effectAllowed = "move"; }}
                 onDragOver={(ev) => ev.preventDefault()} onDrop={(ev) => drop(ev, b)}
                 title={b === "|" ? "the thin line between keys" : d ? `${d.name}${notHere(d, c) ? ` (shows ${notHere(d, c)})` : ""}: drag it along, or down to take it off` : `${b} is not on the shelf now; kept for when it comes back`}>

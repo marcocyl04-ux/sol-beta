@@ -21,7 +21,7 @@ export function PlanCard({ it, w, old }: { it: Item; w: Work; old?: boolean }) {
   const done = steps.filter((s) => s.status === "completed").length;
   return (
     <div ref={ref} className="wcard wplan">
-      <div className="whead"><span>{done} of {steps.length}</span></div>
+      <div className="whead"><span>the list</span><i className="pn">{done} of {steps.length}</i></div>
       {steps.map((s, i) => {
         const sess = s.session ? w.sessions.find((x) => x.id === s.session || x.title === s.session) : undefined;
         return (
@@ -32,6 +32,7 @@ export function PlanCard({ it, w, old }: { it: Item; w: Work; old?: boolean }) {
           </div>
         );
       })}
+      <div className="pbar" role="progressbar" aria-valuenow={done} aria-valuemax={steps.length}><i style={{ width: `${steps.length ? (done / steps.length) * 100 : 0}%` }} /></div>
     </div>
   );
 }

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Setup (#22, 2026-10-20): a new teammate's own Sol, up and joined to the team, in one run after cloning:
 #   bash sol/setup
-# In order: what this machine is missing, the engine built and tested, the face's packages, the browser, the sol skill
-# linked for Claude and Codex (~/.claude/skills/sol, ~/.codex/skills/sol, sol/home/.claude/skills/sol), your keys
-# (sol/engine/.env), your team settings (sol/engine/team.json), the engine under launchd, then the face.
+# In order: what this machine is missing (gh: Sol's own fetched into ~/.sol/gh when there is none, #174), the engine
+# built and tested, the face's packages, the browser, the sol skill linked for Claude and Codex (~/.claude/skills/sol,
+# ~/.codex/skills/sol, sol/home/.claude/skills/sol), your keys (sol/engine/.env), your team settings
+# (sol/engine/team.json), the engine under launchd, then the face.
 # On Linux and on Windows under WSL (since 2026-10-20, for a tester): the same steps, the engine as systemd user
 # units (engine/systemd/user) and the face as Vite in the browser (http://localhost:1420, no Rust, no Tauri).
 # Below, "launchd" in an option or a message means the engine's service: launchd on the Mac, systemd on Linux.
@@ -72,7 +73,8 @@ else
 fi
 ROOTP=$(cd "$SOL/.." && pwd -P)
 # a dev checkout (its origin is sol-dev, or --dev): the team's tools are needed. A Sol from the public repo comes with
-# its app built and its own relay-less engine: gh, Codex, Rust, Tailscale and ffmpeg are optional there (#169)
+# its app built and its own relay-less engine: Codex, Rust, Tailscale and ffmpeg are optional there (#169); gh is
+# fetched as Sol's own in any checkout when there is none (#174)
 devco="$dev"
 case $(git -C "$ROOTP" remote get-url origin 2>/dev/null) in *sol-dev|*sol-dev.git|*sol-dev/) devco=1 ;; esac
 # the checkout a job is installed from, empty when it is not installed: the plist launchd loaded (or the one in
@@ -252,6 +254,70 @@ skill_step() {
 }
 if [ -n "${SOL_SETUP_SKILL_ONLY:-}" ]; then skill_step; [ "$bad" -eq 0 ]; exit; fi   # the step alone, for sol/setup.d/skill-test
 
+# ---- the GitHub CLI (#174, PROTOCOL.md round 42) ----
+# PATH's gh, else Sol's own in ~/.sol/gh, else Sol's own fetched there, in any checkout, Mac and Linux: one pinned
+# release of github.com/cli/cli, its checksum (the release's checksums.txt) compared before anything is unpacked,
+# unpacked beside and swapped in as the install does Node; a Sol's own of another version is fetched again, so a new
+# GH_V upgrades it. The engine puts ~/.sol/gh/bin first on its own PATH when PATH has no gh, and every child inherits
+# it. Signing in is Control's (me › GitHub): gh's device flow, the token in gh's own store.
+# Test overrides: SOL_GH_URL (the folder the asset is fetched from; curl reads file://), SOL_GH_SHA256 (its checksum).
+GH_V=2.103.2
+OWN_GH="$HOME/.sol/gh"
+gh_step() {
+  local os arch asset want url tmp top
+  local old=""
+  if ! command -v gh >/dev/null && [ -x "$OWN_GH/bin/gh" ]; then
+    # Sol's own, at this version (the word itself, "gh version 2.103.2 (…)": 2.103.20 is another): used; at another:
+    # fetched again (bumping GH_V upgrades it)
+    if [ "$("$OWN_GH/bin/gh" --version </dev/null 2>/dev/null | sed -n '1s/^gh version \([^ ]*\).*/\1/p')" = "$GH_V" ]; then PATH="$OWN_GH/bin:$PATH"; else old=1; fi
+  fi
+  if ! command -v gh >/dev/null; then
+    if [ -n "$check" ]; then
+      if [ -n "$old" ]; then ok "the GitHub CLI: Sol's own in ~/.sol/gh would be replaced by gh $GH_V (from github.com/cli/cli, checksum checked)"
+      else ok "the GitHub CLI: Sol's own would go to ~/.sol/gh (gh $GH_V from github.com/cli/cli, checksum checked)"; fi
+      return
+    fi
+    # no curl, or no network: gh stays optional outside a dev checkout, as it was before Sol fetched its own
+    if ! command -v curl >/dev/null; then opt "the GitHub CLI" "no GitHub account is needed" "curl is not installed (Sol fetches its own GitHub CLI with it): $(pkghint curl)"; return; fi
+    case $(uname -m) in arm64|aarch64) arch=arm64 ;; x86_64|amd64) arch=amd64 ;; *) arch="" ;; esac   # gh says amd64 where Node says x64
+    if [ -n "$mac" ]; then os=macOS; asset="gh_${GH_V}_macOS_$arch.zip"; else os=linux; asset="gh_${GH_V}_linux_$arch.tar.gz"; fi
+    case "$os $arch" in
+      "macOS arm64") want=5416000f5d17580a187339e0c4068a01ca5c87f7d4fe6ca64933696f967bc418 ;;
+      "macOS amd64") want=2dc7f1fc4761f96732995f6e4f4c6b4d705f2635da4126620c8b30eaa67b9c98 ;;
+      "linux arm64") want=4c3e99a50bd8b181a3fe9d69b25dd978bac768148d88f01507c6b4d1ef61a443 ;;
+      "linux amd64") want=62ccf747115ddc61237efffdde66a3c8f70ba249433dc64f70801089b59c59c8 ;;
+      *) opt "the GitHub CLI" "no GitHub account is needed" "no GitHub CLI build for $(uname -m): install gh yourself, then run this again"; return ;;
+    esac
+    [ -n "${SOL_GH_SHA256:-}" ] && want=$SOL_GH_SHA256
+    url="${SOL_GH_URL:-https://github.com/cli/cli/releases/download/v$GH_V}/$asset"
+    say "fetching the GitHub CLI $GH_V (github.com/cli/cli, about 15 MB)"
+    tmp=$(mktemp -d "${TMPDIR:-/tmp}/sol-gh.XXXXXX") || { miss "could not make a temporary folder to fetch the GitHub CLI into"; return; }
+    if ! curl -fsSL --retry 2 -o "$tmp/$asset" "$url"; then
+      rm -rf "$tmp"; opt "the GitHub CLI" "no GitHub account is needed (Sol could not fetch its own: is the network up? Run this again)" "could not fetch $asset from github.com/cli/cli; is the network up? Run this again"; return
+    fi
+    if [ "$( { shasum -a 256 "$tmp/$asset" 2>/dev/null || sha256sum "$tmp/$asset"; } | cut -d' ' -f1)" != "$want" ]; then
+      miss "$asset is not the file github.com/cli/cli published (its checksum differs); nothing unpacked, nothing installed"
+      rm -rf "$tmp"; return
+    fi
+    # unpacked beside, its one top folder stripped, then swapped in: a gh already there stays until the new one is in place
+    rm -rf "$OWN_GH.new" "$OWN_GH.old" && mkdir -p "$OWN_GH.new"
+    if [ -n "$mac" ]; then
+      ditto -xk "$tmp/$asset" "$tmp/x" && top=$(ls "$tmp/x") && [ "$(printf '%s\n' "$top" | wc -l | tr -d ' ')" = 1 ] \
+        && rmdir "$OWN_GH.new" && mv "$tmp/x/$top" "$OWN_GH.new"
+    else
+      tar -xzf "$tmp/$asset" -C "$OWN_GH.new" --strip-components 1
+    fi && [ -x "$OWN_GH.new/bin/gh" ] \
+      && { [ ! -e "$OWN_GH" ] || mv "$OWN_GH" "$OWN_GH.old"; } && mv "$OWN_GH.new" "$OWN_GH" \
+      || { miss "could not unpack the GitHub CLI into ~/.sol/gh"; rm -rf "$tmp" "$OWN_GH.new"; [ ! -e "$OWN_GH.old" ] || [ -e "$OWN_GH" ] || mv "$OWN_GH.old" "$OWN_GH"; return; }
+    rm -rf "$tmp" "$OWN_GH.old"
+    ok "the GitHub CLI: Sol's own, gh $GH_V in ~/.sol/gh, checksum verified"
+    PATH="$OWN_GH/bin:$PATH"
+  fi
+  if gh auth status </dev/null >/dev/null 2>&1; then ok "GitHub CLI, signed in"
+  else opt "the GitHub CLI" "Cowork signs in from Control (me › GitHub)" "the GitHub CLI is not signed in: gh auth login"; fi
+}
+if [ -n "${SOL_SETUP_GH_ONLY:-}" ]; then gh_step; [ "$bad" -eq 0 ]; exit; fi   # the step alone, for engine/test/setup-gh
+
 # ---- 1. what this machine needs ----
 echo "== what this $machine needs"
 node_ok=""
@@ -274,11 +340,7 @@ else
   gone=""; for t in make g++ python3; do command -v $t >/dev/null || gone="$gone $t"; done
   [ -z "$gone" ] && ok "build tools (make, g++, python3)" || miss "build tools missing (${gone# }; the terminal's node-pty compiles with them): $(pkghint "build-essential python3" "base-devel python")"
 fi
-if ! command -v gh >/dev/null; then
-  if [ -n "$mac" ]; then opt "the GitHub CLI" "no GitHub account is needed" "the GitHub CLI is not installed: $(pkghint gh), then gh auth login"
-  else opt "the GitHub CLI" "no GitHub account is needed" "the GitHub CLI is not installed: $(pkghint github-cli github-cli) (Ubuntu 23.04 or newer: sudo apt install -y gh; older: https://github.com/cli/cli/blob/trunk/docs/install_linux.md), then gh auth login"; fi
-elif gh auth status </dev/null >/dev/null 2>&1; then ok "GitHub CLI, signed in"
-else opt "the GitHub CLI" "no GitHub account is needed" "the GitHub CLI is not signed in: gh auth login"; fi
+gh_step
 if ! command -v claude >/dev/null; then
   if [ -n "$mac" ]; then miss "Claude Code is not installed: https://claude.com/claude-code, then claude (it asks you to sign in)"
   else miss "Claude Code is not installed: curl -fsSL https://claude.ai/install.sh | bash, then claude (it asks you to sign in)"; fi

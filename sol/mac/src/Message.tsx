@@ -3,7 +3,7 @@ import { pingKey } from "./land";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { Kind, Msg } from "./useEngine";
-import { CardEdge, CellCheck, Runner } from "./creature/indicators";
+import { CellCheck, Runner } from "./creature/indicators";
 import { CFG, enter, growTo, reducedMotion } from "./motion";
 import { Fold, Swap } from "./MotionKit";
 import { onRan, ranOf, request, runnable, stopRun } from "./run";
@@ -11,8 +11,18 @@ import { onRan, ranOf, request, runnable, stopRun } from "./run";
 marked.setOptions({ gfm: true, breaks: false });
 
 // Tables get a scrolling card around them; the rest is marked as is.
-export const html = (t: string) =>
-  DOMPurify.sanitize((marked.parse(t, { async: false }) as string).replace(/<table>/g, '<div class="tbl"><table>').replace(/<\/table>/g, "</table></div>"));
+// Remembered by text (the last few hundred): a step's thought, a card's plan and a helper's report are parsed in render,
+// and a busy talk renders on every delta, so without this the whole thread's markdown was parsed again fifty times a
+// second while Sol wrote (2026-10-25, SMOOTH.md). A streaming text misses once per delta and its old entries fall off the end.
+const parsed = new Map<string, string>();
+export const html = (t: string) => {
+  const hit = parsed.get(t);
+  if (hit !== undefined) return hit;
+  const h = DOMPurify.sanitize((marked.parse(t, { async: false }) as string).replace(/<table>/g, '<div class="tbl"><table>').replace(/<\/table>/g, "</table></div>"));
+  if (parsed.size >= 400) parsed.delete(parsed.keys().next().value!);
+  parsed.set(t, h);
+  return h;
+};
 
 function openLink(e: React.MouseEvent) {
   const a = (e.target as HTMLElement).closest("a");
@@ -121,7 +131,23 @@ function Mine({ m }: { m: Msg }) {
     const row = ref.current;
     if (row && !m.old) { enter(row, { x: 14, y: 34, scale: 0.08, cfg: { k: 300, z: 0.62 } }); growTo(row, 0, { k: 300, z: 0.8 }); }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return <div ref={ref} data-item={m.id} className="me-row"><div className={`msg me ${m.call ? "call" : ""}`}><Files files={m.files} />{m.text}</div></div>;
+  // a long one (a paste) shows its first lines and a quiet foot that unfolds it in place; unfolded, it stays so
+  const [all, setAll] = useState(false);
+  const fold = !all && longText(m.text);
+  const shown = fold ? firstOf(m.text) : m.text;
+  const n = m.text.split("\n").length;
+  return <div ref={ref} data-item={m.id} className="me-row"><div className={`msg me ${m.call ? "call" : ""}`}><Files files={m.files} />{shown}
+    {fold && <button className="more" onClick={() => setAll(true)}>show all · {n > 1 ? `${n} lines` : `${m.text.length.toLocaleString()} characters`}</button>}
+  </div></div>;
+}
+const FOLD_LINES = 12, FOLD_CHARS = 1200, SHOW_LINES = 8, SHOW_CHARS = 600;
+export const longText = (t: string) => t.length > FOLD_CHARS || t.split("\n").length > FOLD_LINES;
+// the first lines, or the first characters when the lines are few and long, ending at a word
+export function firstOf(t: string) {
+  const lines = t.split("\n");
+  let s = lines.length > SHOW_LINES ? lines.slice(0, SHOW_LINES).join("\n") : t;
+  if (s.length > SHOW_CHARS) { const cut = s.lastIndexOf(" ", SHOW_CHARS); s = s.slice(0, cut > SHOW_CHARS / 2 ? cut : SHOW_CHARS); }
+  return s.replace(/\s+$/, "") + "…";
 }
 
 // A line of a call: slides up when it begins; its words update in place while they are still being heard
@@ -156,6 +182,8 @@ export const GLYPH: Record<Kind, React.ReactNode> = {
 // detail is a Fold, so it opens and closes on a height spring and keeps its content once loaded.
 // a Life ping's step (ping.ts: "pinging Marco: <line>"): the notch's Open lands on it (land.ts)
 const PINGING = "pinging Marco: ";
+// the one line a failure is said in (c-today scene 4): the first line of what came back that carries a word, at most 160 chars
+export const reason = (out: string) => (out.split("\n").map((l) => l.trim()).find((l) => /[a-z]/i.test(l)) ?? "").replace(/^(error|Error|ERROR)[:\s]+/, "").slice(0, 160);
 function StepRow({ s, k, shown, can, arrive, onToggle, ran }: {
   s: Msg; k: Kind; shown: boolean; can: boolean; arrive: boolean; onToggle: () => void; ran: boolean;
 }) {
@@ -171,6 +199,7 @@ function StepRow({ s, k, shown, can, arrive, onToggle, ran }: {
         <span className="step-text">{k === "reasoning" ? <><span className="pre">thinking… </span>{s.text}</> : s.text}</span>
         <span className="step-state">{running ? null : s.ok === false || k === "error" ? <i className="bad" /> : s.ok === true ? <CellCheck land={ran} /> : null}</span>
       </div>
+      {s.ok === false && !running && s.detail && <div className="step-why" title={reason(s.detail)}>{reason(s.detail)}</div>}
       {can && <Fold open={shown} lazy from={{ y: 8 }} gap={0}><pre className={`step-detail ${k === "reasoning" ? "prose" : ""}`}>{s.detail}</pre></Fold>}
     </div>
   );
@@ -190,7 +219,6 @@ export function Steps({ steps, old }: { steps: Msg[]; old?: boolean }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div ref={card} className={`steps ${live ? "live" : ""}`}>
-      {live && <CardEdge />}
       {steps.map((s, i) => {
         const k = s.kind ?? "note";
         const key = s.id ?? `i${i}`;

@@ -14,13 +14,15 @@
 // (registry.ts). `relay.open` lets anyone signed in to GitHub meet on the hub this engine runs, the beta's hub.
 // A room's folder (#162): where Sol cloned the room's repository on this machine, one folder a room under ROOMS_DIR.
 import { readFileSync, writeFileSync, renameSync } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSettings, patchSettings } from "../settings.js";
 import { cleanDials, DIAL_DEFAULTS, type Dials } from "./pings.js";
 import { makeGithubRecord, runners } from "./record.js";
+import { ownGhOnPath } from "./gh.js";
+import { DRIVE_ID } from "./record/drive.js";
 
 /** one room (#154): id a slug, the provider that keeps its record, a GitHub org or repos (a Drive room's folders), the
  *  hub, and the key that hub gave me ("" = this engine's own relay.key); the key never goes to a face, like relay.key.
@@ -34,7 +36,14 @@ import { makeGithubRecord, runners } from "./record.js";
  *  patch changes is no longer mine: the hub's word was for the repos it had.
  *  joined (#162): the room came to me by a code I typed (team.room.join). Such a room is never registered again to see
  *  whether it is mine, and its repository is cloned only on an answer heard in it. Only the engine sets it */
-export type Room = { id: string; name: string; provider: "github" | "drive"; org: string; repos: string[]; hub: string; key: string; code: string; gate: "key" | "github"; folder: string; mine: boolean; joined: boolean };
+export type Room = { id: string; name: string; provider: "github" | "drive" | "cloud"; org: string; repos: string[]; hub: string; key: string; code: string; gate: "key" | "github"; folder: string; mine: boolean; joined: boolean; was?: Was;
+  /** "show my room sessions" off for this room (#238, the studio PRD §5): my room sessions do not stream to it, and my
+   *  roster entry there says so. Absent: on, the default (#189, option 2) */
+  quiet?: true };
+/** a room that moved hubs (A10, S6b): how team.json says it, the hub, key and gate before the move. The move is made on
+ *  every read and never written: team.json keeps the old words, so a Sol from before the move (one stable back) still
+ *  meets where it did, and SOL_HUB_MOVED=off undoes it. Only the engine has it; never a face's (forFace) */
+export type Was = { hub: string; key: string; gate: "key" | "github" };
 
 export type TeamSettings = {
   me: { login: string; name: string };                 // from `gh api user` on first run (no gh: name from SOL_OWNER); the person may edit name
@@ -55,7 +64,7 @@ export const TEAM_DEFAULTS: TeamSettings = {
   me: { login: "", name: "" },
   org: "",
   repos: ["marcocyl04-ux/sol-dev"],
-  relay: { url: "", key: "", host: true, open: false },
+  relay: { url: "", key: "", host: false, open: false },   // host off by default (#210, MASTER section 8 step 1): see readTeam
   rooms: [],      // absent in a file: one room, "team", from org, repos and relay.url (#154)
   room: "",
   speak: { github: true, cowork: true, discord: "builds", whatsapp: false },
@@ -86,11 +95,9 @@ const str = (v: unknown, d = "", max = 200) => (typeof v === "string" ? v.trim()
 const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
 const seat = (v: unknown, d: "codex" | "claude") => (v === "codex" || v === "claude" ? v : d);
 const int = (v: unknown, d: number, lo: number, hi: number) => (Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi ? (v as number) : d);
-export const REPO = /^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/;
-export const LOGIN = /^[A-Za-z0-9-]{0,39}$/;
-/** a share code (#157): six symbols of 32, no 0, O, 1 or I, so a code read aloud or typed by hand has one reading.
- *  Here beside the other patterns; registry.ts exports it as the code's own */
-export const CODE = /^[A-HJ-NP-Z2-9]{6}$/;
+// the format rules are the hub's (#206): hub/hub-types.ts keeps the one copy (#208: the package sol/hub), read here as before
+import { REPO, LOGIN, CODE } from "../hub/index.js";
+export { REPO, LOGIN, CODE };
 const WS = /^wss?:\/\/\S+$/;
 const URL_OK = /^wss?:\/\/[^\s/]+(\/\S*)?$/;
 const SLUG = /^[a-z0-9-]{1,40}$/;
@@ -100,15 +107,61 @@ const hubOf = (v: unknown) => { const u = str(v, "", 300).replace(/[?#].*$/, "")
 const nameOf = (org: string, repos: string[]) => (org || (repos[0] ?? "").split("/").pop() || "").slice(0, 60);
 const codeOf = (v: unknown) => { const c = str(v, "", 20).toUpperCase(); return CODE.test(c) ? c : ""; };
 
-/** the hub every beta room meets on and a code is looked up on (#157): SOL_HUB in sol/engine/.env, the team gives the
- *  address as it gives SOL_RELAY (#169: no address in the code). None: a new room meets on this engine's own relay and a
- *  code is looked up on the hubs my rooms meet on. Read when asked, not at import: the engine reads .env after its
- *  imports (index.ts), so a constant here never saw it */
 /** the hosts this engine's hub answers at (proof.ts): SOL_HUB_HOST in sol/engine/.env, one or more, comma between.
  *  A proof gist must name one, so the hub's own setting says who it is, never a request's Host, which the sender
  *  writes. None: the hub gives no tickets */
 export const hubHosts = (): string[] => (process.env.SOL_HUB_HOST ?? "").split(",").map((h) => h.trim().toLowerCase()).filter((h) => /^[a-z0-9.-]+(:\d+)?$/.test(h));
-export const sharedHub = (): string => { const h = (process.env.SOL_HUB ?? "").trim().replace(/[?#].*$/, ""); return WS.test(h) ? h : ""; };
+/** the cloud (#168, S6b): the hub every Sol meets on unless its .env names another (SOL_HUB) */
+export const CLOUD_HUB = "wss://cloud.matterfold.tech/relay";
+/** A10 (#216, MASTER §6): old hub addresses a Sol rewrites to new ones, so a room kept on a hub that moved follows it
+ *  with nothing done by hand. SOL_HUB_MOVED in sol/engine/.env, `old=>new` pairs, comma between, each a ws(s) address.
+ *  S6b (#226) adds the built-in pairs below; SOL_HUB_MOVED adds to them, and the word `off` in it turns them off. A
+ *  room's hub, as read from team.json or a hub's answer, goes through it (cleanRoom), so nothing else needs to know */
+export function movedHubs(env = process.env.SOL_HUB_MOVED ?? ""): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const pair of env.split(",")) {
+    const [from, to] = pair.split("=>").map((x) => (x ?? "").trim().replace(/[?#].*$/, "").replace(/\/+$/, ""));
+    if (from && to && WS.test(from) && WS.test(to) && from.toLowerCase() !== to.toLowerCase()) out.set(from.toLowerCase(), to);
+  }
+  return out;
+}
+/** the hubs that moved, built in (S6b, #226): the NucBox's hub, the beta's until the cloud, now the cloud. Each old
+ *  address is kept as the SHA-256 of its plain form (hubKey), never as written: it is a tailnet's private address, and
+ *  nothing that names one may leave in the beta export (ship.ts exportOffence) */
+export const BUILT_IN_MOVED: ReadonlyMap<string, string> = new Map([
+  ["2024c1bbae72cf6754651c08066f2b52887e036bf2b1c4c9084becd636a160a5", CLOUD_HUB],
+]);
+/** a hub address in one plain form, to compare: lower case, no query, no trailing slash, no :443, `/relay` when it has no path */
+export const hubKey = (hub: string): string => {
+  const h = hub.trim().replace(/[?#].*$/, "").replace(/\/+$/, "").toLowerCase().replace(/^(wss:\/\/[^/]+):443(?=\/|$)/, "$1");
+  return /^wss?:\/\/[^/]+$/.test(h) ? `${h}/relay` : h;
+};
+const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+/** is this hub Sol's cloud, where a person is known by a Sol account and nothing else (S6b) */
+export const isCloud = (hub: string): boolean => !!hub && hubKey(hub) === hubKey(CLOUD_HUB);
+/** a hub's address after the A10 table (one step, so a table that loops never loops): SOL_HUB_MOVED first, then the
+ *  built-in pairs unless SOL_HUB_MOVED says `off`. The built-in pairs move only a room with a share code (`coded`): its
+ *  code is in the old hub's registry, which the cloud takes in (sol/cloud/import-hub-rooms); a room met by a key alone,
+ *  the common space, has no code the cloud could know, and stays where it was. "" (this engine's own hub) never moves:
+ *  the NucBox stays a relay */
+export function moved(hub: string, coded = true, builtIn: ReadonlyMap<string, string> = BUILT_IN_MOVED): string {
+  if (!hub) return hub;
+  const env = process.env.SOL_HUB_MOVED ?? "";
+  const k = hubKey(hub);
+  const given = movedHubs(env);
+  const to = given.get(hub.replace(/\/+$/, "").toLowerCase()) ?? given.get(k);
+  if (to) return to;
+  if (!coded || /(^|,)\s*off\s*(,|$)/i.test(env)) return hub;
+  return builtIn.get(sha(k)) ?? hub;
+}
+/** the hub a new room meets on and a code is looked up on (#157): SOL_HUB when it names one (a self-hoster's hub), none
+ *  when it says `off` (a Sol that meets only on its own relay), else the cloud (S6b, #226); blank is not said, so
+ *  .env.example's `SOL_HUB=` is the cloud. Read when asked, not at import: the engine reads .env after its imports */
+export const sharedHub = (): string => {
+  const h = (process.env.SOL_HUB ?? "").trim().replace(/[?#].*$/, "");
+  if (/^(off|none)$/i.test(h)) return "";
+  return WS.test(h) ? h : h ? "" : CLOUD_HUB;
+};
 
 /** where Sol clones a room's repository (#162), one folder a room, named by the room's id. SOL_ROOMS moves it (tests) */
 export const ROOMS_DIR = resolve(process.env.SOL_ROOMS || join(homedir(), "sol-rooms"));   // absolute, as a room's folder must be
@@ -117,10 +170,19 @@ const folderOf = (v: unknown) => (typeof v === "string" && v.length <= 500 && is
 
 // One room (#154), made valid, or null when it points at nothing (no org and none of its own repos or folders). A
 // GitHub room with an org and no repos reads the default repo, as the team did before rooms; a Drive room's "repos"
-// are folder ids, kept as written.
+// are folder ids, kept as written. A cloud room (#216, S5) keeps its record on the cloud it meets on: no org, no repos,
+// and it points at its code on its hub, so one with no code or no hub points at nothing.
 export function cleanRoom(v: unknown): Room | null {
   if (!isObj(v)) return null;
-  const provider = v.provider === "drive" ? "drive" : "github";
+  const provider = v.provider === "drive" ? "drive" : v.provider === "cloud" ? "cloud" : "github";
+  if (provider === "cloud") {
+    const code = codeOf(v.code), hub = moved(hubOf(v.hub));
+    if (!code || !hub) return null;
+    const name = str(v.name, "", 60) || "room";
+    const given = typeof v.id === "string" ? v.id.trim() : "";
+    const id = SLUG.test(given) ? given : slug(given) || slug(name) || "room";
+    return { id, name, provider, org: "", repos: [], hub, key: "", code, gate: "github", folder: "", mine: v.mine === true, joined: v.joined === true, ...(v.quiet === true ? { quiet: true as const } : {}) };
+  }
   const o = str(v.org), org = LOGIN.test(o) ? o : "";
   const all = Array.isArray(v.repos) ? v.repos.filter((x): x is string => typeof x === "string").map((x) => x.trim()) : [];
   const own = [...new Set(provider === "github" ? all.filter((x) => REPO.test(x)) : all.filter((x) => x && x.length <= 200))];
@@ -129,7 +191,17 @@ export function cleanRoom(v: unknown): Room | null {
   const name = str(v.name, "", 60) || nameOf(org, repos) || "room";
   const given = typeof v.id === "string" ? v.id.trim() : "";
   const id = SLUG.test(given) ? given : slug(given) || slug(name) || "room";
-  return { id, name, provider, org, repos, hub: hubOf(v.hub), key: str(v.key, "", 200), code: codeOf(v.code), gate: v.gate === "github" ? "github" : "key", folder: folderOf(v.folder), mine: v.mine === true, joined: v.joined === true };
+  const code = codeOf(v.code), w = isObj(v.was) ? v.was : null;
+  // the room as team.json says it: its words from before a move when it carries them and they still move to where it is
+  const before = w && moved(hubOf(w.hub), !!code) === hubOf(v.hub) && hubOf(w.hub)
+    ? { hub: hubOf(w.hub), key: str(w.key, "", 200), gate: w.gate === "github" ? "github" as const : "key" as const }
+    : { hub: hubOf(v.hub), key: str(v.key, "", 200), gate: v.gate === "github" ? "github" as const : "key" as const };
+  const hub = moved(before.hub, !!code);
+  // a room that moved to Sol's cloud sends no key: a key is a hub's own, and in a query string it would go to the cloud,
+  // which is public and knows people by their accounts alone; it meets there as who I am (codex, #227). A key never
+  // meets the cloud at all, moved or not. A move to another hub (a self-hoster's) takes the key along, as before
+  const moving = hub !== before.hub, bare = isCloud(hub);
+  return { id, name, provider, org, repos, hub, key: bare ? "" : before.key, code, gate: bare ? "github" : before.gate, folder: folderOf(v.folder), mine: v.mine === true, joined: v.joined === true, ...(v.quiet === true ? { quiet: true as const } : {}), ...(moving || (bare && before.key) ? { was: before } : {}) };
 }
 
 /** the active room (pure): the one `room` names, else the first; a TeamSettings made by hand with no rooms reads as its own */
@@ -137,6 +209,20 @@ export function activeRoom(s: TeamSettings): Room {
   return s.rooms.find((r) => r.id === s.room) ?? s.rooms[0]
     ?? { id: "team", name: nameOf(s.org, s.repos), provider: "github", org: s.org, repos: [...s.repos], hub: s.relay.url, key: "", code: "", gate: "key", folder: "", mine: false, joined: false };
 }
+
+/** the room's record repository (#194, the PRD's "one record repo per room"): the first GitHub repo of a GitHub room,
+ *  as the clone (letin.ts) and the board's first repo already take it; a cloud room's code, a Drive room's first folder
+ *  (#152); "" for a room with none, and then
+ *  the room's things and goal read as "this room has no record yet". The one place that says which (pure) */
+export const recordOf = (r: Pick<Room, "provider" | "repos"> & { code?: string }): string =>
+  r.provider === "cloud" ? (r.code && CODE.test(r.code) ? `${CLOUD_RECORD}${r.code}` : "")
+  : r.provider === "drive" ? (DRIVE_ID.test(r.repos[0] ?? "") ? `${DRIVE_RECORD}${r.repos[0]}` : "")
+  : r.provider === "github" && REPO.test(r.repos[0] ?? "") ? r.repos[0] : "";
+/** how a Drive room's record is named where a repo's name goes (#152): `drive:<folder id>`, its first folder (record/drive.ts) */
+export const DRIVE_RECORD = "drive:";
+/** how a cloud room's record is named where a repo's name goes (#216): `cloud:<code>`, never a repository's shape, so
+ *  record() can tell them apart (record.ts) and things.ts and goal.ts need no word of their own for it */
+export const CLOUD_RECORD = "cloud:";
 
 /** the room whose hub this engine hosts (review of #154): the first that meets here (hub ""), else the active one. The
  *  hub's gate goes by it, so going to a room elsewhere never changes who may meet here */
@@ -189,7 +275,7 @@ export function cleanTeam(raw: unknown): TeamSettings {
     me: { login: LOGIN.test(login) ? login : "", name: str(me.name, "", 80) },
     org: here.org,
     repos: [...here.repos],
-    relay: { url: here.hub, key: str(relay.key, "", 200), host: bool(relay.host, true), open: bool(relay.open, false) },
+    relay: { url: here.hub, key: str(relay.key, "", 200), host: bool(relay.host, TEAM_DEFAULTS.relay.host), open: bool(relay.open, false) },
     rooms,
     room: here.id,
     speak: {
@@ -219,51 +305,107 @@ export function mergeTeam(a: unknown, b: unknown): unknown {
 
 /** the signature of anything done in the team view: a human, or that human's agent (never unsigned). A Sol with no
  * GitHub (a tester's, #169) signs with the name the install asked for. */
-export const signature = (s: TeamSettings, agent: boolean) => { const who = s.me.login || s.me.name; return agent ? `${who}'s agent` : who; };
+export const signature = (s: TeamSettings, agent: boolean) => { const who = hubName(s) || s.me.login || s.me.name; return agent ? `${who}'s agent` : who; };
+// my name on the hub in use when it is not my GitHub login (#216): my Sol name on a cloud I signed in to (relay.ts
+// hubLogin, which registers here at load: relay.ts reads these settings, so this file cannot import it)
+let hubName: (s: TeamSettings) => string = () => "";
+export const setHubName = (fn: (s: TeamSettings) => string) => { hubName = fn; };
 
 /** what a face may see: everything but the relay key ("set" says one exists); a room's code goes as it is */
 export const forFace = (s: TeamSettings) => ({
   ...s, relay: { url: s.relay.url, host: s.relay.host, open: s.relay.open, key: s.relay.key ? "set" : "" },
-  rooms: s.rooms.map((r) => ({ ...r, key: r.key ? "set" : "" })),   // a room's key too (#154)
+  rooms: s.rooms.map(({ was: _, ...r }) => ({ ...r, key: r.key ? "set" : "" })),   // a room's key too (#154); never its words from before a move
 });
 
 // What is read from disk (review of #154): once a file has rooms, the top level is still what a person edits by hand
 // (the README says so). When the top-level org, repos or relay.url differ from the active room's, the top level wins
 // and is written into that room. Only on a read: a patch goes by the rooms (patchTeam).
+// relay.host (#210): an engine is no hub unless its team.json says so, since the hub moves to the cloud (#168). Until
+// S6 a team.json already on disk that never said keeps what it had, a hub: the NucBox's may be such a file, and its hub
+// is everyone's today. setup has written `host: false` for every install since #169, so only files from before differ.
+export const HOST_BEFORE = true;
 export function readTeam(raw: unknown): TeamSettings {
+  if (isObj(raw) && !(isObj(raw.relay) && typeof raw.relay.host === "boolean")) raw = { ...raw, relay: { ...(isObj(raw.relay) ? raw.relay : {}), host: HOST_BEFORE } };
   const s = cleanTeam(raw);
   if (!isObj(raw) || !Array.isArray(raw.rooms)) return s;
-  const top = cleanTeam({ org: raw.org, repos: raw.repos, relay: raw.relay }).rooms[0], here = activeRoom(s);
+  const here = activeRoom(s);
+  // a cloud room's record is not the top level's to say (#216): its org and repos are none, and a hand edit there is for
+  // a GitHub room
+  if (here.provider === "cloud") return s;
+  const top = cleanTeam({ org: raw.org, repos: raw.repos, relay: raw.relay }).rooms[0];
   const edit: Partial<Room> = {};
   if ("org" in raw && top.org !== here.org) edit.org = top.org;
   if (Array.isArray(raw.repos) && top.repos.join(",") !== here.repos.join(",")) edit.repos = top.repos;
-  if (isObj(raw.relay) && "url" in raw.relay && top.hub !== here.hub) edit.hub = top.hub;
+  // a moved room (S6b) is written in its words from before the move, so the top level is compared with those
+  if (isObj(raw.relay) && "url" in raw.relay && hubKey(top.hub) !== hubKey(here.was?.hub ?? here.hub)) edit.hub = top.hub;
   if (!Object.keys(edit).length) return s;
-  const next = cleanTeam({ ...raw, rooms: s.rooms.map((r) => (r.id === here.id ? { ...r, ...edit } : r)), room: here.id });
+  // the edit applies to the room as team.json says it (a moved room in its old words), so its key and gate stay
+  const next = cleanTeam({ ...raw, rooms: onDisk(s).rooms.map((r) => (r.id === here.id ? { ...r, ...edit } : r)), room: here.id });
   return next.room === here.id ? next : s;   // an edit that empties the room: the rooms as they were
 }
 
 let current: TeamSettings | null = null;
 const subs = new Set<(s: TeamSettings) => void>();
 
+// Cloud rooms kept beside team.json (S6b, #226). A Sol from before S5 reads a `provider: "cloud"` room as a GitHub room
+// with no repositories, drops it, and its next write loses it: "one stable back" after the cloud's release would do just
+// that. So every write here also writes `team.cloud.json` (600): my cloud rooms, and the SHA-256 of the team.json
+// written with them. A team.json someone else wrote since (its hash differs) that holds no cloud room at all is an older
+// Sol's: the cloud rooms it dropped come back on the next read here. A cloud room forgotten here leaves the side file too.
+const SIDE = FILE.replace(/(\.json)?$/, ".cloud.json");
+
+/** team.json as it is written: a moved room in its words from before the move (Was), and the top level's relay.url too
+ *  when the room in use moved (pure; exported for the tests) */
+export function onDisk(s: TeamSettings): TeamSettings {
+  const rooms = s.rooms.map(({ was, ...r }) => (was ? { ...r, ...was } : r));
+  const here = s.rooms.find((r) => r.id === s.room);
+  return { ...s, rooms, relay: { ...s.relay, url: here?.was ? here.was.hub : s.relay.url } };
+}
+
 function write(s: TeamSettings) {
-  const tmp = FILE + ".tmp";
-  writeFileSync(tmp, JSON.stringify(s, null, 2) + "\n", { mode: 0o600 });
+  const tmp = FILE + ".tmp", body = JSON.stringify(onDisk(s), null, 2) + "\n";
+  // the side file first (codex, #227): a stop between the two leaves it ahead of team.json, never behind, so a cloud room
+  // just added is in it either way
+  try {
+    writeFileSync(SIDE + ".tmp", JSON.stringify({ of: sha(body), rooms: s.rooms.filter((r) => r.provider === "cloud") }, null, 2) + "\n", { mode: 0o600 });
+    renameSync(SIDE + ".tmp", SIDE);
+  } catch (e) { console.warn(`team: could not write ${SIDE} (${(e as Error).message}); an older Sol could drop my cloud rooms`); }
+  writeFileSync(tmp, body, { mode: 0o600 });
   renameSync(tmp, FILE);   // never a half-written file
+}
+
+/** a team.json as read (its text and parsed), with the cloud rooms an older Sol dropped put back from the side file, or
+ *  null when nothing is to be put back (pure; exported for the tests) */
+export function cloudBack(text: string, raw: unknown, side: unknown): Record<string, unknown> | null {
+  if (!isObj(raw) || !Array.isArray(raw.rooms) || !isObj(side) || !Array.isArray(side.rooms) || side.of === sha(text)) return null;
+  const had = raw.rooms.filter(isObj);
+  if (had.some((r) => r.provider === "cloud")) return null;   // a Sol that keeps cloud rooms wrote it: what it says stands
+  const back = side.rooms.map(cleanRoom).filter((r): r is Room => !!r && r.provider === "cloud"
+    && !had.some((x) => x.id === r.id || (typeof x.code === "string" && x.code.toUpperCase() === r.code)));
+  return back.length ? { ...raw, rooms: [...raw.rooms, ...back] } : null;
 }
 
 export function getTeam(): TeamSettings {
   if (current) return current;
-  let raw: unknown = null;
-  try { raw = JSON.parse(readFileSync(FILE, "utf8")); } catch { /* first run */ }
+  let raw: unknown = null, back = false;
+  try {
+    const text = readFileSync(FILE, "utf8");
+    raw = JSON.parse(text);
+    let side: unknown = null;
+    try { side = JSON.parse(readFileSync(SIDE, "utf8")); } catch { /* none yet */ }
+    const fixed = cloudBack(text, raw, side);
+    if (fixed) { raw = fixed; back = true; }
+  } catch { /* first run */ }
   // no team.json yet: Life's helper starts as the one the person already picked (settings.defaults.seat), not Codex
   current = raw ? readTeam(raw) : cleanTeam({ seats: { life: getSettings().defaults.seat } });
   // no GitHub login and no name yet: the name is the one the install asked for (SOL_OWNER, in .env), so a Sol that
   // never meets gh still knows what to call its person (#169). Written back only with the key below or a later patch.
   if (!current.me.login && !current.me.name && process.env.SOL_OWNER) current.me.name = str(process.env.SOL_OWNER, "", 80);
   // the relay key: made once, here, kept in team.json (a teammate is given it by hand; it never goes to a face)
-  if (!current.relay.key) {
-    current.relay.key = randomBytes(18).toString("base64url");
+  const fresh = !current.relay.key;
+  if (fresh) current.relay.key = randomBytes(18).toString("base64url");
+  if (fresh || back) {
+    if (back) console.log("team: an older Sol dropped my cloud rooms from team.json; they are back (team.cloud.json)");
     try { write(current); } catch { /* a read-only checkout: the key lives for this run */ }
   }
   if (!current.me.login && !process.env.SOL_TEAM_OFFLINE) void fillMe();
@@ -278,7 +420,8 @@ function intoRoom(before: TeamSettings, p: Record<string, unknown>): Record<stri
   const to = typeof p.room === "string" && before.rooms.some((r) => r.id === p.room) ? p.room : activeRoom(before).id;
   const rooms = before.rooms.map((r) => {
     if (r.id !== to) return r;
-    const edited = { ...r, ...("org" in p ? { org: p.org } : {}), ...("repos" in p ? { repos: p.repos } : {}), ...(url ? { hub: (p.relay as Record<string, unknown>).url } : {}) };
+    const { was, ...plain } = r;
+    const edited = { ...plain, ...(was ?? {}), ...("org" in p ? { org: p.org } : {}), ...("repos" in p ? { repos: p.repos } : {}), ...(url ? { hub: (p.relay as Record<string, unknown>).url } : {}) };
     // an edit that would leave the room pointing at nothing (no org, no valid repo) keeps its repos: the room is never
     // dropped, nor the person moved to another, by an emptied field (review of #154)
     return cleanRoom(edited) ? edited : { ...edited, repos: r.repos.length ? r.repos : [...TEAM_DEFAULTS.repos] };
@@ -304,7 +447,9 @@ function keepKeys(before: TeamSettings, p: Record<string, unknown>): Record<stri
     const folder = typeof r.folder === "string" && r.folder ? r.folder : had?.folder ?? "";
     const mine = typeof r.mine === "boolean" ? r.mine : had?.mine ?? false;
     const joined = typeof r.joined === "boolean" ? r.joined : had?.joined ?? false;
-    return { ...r, key, code, gate, folder, mine, joined };
+    // a moved room's words from before the move stay while it is still where it moved to (S6b)
+    const was = had?.was && (r.hub === undefined || r.hub === had.hub) ? { was: had.was } : {};
+    return { ...r, key, code, gate, folder, mine, joined, ...was };
   }) };
 }
 
@@ -336,11 +481,15 @@ export function patchTeam(patch: unknown): TeamSettings {
 
 export function onTeam(fn: (s: TeamSettings) => void) { subs.add(fn); return () => { subs.delete(fn); }; }
 
-// who I am, from the record (GitHub: `gh api user`) once, on the first read with no login (gh's own sign-in; no token in Sol)
-let filling: Promise<void> | null = null;
-export function fillMe(): Promise<void> {
-  if (filling) return filling;
-  filling = new Promise<void>((done) => {
+// who I am, from the record (GitHub: `gh api user`) once, on the first read with no login (gh's own sign-in; no token in
+// Sol). again: asked once more after a sign-in since (#174), when the last ask has finished
+let filling: Promise<void> | null = null, filled = false;
+export function fillMe(again = false): Promise<void> {
+  if (filling && !(again && filled)) return filling;
+  filled = false;
+  ownGhOnPath();   // the record's gh is the bare name: Sol's own, fetched since the engine started, is found
+  filling = new Promise<void>((resolve) => {
+    const done = () => { filled = true; resolve(); };
     makeGithubRecord(runners.settings).who.me().then((out) => {
       try {
         const u = JSON.parse(String(out)) as { login?: unknown; name?: unknown };

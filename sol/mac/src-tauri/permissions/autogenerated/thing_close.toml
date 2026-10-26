@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-thing-close"
+description = "Enables the thing_close command without any pre-configured scope."
+commands.allow = ["thing_close"]
+
+[[permission]]
+identifier = "deny-thing-close"
+description = "Denies the thing_close command without any pre-configured scope."
+commands.deny = ["thing_close"]

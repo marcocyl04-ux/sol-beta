@@ -8,7 +8,9 @@ import { link } from "../socket";
 import { ENGINE } from "../useEngine";
 
 export type Presence = "here" | "elsewhere" | "away" | "working" | "yourcall";
-export type Member = { who: string; agent: boolean; machine: string; state: Presence; session?: { title: string; repo?: string }; since: number };
+export type Member = { who: string; agent: boolean; machine: string; state: Presence; session?: { title: string; repo?: string }; since: number;
+  thing?: { id: string; name: string; source: "face" | "agent"; at: number }; sessions?: { id: string; title: string; thing?: string }[];   // what they are in, in this room (round 44)
+  quiet?: true };   // they turned "show my room sessions" off in this room (#238): their sessions do not show here
 export type Column = "waiting" | "branch" | "pr" | "main" | "stable" | "closed";
 export type Sign = { login: string; agent: boolean };
 export type Card = {
@@ -23,8 +25,8 @@ export type PR = {
 };
 export type Mark = "felt" | "silent" | "";
 /** a ping that reached me as a card (#100): one card each, closed one at a time, never a gate */
-export type PingKind = "clash" | "contract" | "claim" | "decision" | "chat";
-export const PING_WORD: Record<PingKind, string> = { clash: "a clash", contract: "a contract changed", claim: "a claim", decision: "a decision", chat: "named you" };
+export type PingKind = "clash" | "contract" | "claim" | "decision" | "chat" | "alert";   // alert: the cloud's on-call, its admins only (#225)
+export const PING_WORD: Record<PingKind, string> = { clash: "a clash", contract: "a contract changed", claim: "a claim", decision: "a decision", chat: "named you", alert: "the cloud" };
 /** a friend who typed a room's code and waits for my one press to be let into its repository (the review of #162) */
 export type Waiting = { room: string; name: string; login: string; repos: string[]; at: number };
 export type Pinged = { id: string; kind: PingKind; from: Sign; line: string; at: number; issue?: number; repo?: string; spooled?: boolean; count?: number };   // spooled, count: kept by the hub while I was away (#102)
@@ -41,7 +43,7 @@ export const leadsOf = (b: Board | null, label: string, repo?: string): string[]
   return (r && b?.leads?.[r]?.[label]) || [];
 };
 // a room (#154): a group's record and its people. org, repos and relay above are always the active room's
-export type Room = { id: string; name: string; provider: string; org: string; repos: string[]; hub: string; key?: string; code?: string; gate?: "key" | "github"; folder?: string; mine?: boolean; joined?: boolean };   // key: "set" or "", never the key; code: its share code (#157), "" until shared; gate: how its hub knows me; folder: where Sol cloned its repository (#162), "" until it did; mine: its repos are my own words (#162); joined: a code I typed brought it (#162)
+export type Room = { id: string; name: string; provider: string; org: string; repos: string[]; hub: string; key?: string; code?: string; gate?: "key" | "github"; folder?: string; mine?: boolean; joined?: boolean; quiet?: true };   // key: "set" or "", never the key; code: its share code (#157), "" until shared; gate: how its hub knows me; folder: where Sol cloned its repository (#162), "" until it did; mine: its repos are my own words (#162); joined: a code I typed brought it (#162)
 export type TeamSettings = {
   me: { login: string; name: string }; org: string; repos: string[]; relay: { url: string; key: string; host: boolean; open?: boolean };   // open (#157): the beta's hub, anyone signed in to GitHub
   speak: Record<string, unknown>; leaves: Record<string, unknown>; seats: Record<string, unknown>; machines: { name: string; url: string }[];
@@ -49,12 +51,15 @@ export type TeamSettings = {
 };
 // members (#102): the team, derived: the GitHub org's members when an org is set, else who has been seen on the relay
 // hub (#157): the shared hub every beta room meets on, where a new room meets unless the person blanks it
-export type TeamState = { me: { login: string; name: string }; settings: TeamSettings; roster: Member[]; members: string[]; relay: { url: string; up: boolean }; hub?: string };
+export type TeamState = { me: { login: string; name: string }; settings: TeamSettings; roster: Member[]; members: string[]; relay: { url: string; up: boolean }; hub?: string; cloud?: Cloud };
+/** my Sol account on the shared hub (S6b): its name, "" when not signed in; need: the room in use meets there and I am not
+ *  let in; gone: the cloud has no room with the room's code */
+export type Cloud = { hub: string; login: string; need: boolean; gone?: boolean };
 export type LogLine = { at: string; kind: "issue" | "comment" | "pr" | "commit" | "hand"; repo: string; text: string; url?: string; number?: number; sign: Sign };
 export type MemberPage = { plan?: string; log: LogLine[]; error?: string };
 // --- Show (#101): a session someone is showing to the team, and its lines (the engine keeps the last 200 in memory)
 export type ShownLine = { role: "person" | "agent" | "tool"; text: string; at: number };
-export type Showing = { login: string; issue: number; repo: string; session: { id: string; title: string } };
+export type Showing = { login: string; issue: number; repo: string; session: { id: string; title: string }; scope?: "room"; thing?: string };   // scope room: a room session (#238), issue 0
 export type ShownMsg = Showing & { event: "start" | "line" | "end"; line?: ShownLine };
 
 export const DEV_TEAM = import.meta.env.DEV && new URLSearchParams(location.search).get("dev") === "team";
@@ -75,13 +80,26 @@ export function useTeam() {
   const [showing, setShowing] = useState<Showing[]>(DEV_TEAM ? FAKE.showing : []);   // Show (#101): who shows what now
   const [waiting, setWaiting] = useState<Waiting[]>(DEV_TEAM ? FAKE.waiting : []);   // who waits for my press to come in
   const shownSubs = useRef(new Set<(m: ShownMsg) => void>());
+  // the hub's word (#223): its light, my place in its queue, "please update"; and every word as it comes (retry, watch)
+  const [hub, setHub] = useState<HubNow>({ light: "green", old: false });
+  const hubSubs = useRef(new Set<(m: HubWord) => void>());
   const asks = useRef(new Map<string, (m: any) => void>());
+  // ?dev=team: frank's room session says a line every few seconds, as a watched one does
+  useEffect(() => {
+    if (!DEV_TEAM) return;
+    let n = 0;
+    const t = window.setInterval(() => {
+      const line = DEV_LIVE[n++ % DEV_LIVE.length];
+      for (const f of shownSubs.current) f({ login: "frank", issue: 0, repo: "", session: { id: "dev-frank-room", title: "the goal page" }, scope: "room", event: "line", line: { ...line, at: Date.now() } });
+    }, 3500);
+    return () => window.clearInterval(t);
+  }, []);
   useEffect(() => {
     if (DEV_TEAM) return;
     const L = link(ENGINE);
     const offM = L.on((m) => {
       if (typeof m?.type !== "string" || !m.type.startsWith("team.")) return;
-      if (m.type === "team.state") setState({ me: m.me, settings: m.settings, roster: m.roster ?? [], members: Array.isArray(m.members) ? m.members : [], relay: m.relay ?? { url: "", up: false }, ...(typeof m.hub === "string" ? { hub: m.hub } : {}) });
+      if (m.type === "team.state") setState({ me: m.me, settings: m.settings, roster: m.roster ?? [], members: Array.isArray(m.members) ? m.members : [], relay: m.relay ?? { url: "", up: false }, ...(typeof m.hub === "string" ? { hub: m.hub } : {}), ...(m.cloud && typeof m.cloud.login === "string" ? { cloud: m.cloud } : {}) });
       else if (m.type === "team.board" && Array.isArray(m.cards)) setBoard(m as Board);
       else if (m.type === "team.pinged") {
         const p: Pinged = { id: String(m.id ?? crypto.randomUUID()), kind: m.kind ?? "chat", from: m.from, line: m.line, at: m.at, ...(m.issue ? { issue: m.issue } : {}), ...(m.repo ? { repo: m.repo } : {}), ...(m.spooled ? { spooled: true } : {}), ...(m.count ? { count: Number(m.count) } : {}) };
@@ -90,10 +108,18 @@ export function useTeam() {
       else if (m.type === "team.shown") {   // Show (#101): a start or an end changes who is showing; every line goes to the watchers
         const x = m as ShownMsg, same = (s: Showing) => s.login === x.login && s.session.id === x.session.id;
         setShowing((l) => x.event === "end" ? l.filter((s) => !same(s)) : l.some(same) && x.event === "line" ? l
-          : [...l.filter((s) => !same(s)), { login: x.login, issue: x.issue, repo: x.repo, session: x.session }]);
+          : [...l.filter((s) => !same(s)), { login: x.login, issue: x.issue, repo: x.repo, session: x.session, ...(x.scope ? { scope: x.scope } : {}), ...(x.thing ? { thing: x.thing } : {}) }]);
         for (const f of shownSubs.current) f(x);
       } else if (m.type === "team.shown.get" && Array.isArray(m.shows) && !m.rid) setShowing(m.shows);
       else if (m.type === "team.letin" && Array.isArray(m.asks)) setWaiting(m.asks);
+      else if (m.type === "team.hub") {
+        const w = m as HubWord;
+        setHub((h) => w.say === "state" ? { light: w.light ?? "green", old: !!w.old, ...(w.ahead !== undefined ? { queue: { ahead: w.ahead, wait: w.wait ?? 0 } } : {}) }
+          : w.say === "light" || w.say === "hello" ? { ...h, light: w.light ?? h.light, queue: undefined }
+          : w.say === "queue" ? { ...h, queue: { ahead: w.ahead ?? 0, wait: w.wait ?? 0 } }
+          : w.say === "update" ? { ...h, old: true } : h);
+        for (const f of hubSubs.current) f(w);
+      }
       if (m.rid && asks.current.has(m.rid)) { const f = asks.current.get(m.rid)!; asks.current.delete(m.rid); f(m); }
     });
     // a Cowork face says hello on every link up, and asks for the board
@@ -112,14 +138,18 @@ export function useTeam() {
   const closePing = useCallback((id: string) => setPings((all) => all.filter((p) => p.id !== id)), []);
   // Show (#101): a watcher hears every line as it comes
   const onShown = useCallback((f: (m: ShownMsg) => void) => { shownSubs.current.add(f); return () => { shownSubs.current.delete(f); }; }, []);
+  const onHub = useCallback((f: (m: HubWord) => void) => { hubSubs.current.add(f); return () => { hubSubs.current.delete(f); }; }, []);
   // my press on a card: yes lets that person into the room's repository, no says not now; the card goes either way
   const letIn = useCallback(async (a: Waiting, yes: boolean) => {
     setWaiting((l) => l.filter((x) => !(x.room === a.room && x.login === a.login)));
     return ask<{ said?: string[]; error?: string }>("team.letin.answer", { room: a.room, login: a.login, yes }, 60_000);
   }, [ask]);
-  return { state, board, up, ask, refresh, pings, closePing, me: state?.me.login ?? "", showing, onShown, waiting, letIn };
+  return { state, board, up, ask, refresh, pings, closePing, me: state?.me.login ?? "", showing, onShown, waiting, letIn, hub, onHub };
 }
 export type Team = ReturnType<typeof useTeam>;
+/** the hub's word to this Sol (#223, PROTOCOL round 41): the light, a queue, a retry, a watch refused, "please update" */
+export type HubWord = { say: string; light?: string; old?: boolean; ahead?: number; wait?: number; after?: number; what?: string; ok?: boolean; why?: string; login?: string; session?: string; on?: boolean };
+export type HubNow = { light: string; old: boolean; queue?: { ahead: number; wait: number } };
 
 // ---- the dev fakes (?dev=team) ----
 const day = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
@@ -136,15 +166,17 @@ const FAKE = {
         ...(DEV_TEAM && new URLSearchParams(location.search).get("rooms") === "2" ? [{ id: "notes", name: "class notes", provider: "drive", org: "", repos: ["1AbCdEfG"], hub: "wss://nucbox.example.ts.net/relay", code: "K7QX2M", gate: "github" as const }] : [])],
       room: "team" },
     roster: [
-      { who: "frank", agent: false, machine: "legion", state: "working", session: { title: "#34 hand a session", repo: "ecosystem" }, since: Date.now() - 22 * 60_000 },
-      { who: "isaac", agent: false, machine: "thinkpad", state: "away", since: Date.now() - 95 * 60_000 },
+      { who: "frank", agent: false, machine: "legion", state: "working", session: { title: "the goal page", repo: "ecosystem" }, since: Date.now() - 22 * 60_000,
+        thing: { id: "d1b2c3d4", name: "marcocyl04-ux/sol-dev", source: "agent", at: Date.now() - 60_000 }, sessions: [{ id: "dev-frank-room", title: "the goal page", thing: "d1b2c3d4" }] },
+      { who: "isaac", agent: false, machine: "thinkpad", state: "here", since: Date.now() - 95 * 60_000, quiet: true },
       { who: "marco", agent: false, machine: "macbook", state: "here", since: Date.now() - 4 * 60_000 },
     ],
     members: ["frank", "isaac", "marco"],
     relay: { url: "", up: true },
     hub: "wss://nucbox.example.ts.net/relay",
   } as TeamState,
-  showing: [{ login: "frank", issue: 34, repo: R, session: { id: "dev-frank-34", title: "#34 hand a session" } }] as Showing[],
+  showing: [{ login: "frank", issue: 34, repo: R, session: { id: "dev-frank-34", title: "#34 hand a session" } },
+    { login: "frank", issue: 0, repo: "", session: { id: "dev-frank-room", title: "the goal page" }, scope: "room", thing: "d1b2c3d4" }] as Showing[],
   waiting: [{ room: "book-club", name: "Book Club", login: "isaac", repos: ["marco/book-club"], at: Date.now() - 60_000 }] as Waiting[],
   board: {
     repos: [R], stable: { [R]: "7def65e" }, main: { [R]: "7a53b17" }, at: Date.now(), folders: { [R]: "~/computer/personal/projects/ecosystem" },
@@ -191,8 +223,14 @@ function fakeAnswer(type: string, body: any): any {
   if (type === "team.pr.mark") return { ok: true, mark: body.mark, by: "marco" };
   if (type === "team.session.start") return { error: "the dev view starts nothing" };
   if (type === "team.room.share") return { code: "H4PZ9R" };   // #157: the shape only; nothing is kept
+  if (type === "team.room.make" && typeof body.drive === "string") return { room: { id: "dev-drive", name: body.name, provider: "drive", org: "", repos: ["1AbCdEfG"], hub: body.hub ?? "", code: "D7RVQ2", gate: "github" } };   // #152
   if (type === "team.room.make") return { room: { id: "dev-made", name: body.name, provider: "github", org: "", repos: [`marco/${String(body.name).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`], hub: body.hub ?? "", code: "M4DEQ2", gate: "github" } };   // #160
   if (type === "team.room.join") return { error: "the dev view joins nothing" };
+  if (type === "team.accounts") return { github: { in: new URLSearchParams(location.search).get("gh") !== "out" } };   // #252: ?gh=out, no GitHub here
+  if (type === "team.github.connect") return { code: "ABCD-1234", url: "https://github.com/login/device" };   // the shape only
+  if (type === "team.github.connect.cancel") return { ok: true };
+  if (type === "team.drive") return { connected: false, email: "", whole: false };   // #152: the shape only
+  if (type === "team.drive.connect") return { ok: false, error: "the dev view connects nothing" };
   if (type === "team.letin.answer") return { said: [body.yes ? "invited" : "no"] };   // the shape only: nobody is added
   if (type === "team.leads.who") return { people: ["frank", "isaac", "marco"] };
   if (type === "team.leads.set") {   // the dev view lands nothing: the fake board moves, as if the press had landed
@@ -200,6 +238,15 @@ function fakeAnswer(type: string, body: any): any {
     FAKE.board.leads![R][body.label] = body.leads;
     return { ok: true, repo: R, label: body.label, leads: body.leads, was, commit: "c0ffee1", pinged: ["frank", "isaac"].filter((p) => p !== "marco") };
   }
+  if (type === "team.shown.get" && body.id === "dev-frank-room") return { lines: [
+    { role: "person", text: "take #4 and make the goal page: the files beside it open in a pane, no code for the agent side yet", at: Date.now() - 6 * 60_000 },
+    { role: "agent", text: "Took #4. I'll draw the goal as its own page first, then the files and the add row.", at: Date.now() - 5 * 60_000 },
+    { role: "tool", text: "Read · Grep · Read · Edit", at: Date.now() - 4 * 60_000 },
+    { role: "agent", text: "The goal page is in Room.tsx's centre now; the right column stays. Opening a draft for a try.", at: Date.now() - 2 * 60_000 },
+  ] };
+  if (type === "team.room.show") return { id: body.id, on: body.on !== false };
+  if (type === "team.goal.file") return { name: body.name, text: `# ${body.name}\n\nYou are grilling a first-time user's path through Sol.\nAsk one question at a time; write down where they stop.\n` };
+  if (type === "team.goal.add_file") return { error: "the dev view keeps nothing" };
   if (type === "team.shown.get") return body.id ? { lines: [
     { role: "person", text: "draw the hands record under the board", at: Date.now() - 90_000 },
     { role: "tool", text: "Read · Grep · Read", at: Date.now() - 80_000 },
@@ -208,3 +255,11 @@ function fakeAnswer(type: string, body: any): any {
   ] } : { shows: FAKE.showing };
   return {};
 }
+
+/** ?dev=team: what frank's room session says while it is watched */
+const DEV_LIVE: ShownLine[] = [
+  { role: "tool", text: "Edit · Bash", at: 0 },
+  { role: "agent", text: "The add row takes a pasted prompt or a text file of 64 KB at most; it goes under .sol/goal/.", at: 0 },
+  { role: "tool", text: "Bash", at: 0 },
+  { role: "agent", text: "Tests green. Pushing frank/cowork-goal-page-4 and opening the draft.", at: 0 },
+];

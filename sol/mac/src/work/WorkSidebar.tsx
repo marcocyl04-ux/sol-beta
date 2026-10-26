@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Mark } from "../Mark";
+import { VibeMark } from "../Mark";
 import type { AppMode } from "../ModeSwitch";
 import { ModeWheel } from "../ModeWheel";
 import { CFG, enter, useSpring } from "../motion";
@@ -12,6 +12,7 @@ import { Menu, type MenuItem } from "./Menu";
 import { span, useNow } from "./Elapsed";
 import { Unseen } from "../Site";
 import { WHICH, type Thread } from "../useEngine";
+import { useTalksWaiting } from "../Conversations";
 
 // Home's side (#132): every Claude Code session on this machine, under the folder it ran in, and below them the chats
 // (Life's conversations, in no folder). Pinned on top, then Marco's own groups, then the folders (or dates, or states). A row says its state with one mark: the runner while Claude
@@ -66,6 +67,12 @@ const STATE_ORDER: [RowState | "rest", string][] = [["needs", "needs you"], ["ru
 // ---- glyphs ----
 const P = { fill: "none", stroke: "currentColor", strokeWidth: 1.2, strokeLinecap: "round", strokeLinejoin: "round" } as const;
 const Plus = () => <svg viewBox="0 0 16 16" width="14" height="14" {...P} aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>;
+// two speech marks: the talks Anticipate heard (Conversations)
+const Talks = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
+    <path d="M2.5 3.5h7a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H6l-2.5 2v-2h-1a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1Z" /><path d="M12.5 6h1a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-1v2L10 12H7.5" />
+  </svg>
+);
 const Gear = () => (
   <svg viewBox="0 0 16 16" width="14" height="14" {...P} aria-hidden="true">
     <circle cx="8" cy="8" r="2.2" /><path d="M8 1.5v1.8M8 12.7v1.8M1.5 8h1.8M12.7 8h1.8M3.4 3.4l1.3 1.3M11.3 11.3l1.3 1.3M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3" />
@@ -109,13 +116,14 @@ const CHAT_PINS = "sol.home.chatpins";
 // the layout and the split's share, from the person's arrangement, and the way to change them (arrange.set)
 export type Lay = { layout?: string; share?: number; arrange: (patch: object) => void };
 
-export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onFresh, menuHold, onBeside, onPop, chats, lay }: {
-  w: Work; pinned: boolean; view: "chat" | "settings"; onMode: (m: AppMode) => void; onSettings: () => void;
+export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onConversations, onFresh, menuHold, onBeside, onPop, chats, lay }: {
+  w: Work; pinned: boolean; view: "chat" | "settings" | "conversations"; onMode: (m: AppMode) => void; onSettings: () => void; onConversations: () => void;
   onFresh: (cwd?: string) => void; menuHold?: boolean; onBeside: (id: string) => void; onPop: (id: string, title: string) => void; chats?: Chats; lay?: Lay;
 }) {
   const [pins, setPins] = useState<string[]>(() => { try { const v = JSON.parse(localStorage.getItem(CHAT_PINS) ?? "[]"); return Array.isArray(v) ? v : []; } catch { return []; } });
   const pin = (id: string) => setPins((p) => { const n = p.includes(id) ? p.filter((x) => x !== id) : [id, ...p]; localStorage.setItem(CHAT_PINS, JSON.stringify(n)); return n; });
   const [view, setView] = useState<View>(loadView);
+  const waiting = useTalksWaiting();   // talks not opened yet, from this Mac's engine: the dot on conversations
   const setV = (p: Partial<View>) => setView((v) => { const n = { ...v, ...p }; localStorage.setItem("sol.work.view", JSON.stringify(n)); return n; });
   const [q, setQ] = useState("");
   const [folded, setFolded] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem("sol.work.folded") ?? "{}"); } catch { return {}; } });
@@ -592,7 +600,7 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onFresh
       <aside ref={f.ref} className={`side wside ${f.open ? "open" : ""} ${pinned ? "pinned" : ""}`} onMouseEnter={f.onMouseEnter} onMouseLeave={f.onMouseLeave}
         aria-hidden={!f.open} inert={!f.open} onKeyDown={carKey}>
         <div className="side-head" data-s>
-          <div className="brand"><Mark size={22} /><span className="word">sol</span></div>
+          <div className="brand"><VibeMark size={22} /><span className="word">sol</span></div>
           <ModeWheel mode="home" onPick={onMode} />
         </div>
         <button className="newc" data-s onClick={() => onFresh()}><Plus /><span>new session</span><kbd>⌘N</kbd></button>
@@ -638,6 +646,10 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onFresh
           </div>
         )}
         <div className="side-foot">
+          <button className={`newc setc ${page === "conversations" ? "on" : ""}`} data-s onClick={onConversations} aria-pressed={page === "conversations"}
+            title={waiting ? `conversations (cmd+;): ${waiting} talk${waiting === 1 ? "" : "s"} not opened yet` : "conversations (cmd+;)"}>
+            <Talks /><span>conversations{waiting > 0 && <i className="newc-dot" aria-label="a talk waits" />}</span><kbd>⌘;</kbd>
+          </button>
           <button className={`newc setc ${page === "settings" ? "on" : ""}`} data-s onClick={onSettings} aria-pressed={page === "settings"} title="settings (cmd+,)">
             <Gear /><span>settings</span><kbd>⌘,</kbd>
           </button>

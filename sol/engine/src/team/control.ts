@@ -1,6 +1,7 @@
 // Control (#32): my accounts. Is Claude Code signed in on this machine, is Codex, and the line that signs in.
 // Both sign-ins want a browser and a terminal, so Sol never signs in itself: it hands the face the line to type into a
-// terminal pane (work.term.open), and the person presses Return. PROTOCOL.md round 18.
+// terminal pane (work.term.open), and the person presses Return. PROTOCOL.md round 18. GitHub signs in from a card
+// instead, gh's device flow run by the engine (team/gh.ts, round 42).
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
@@ -9,6 +10,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import { getTeam, speakRefusal } from "./settings.js";
+import { ghPlaces, ownGhOnPath } from "./gh.js";
 
 const run = promisify(execFile);
 export type Account = { in: boolean; who?: string; missing?: boolean };
@@ -20,7 +22,7 @@ const ENGINE = join(HERE, "..", "..");   // sol/engine, from src/team or dist/te
 const where = (name: string, extra: string[]) => [name, ...extra.filter((p) => existsSync(p))];
 const CLAUDE = () => where("claude", [join(homedir(), ".local", "bin", "claude"), join(homedir(), ".claude", "local", "claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]);
 const CODEX = () => where("codex", [join(homedir(), ".local", "bin", "codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex", join(ENGINE, "node_modules", ".bin", "codex")]);
-const GH = () => where("gh", ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"]);
+const GH = ghPlaces;   // PATH's, Sol's own (~/.sol/gh), Homebrew's
 
 type Out = { code: number; out: string };
 async function first(bins: string[], args: string[]): Promise<Out | null> {
@@ -62,6 +64,7 @@ export function readGithub(r: Out | null): Account {
 }
 
 export async function accounts(): Promise<Accounts> {
+  ownGhOnPath();   // a gh sol/setup fetched since the engine started is on PATH for this read and every gh after it
   const [claude, codex, github] = await Promise.all([
     first(CLAUDE(), ["auth", "status"]).then(readClaude),
     first(CODEX(), ["login", "status"]).then(readCodex),
@@ -70,13 +73,13 @@ export async function accounts(): Promise<Accounts> {
   return { claude, codex, github };
 }
 
-// The line the face types into a terminal; the person presses Return and finishes in the browser.
-export const SIGNIN: Record<"claude" | "codex" | "github", string> = {
+// The line the face types into a terminal; the person presses Return and finishes in the browser. Not GitHub: its card
+// (team.github.connect, round 42).
+export const SIGNIN: Record<"claude" | "codex", string> = {
   claude: "claude auth login",
   codex: "codex login",
-  github: "gh auth login --web",
 };
-export const signinCommand = (seat: unknown): string | null => (seat === "claude" || seat === "codex" || seat === "github" ? SIGNIN[seat] : null);
+export const signinCommand = (seat: unknown): string | null => (seat === "claude" || seat === "codex" ? SIGNIN[seat] : null);
 
 // A seat's permission check with my agent's rule in front: a shell command that posts where the setting says no is
 // refused with the reason before anything else is asked (speakRefusal, team/settings.ts).

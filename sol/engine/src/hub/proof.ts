@@ -14,16 +14,21 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { ipBucket } from "./relay-hub.js";
 
 export const TICKET_FOR = 24 * 60 * 60_000;
 const NONCE_FOR = 5 * 60_000;
 const READS_MAX = 600;             // gists the hub reads in ten minutes, across everyone: its own gh's budget
 const LOGIN_READS = 5;             // of them for one login
+const IP_READS = 20;               // of them from one address, when the host reads addresses (#208): a login is self-said
 const WINDOW = 10 * 60_000;
 const LOGIN = /^[A-Za-z0-9-]{1,39}$/;
 // a nonce is the hub's own signed word (nothing kept until it is used): its body and its HMAC
 export const NONCE = /^[A-Za-z0-9_-]{10,200}\.[A-Za-z0-9_-]{43}$/;
 const GIST = /^[0-9a-f]{1,64}$/i;
+
+/** the one file of a proof gist (my Sol writes it, the hub reads it: engine record/github.ts, and github.ts here) */
+export const PROOF_FILE = "sol-proof.txt";
 
 /** the words a proof gist holds: the nonce, and the host of the hub it is for */
 export const proofText = (nonce: string, host: string) => `sol proof ${nonce} for ${host.toLowerCase()}`;
@@ -71,7 +76,7 @@ export class Proofs {
 
   /** a gist that proves login: its ticket, or what is wrong. hosts: this hub's own, from its setting (settings.ts
    *  hubHosts), never from the request. A nonce is used once; the gist reads are budgeted, a login's and the hub's */
-  async redeem(v: { login?: unknown; nonce?: unknown; gist?: unknown }, hosts: string[], org: string, r: ProofReads): Promise<{ ticket: string; until: number } | { error: string }> {
+  async redeem(v: { login?: unknown; nonce?: unknown; gist?: unknown }, hosts: string[], org: string, r: ProofReads, ip = ""): Promise<{ ticket: string; until: number } | { error: string }> {
     const login = typeof v.login === "string" ? v.login : "", nonce = typeof v.nonce === "string" ? v.nonce : "", gist = typeof v.gist === "string" ? v.gist.trim() : "";
     const t = this.now();
     const bad = { error: "that is not a nonce this hub gave you; ask again" };
@@ -89,10 +94,14 @@ export class Proofs {
     this.reads = this.reads.filter((x) => t - x < WINDOW);
     const mine = (this.readsOf.get(n.l) ?? []).filter((x) => t - x < WINDOW);
     if (mine.length >= LOGIN_READS) return { error: "too many proofs for you; wait ten minutes" };
+    const at = ipBucket(ip);   // an IPv6 address by its /64 (relay-hub.ts)
+    const here = at ? (this.readsOf.get(`ip ${at}`) ?? []).filter((x) => t - x < WINDOW) : [];
+    if (at && here.length >= IP_READS) return { error: "too many proofs from here; wait ten minutes" };
     if (this.reads.length >= READS_MAX) return { error: "the hub is busy reading proofs; try again in a few minutes" };
     this.reads.push(t);
     for (const [k, list] of this.readsOf) if (!list.some((x) => t - x < WINDOW)) this.readsOf.delete(k);
     this.readsOf.set(n.l, [...mine, t]);
+    if (at) this.readsOf.set(`ip ${at}`, [...here, t]);
     let g: { owner?: unknown; text?: unknown } | null = null;
     try { g = JSON.parse(await r.proofOf(gist)); } catch { return { error: "the hub could not read that gist" }; }
     if (typeof g?.owner !== "string" || !LOGIN.test(g.owner) || g.owner.toLowerCase() !== n.l) return { error: "that gist is not yours" };
@@ -107,6 +116,18 @@ export class Proofs {
   sign(login: string, org: string, until: number) {
     const body = Buffer.from(JSON.stringify({ l: login, o: org, u: until })).toString("base64url");
     return `sol1.${body}.${this.mac(body)}`;
+  }
+
+  /** the login a ticket this hub signed says, for this org, even past its hour by up to `grace` ms (#225: the cloud's
+   *  watch reads an admin's alert feed with it, so the feed still arrives when the hub, which renews tickets, is down);
+   *  else null. Never a way in to the hub: the hub's gate asks check() */
+  checkStale(ticket: string, org: string, grace: number): string | null {
+    const m = /^sol1\.([A-Za-z0-9_-]{1,400})\.([A-Za-z0-9_-]{43})$/.exec(ticket);
+    if (!m || !this.same(m[2], this.mac(m[1]))) return null;
+    let t: { l?: unknown; o?: unknown; u?: unknown };
+    try { t = JSON.parse(Buffer.from(m[1], "base64url").toString("utf8")); } catch { return null; }
+    if (typeof t?.l !== "string" || !LOGIN.test(t.l) || t.o !== org || typeof t.u !== "number" || t.u + grace <= this.now()) return null;
+    return t.l;
   }
 
   /** the login a ticket this hub signed says, for this org, while it lasts; else null */

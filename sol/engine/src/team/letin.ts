@@ -17,6 +17,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { activeRoom, mayAgentSpeak, LOGIN, REPO, ROOMS_DIR, type Room, type TeamSettings } from "./settings.js";
 import type { RoomRecord } from "./record.js";
+import { ghHelper } from "./gh.js";
 import type { Kind, RelayMsg } from "./relay.js";
 
 export type LetInDeps = {
@@ -38,8 +39,10 @@ export type Answer = "invited" | "already" | "no";
 /** a friend waiting for the maker's one press (the review of #162): a code is a password anyone can paste on, so
  *  nobody is added to a repository until its maker said yes to that person. room: its id; name: as the card says it */
 export type Waiting = { room: string; name: string; login: string; repos: string[]; at: number };
-/** git's flags for a clone: no credential helper but gh's (the first, empty, clears any the person set) */
-export const CLONE_AUTH = ["-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential"];
+/** git's flags for a clone, after `clone`: no credential helper for github.com but gh's (the first, empty, clears any
+ *  the person set), kept in the clone's own config, so the room's later fetches and pushes ask gh too and the person's
+ *  ~/.gitconfig is never written */
+export const cloneAuth = () => ghHelper("--config");
 const MINUTE = 60_000;
 const ASK_WAIT = 10 * MINUTE;      // the friend's cadence: one ask a repo every ten minutes
 const ANSWER_WAIT = 8 * MINUTE;    // the maker's throttle, shorter than the friend's cadence, so the next ask is answered
@@ -329,7 +332,7 @@ async function cloneOnce(d: LetInDeps, room: Room, repo: string): Promise<{ fold
   if (!reuse) {
     // gh as the only credential helper for this clone: a person who chose SSH in gh auth login has no https helper of
     // their own, and gh holds the token either way
-    try { await d.git([...CLONE_AUTH, "clone", "--quiet", `https://github.com/${repo}.git`, dir], ROOMS_DIR); }
+    try { await d.git(["clone", ...cloneAuth(), "--quiet", `https://github.com/${repo}.git`, dir], ROOMS_DIR); }
     catch (e) {
       // a clone that failed because I still cannot write to it (not let in yet) is not counted: the answer that lets me
       // in clones at once. One that failed for another reason waits its ten minutes

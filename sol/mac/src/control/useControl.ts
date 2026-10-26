@@ -4,12 +4,13 @@ import { link } from "../socket";
 
 // Control (#32): the person's own settings, on the page's one link to the engine (socket.ts shares it), so the
 // drawers work in Life, Work and Cowork alike without a prop from the app. PROTOCOL.md rounds 17 and 18.
-// ?dev=control replaces only the data these drawers draw (signed-in accounts, three machines); nothing is sent.
+// ?dev=control replaces only the data these drawers draw (signed-in accounts, three machines, GitHub's card's code);
+// nothing is sent.
 
 export type Speak = { github: boolean; cowork: boolean; discord: "never" | "builds" | "any"; whatsapp: boolean };
 /** a room (#154): its record's provider, the org or repos, where it meets ("" = this Mac), its key as the engine shows
  *  it ("set" or ""; sent back as it came, the engine keeps the real one). org, repos and relay.url are the active room's */
-export type Room = { id: string; name: string; provider: "github" | "drive"; org: string; repos: string[]; hub: string; key: string; code?: string; gate?: "key" | "github"; folder?: string; mine?: boolean; joined?: boolean };   // code: its share code (#157), "" until shared; gate: how its hub knows me; folder: where Sol cloned its repository (#162), "" until it did; mine: its repos are my own words (#162); joined: a code I typed brought it (#162)
+export type Room = { id: string; name: string; provider: "github" | "drive" | "cloud"; org: string; repos: string[]; hub: string; key: string; code?: string; gate?: "key" | "github"; folder?: string; mine?: boolean; joined?: boolean; quiet?: true };   // quiet (#238): "show my room sessions" off there. code: its share code (#157), "" until shared; gate: how its hub knows me; folder: where Sol cloned its repository (#162), "" until it did; mine: its repos are my own words (#162); joined: a code I typed brought it (#162)
 export type Team = {
   me: { login: string; name: string }; org: string; repos: string[];
   relay: { url: string; key: string; host: boolean };
@@ -20,12 +21,12 @@ export type Team = {
   machines: Machine[];
   dials: Dials;   // per ping kind (#100): always bring to me, when it matters, never
 };
-export type PingKind = "clash" | "contract" | "claim" | "decision" | "chat";
+export type PingKind = "clash" | "contract" | "claim" | "decision" | "chat" | "alert";   // alert: the cloud's on-call, its admins only (#225)
 export type Dial = "always" | "matters" | "never";
 export type Dials = Record<PingKind, Dial>;
-export const DIAL_DEFAULTS: Dials = { clash: "matters", contract: "matters", claim: "matters", decision: "matters", chat: "matters" };
+export const DIAL_DEFAULTS: Dials = { clash: "matters", contract: "matters", claim: "matters", decision: "matters", chat: "matters", alert: "matters" };
 export type Account = { in: boolean; who?: string; missing?: boolean };
-export type Accounts = { claude: Account; codex: Account; github: Account };
+export type Accounts = { claude: Account; codex: Account; github: Account; sol?: Account & { hub?: string } };   // sol: my Sol account on the cloud (S6b)
 export type Tools = { skills: string[]; plugins: string[]; mcp: { name: string; status: string }[]; agents: string[]; cwd?: string } | null;
 
 export const DEV = typeof location !== "undefined" && new URLSearchParams(location.search).get("dev") === "control";
@@ -48,7 +49,7 @@ const FAKE_TEAM: Team = {
   ],
   dials: { ...DIAL_DEFAULTS, chat: "always" },
 };
-const FAKE_ACCOUNTS: Accounts = { claude: { in: true, who: "marco@example.com, max" }, codex: { in: true, who: "ChatGPT" }, github: { in: true, who: "marcocyl04-ux" } };
+const FAKE_ACCOUNTS: Accounts = { claude: { in: true, who: "marco@example.com, max" }, codex: { in: true, who: "ChatGPT" }, github: { in: true, who: "marcocyl04-ux" }, sol: { in: true, who: "marco", hub: "wss://cloud.example.net/relay" } };
 const FAKE_TOOLS: Tools = {
   skills: ["apple-design", "impeccable", "superpowers", "gstack"], plugins: ["superpowers", "frontend-design"],
   mcp: [{ name: "sol", status: "connected" }, { name: "claude.ai Higgsfield", status: "connected" }, { name: "playwright", status: "failed" }],
@@ -81,6 +82,9 @@ export function useControl() {
   }), [L]);
 
   const ask = useCallback(<T = any,>(type: string, body: object = {}, wait = 20_000) => new Promise<T>((ok) => {
+    // ?dev=control: GitHub's card gets a made-up code and never hears an end; the real engine's sign-in is not touched
+    if (DEV && type === "team.github.connect") return ok({ code: "ABCD-1234", url: "https://github.com/login/device" } as T);
+    if (DEV && type === "team.github.connect.cancel") return ok({ ok: true } as T);
     if (!L) return ok({ error: "dev" } as T);
     const rid = crypto.randomUUID();
     asks.current.set(rid, ok);
@@ -119,6 +123,8 @@ export function useControl() {
   // machines are replaced whole (the engine replaces an array)
   const setMachines = useCallback((machines: Machine[]) => set({ machines }), [set]);
 
-  return { team, accounts, tools, err, ask, set, setMachines, load, loadAccounts, loadTools, link: L };
+  // one room's own word changed by the engine (#238, team.room.show): drawn at once, the next team.state says the same
+  const patchRoom = useCallback((id: string, p: Partial<Room>) => setTeam((t) => (t ? { ...t, rooms: t.rooms.map((r) => (r.id === id ? { ...r, ...p } : r)) } : t)), []);
+  return { team, accounts, tools, err, ask, set, setMachines, load, loadAccounts, loadTools, patchRoom, link: L };
 }
 export type Control = ReturnType<typeof useControl>;
