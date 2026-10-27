@@ -1,8 +1,8 @@
-// The welcome page's three commands (#169, the download's door). A Sol.app with no root (root.rs) shows welcome.html
-// in the main window: a name, an optional Gemini key, Set up. Set up runs the bundled sol/install (the same file the
-// one line runs, with SOL_SKIP_APP=1: the app is already here) and streams its lines to the page; Sign in to Claude
-// opens Terminal on `claude auth login` (Claude's sign-in wants a terminal to paste the code in; the page cannot host
-// it); Open Sol reads the root again, starts the engine and loads the face.
+// The first run's three commands (#169 the download's door, #134 the first run). A Sol.app with no root (root.rs)
+// shows the face at /?firstrun=1 (sol/mac/src/firstrun): it asks a name and runs the bundled sol/install behind the
+// scenes (the same file the one line runs, with SOL_SKIP_APP=1: the app is already here), streaming its lines to the
+// page; Sign in to Claude opens Terminal on `claude auth login` (Claude's own sign-in wants a terminal to paste the
+// code in; the page cannot host it); welcome_done reads the root again, starts the engine and loads the face.
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -76,12 +76,14 @@ pub fn welcome_done(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// The main window on one of the bundled pages ("/" the face, "/welcome.html" the welcome), the same host it is on.
+/// The main window on one of the bundled pages ("/" the face, "/?firstrun=1" the first run), the same host it is on.
 pub fn show_page(app: &AppHandle, path: &str) {
     if let Some(w) = app.get_webview("main") {   // the face's web view; the window may hold a thing too (thing.rs)
         if let Ok(mut u) = w.url() {
-            u.set_path(path);
-            u.set_query(None);
+            // "/?firstrun=1": a query rides along (the first run, firstrun/FirstRun.tsx)
+            let (p, q) = path.split_once('?').map(|(p, q)| (p, Some(q))).unwrap_or((path, None));
+            u.set_path(p);
+            u.set_query(q);
             let _ = w.navigate(u);
         }
         crate::eye::apply(&w.window());   // the main window keeps the eye across its pages (eye.rs)

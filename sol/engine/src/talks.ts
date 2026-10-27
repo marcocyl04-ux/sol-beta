@@ -209,8 +209,10 @@ async function review(file: string): Promise<{ recap: string[]; review: Review }
 }
 
 /** the review into home/memory/talks.md, the talk's session and a `kept` line, once: anticipate.ts's keepTalk (the
- *  one keep for the stop's path and this page's); false when kept before or nothing was said */
+ *  one keep for the stop's path and this page's); false when kept before or nothing was said. The name goes through
+ *  pathOf first, as every other ask's does: keepTalk takes a name with a slash as a path (#280) */
 async function keep(file: string, say: TalkSay): Promise<boolean> {
+  pathOf(file);
   const kept = await keepTalk(file, say);
   if (kept) cache.delete(file);
   return kept;

@@ -883,6 +883,7 @@ svg.sol.sway .body { animation: sol-sway 1.6s ease-in-out infinite; }
 svg.sol.think .body { animation: sol-think 2.8s ease-in-out infinite; }
 svg.sol.squash .body { animation: sol-squash .32s cubic-bezier(.3, 1.6, .5, 1) 1; }
 svg.sol.still .body, svg.sol.still .eyes { animation: none !important; transition: none !important; }
+svg.sol .hop { transform-origin: 46px 88px; }   /* Sol.tsx life.hop: from his feet */
 svg.sol .eyes { transform-origin: 46px 47.5px; transition: transform .08s ease-out; }
 .mark-live { cursor: pointer; }
 @keyframes sol-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.015, 1.035); } }

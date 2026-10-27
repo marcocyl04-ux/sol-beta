@@ -26,10 +26,10 @@ export default defineConfig(() => ({
   // a person's own buttons live outside the face (sol/home/buttons): their react is the face's, from here
   resolve: { dedupe: ["react", "react-dom"] },
 
-  // the pages: the desktop face, the phone doorway (served by the engine at /away), the notch, the welcome (#169), the grab sheet
+  // the pages: the desktop face, the phone doorway (served by the engine at /away), the notch, the first run is the face itself (#134), the grab sheet
   build: {
     rollupOptions: {
-      input: { index: "index.html", away: "away.html", notch: "notch.html", welcome: "welcome.html", grab: "grab.html", vibe: "vibe.html" },
+      input: { index: "index.html", away: "away.html", notch: "notch.html", grab: "grab.html", vibe: "vibe.html" },
     },
   },
 

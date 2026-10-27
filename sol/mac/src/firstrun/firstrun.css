@@ -1,0 +1,132 @@
+/* The first run (#134, FirstRun.tsx): one layer over the face, in the goo (sol/skills/sol/look.md). The window's
+   colours are the look's (--base-color, --ink…): when scene 4 moves a slider this layer moves with it. The bodies are
+   goo.tsx's (dark goo of the base's own ink, bridged while they arrive); a thing that acts is a lit capsule in one of
+   the six jobs (brand moves on, sun is a switch that needs you, stone is quiet), its words white with a dark halo.
+   Scene 6 is clear: the real window shows through, dimmed, its one element in a liquid rim. */
+.firstrun { position: fixed; inset: 0; z-index: 60; display: flex; align-items: stretch; justify-content: center; background: rgb(from var(--base-color) r g b / 0.95); color: var(--ink); }
+.firstrun.clear { background: transparent; pointer-events: none; }
+.firstrun.clear > * { pointer-events: auto; }
+.firstrun.clear .fr-stage { pointer-events: none; }
+.fr-stage { position: relative; width: 100%; height: 100%; }
+.fr-stage > * { position: absolute; inset: 0; display: flex; flex-direction: column; }
+.fr-scene { flex: 1; }
+.fr-scene { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 48px 32px 96px; text-align: center; }
+.fr-col { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.fr-row { display: flex; align-items: center; gap: 12px; }
+
+/* the hero: Sol, outside the scenes, placed by its springs (Hero in FirstRun.tsx); his box is three times him, centred
+   on the translate point and scaled from there; goo.tsx draws him over his drops */
+.fr-hero { position: absolute; display: flex; align-items: center; justify-content: center; pointer-events: none; will-change: translate, scale; transition: opacity 320ms; z-index: 1; }
+.fr-herobox { position: relative; }
+.fr-herogoo { position: absolute; inset: 0; overflow: visible; }
+.fr-sol { position: absolute; transform-origin: 46% 58%; pointer-events: auto; cursor: pointer; touch-action: none; }
+.fr-sol svg.sol { filter: drop-shadow(0 10px 22px rgb(0 0 0 / 0.35)); }
+.fr-sol svg.sol .eyes { transition: transform .22s cubic-bezier(.3, 1.4, .5, 1); }
+/* while the first run owns Sol, the desk's own mark behind stays out of sight */
+body[data-firstrun] .empty .mark-live { visibility: hidden; }
+/* room for him: the hatch scene leaves the centre to him, the perch scenes leave the top */
+.fr-hello { justify-content: flex-start; }
+.fr-hello .fr-room { height: 40vh; flex: 0 0 auto; }
+.firstrun[data-scene="2"] .fr-scene, .firstrun[data-scene="3"] .fr-scene, .firstrun[data-scene="4"] .fr-scene, .firstrun[data-scene="7"] .fr-scene { padding-top: 176px; justify-content: flex-start; }
+.firstrun[data-scene="4"] .fr-scene { padding-top: 158px; gap: 10px; padding-bottom: 24px; }
+.fr-yours .fr-say { font-size: 22px; }
+/* the scene leaving: it goes up with the swap and out of the way; the one arriving is staggered in (Scene) */
+.fr-stage .swap-out { animation: fr-out 240ms ease-out forwards; }
+@keyframes fr-out { to { opacity: 0; } }
+
+/* what he says: one line, large, typed; the caret is a drop of his pink */
+.fr-say { margin: 0; font-size: 26px; font-weight: 400; letter-spacing: -0.01em; line-height: 1.3; color: var(--ink); text-wrap: balance; max-width: 34ch; }
+.fr-say.dim { color: var(--dim); font-size: 18px; }
+.fr-say.q { color: var(--dim); font-size: 18px; font-style: italic; }
+.fr-caret { display: inline-block; width: 7px; height: 7px; margin-left: 4px; border-radius: 50%; vertical-align: 0.05em; background: radial-gradient(circle at 35% 30%, #fff 0, #fb5ad0 45%, #ef3a2a 100%); animation: fr-drop 1.1s ease-in-out infinite; }
+@keyframes fr-drop { 0%, 100% { scale: 1 1; } 50% { scale: 1.25 .8; } }
+/* the name, in his bands */
+.fr-who { font-weight: 600; background: linear-gradient(90deg, #fb5ad0 0 30%, #ef3a2a 40% 60%, #fb7111 70% 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.fr-hint { margin: 0; font-size: 13px; color: var(--dim); max-width: 52ch; text-wrap: balance; }
+
+/* the name: a bare line over a dry channel of dots; what is typed wets it with the shore's liquid from the middle */
+.fr-name { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.fr-field { position: relative; display: block; width: min(520px, 80vw); padding-bottom: 12px; --wet: 0; }
+.fr-field::before { content: ""; position: absolute; left: 0; right: 0; bottom: 3px; height: 4px; background: radial-gradient(circle, var(--mute) 0 1.2px, transparent 1.6px) 0 50% / 10px 4px repeat-x; opacity: .7; }
+.fr-field::after { content: ""; position: absolute; left: 50%; bottom: 2px; height: 6px; width: calc(var(--wet) * 100%); translate: -50% 0; border-radius: 3px; background: linear-gradient(90deg, #ffe08a 0 22%, #ffb36b 28% 47%, #ff8fb8 53% 72%, #ff6fd0 78% 100%); box-shadow: inset 0 1px 0 rgb(255 255 255 / .45), inset 0 -1px 1px rgb(0 0 0 / .2); transition: width 420ms cubic-bezier(.3, 1.5, .5, 1); }
+.fr-input { width: 100%; padding: 6px 0 4px; background: none; border: 0; outline: 0; color: var(--ink); font: inherit; font-size: 34px; text-align: center; letter-spacing: -0.01em; caret-color: #fb5ad0; }
+.fr-input::placeholder { color: var(--mute); }
+
+/* the one button that moves on: a lit capsule in the brand's pink to orange (the engine's own pill, Status) */
+.fr-go, .fr-btn { position: relative; border: 0; font: inherit; cursor: pointer; color: #fff; font-weight: 600; letter-spacing: .01em; isolation: isolate;
+  background: radial-gradient(120% 90% at 30% 0%, rgb(255 255 255 / .42), transparent 55%), radial-gradient(90% 80% at 75% 120%, rgb(0 0 0 / .28), transparent 65%), var(--bands);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .35), inset 0 -2px 3px rgb(0 0 0 / .18), 0 8px 18px -8px rgb(0 0 0 / .6);
+  transition: scale 180ms cubic-bezier(.3, 1.6, .5, 1), filter 200ms; }
+.fr-go > span, .fr-btn > span { text-shadow: 0 1px 2px rgb(0 0 0 / .55), 0 0 8px rgb(0 0 0 / .35); }
+.fr-go { margin-top: 10px; padding: 12px 26px; border-radius: 999px; font-size: 14px; --bands: linear-gradient(95deg, #fb5ad0 0 14%, #f8478e 26% 40%, #ef3a2a 52% 64%, #fb7111 76% 100%); }
+.fr-go:hover:not(:disabled), .fr-btn:hover:not(:disabled) { scale: 1.04 .97; filter: saturate(1.1) brightness(1.05); }
+.fr-go:active:not(:disabled), .fr-btn:active:not(:disabled) { scale: 1.1 .86; }
+.fr-go:disabled, .fr-btn:disabled { cursor: default; --bands: linear-gradient(95deg, #9c918c 0 40%, #5f5553 60% 100%); filter: saturate(.6); }
+.fr-btn { padding: 8px 16px; border-radius: 999px; font-size: 13px; }
+/* sun: a switch that needs you, its heat calmed under the word */
+.fr-btn.sun { --bands: linear-gradient(100deg, #fcd50a 0 18%, #fba422 30% 62%, #fb7111 76% 100%); }
+/* stone: quiet */
+.fr-btn.stone { font-weight: 500; --bands: linear-gradient(100deg, #6e6460 0 30%, #574e4c 45% 100%); }
+
+/* the install: liquid in a dry channel of dots at the foot, a phrase under it */
+.fr-install { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
+.fr-line { position: relative; width: 100%; height: 6px; background: radial-gradient(circle, var(--mute) 0 1px, transparent 1.4px) 0 50% / 9px 6px repeat-x; }
+.fr-line i { position: absolute; left: 0; top: 1px; display: block; height: 4px; border-radius: 0 3px 3px 0; box-shadow: inset 0 1px 0 rgb(255 255 255 / .4); transition: width 900ms cubic-bezier(.3, 1.3, .5, 1); }
+.fr-line i::after { content: ""; position: absolute; right: -4px; top: -3px; width: 10px; height: 10px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff 0, #ff8fb8 45%, #ff6fd0 100%); box-shadow: 0 0 0 1px rgb(0 0 0 / .1); }
+.fr-phrase { margin: 0; font-size: 12px; color: var(--dim); letter-spacing: 0.02em; pointer-events: auto; }
+.fr-install.failed .fr-phrase { color: #ffb084; }
+.fr-log { max-height: 30vh; width: min(720px, 90vw); overflow: auto; margin: 0; padding: 12px 14px; font: 11px/1.5 var(--mono); color: var(--dim); text-align: left; pointer-events: auto; border-radius: 18px; }
+.fr-log, .fr-goo { background: radial-gradient(120% 80% at 18% 0%, rgb(255 255 255 / .07), transparent 60%), linear-gradient(180deg, rgb(from var(--ink) r g b / .14), rgb(from var(--ink) r g b / .06)); box-shadow: 0 18px 40px -18px rgb(0 0 0 / .7); }
+
+/* the goo bodies (goo.tsx GooBodies): drawn behind their cards; the words come in once the body has landed */
+.fr-bodies { position: relative; }
+.fr-bodies-goo { position: absolute; overflow: visible; pointer-events: none; z-index: 0; filter: drop-shadow(0 16px 26px rgb(0 0 0 / .45)); }
+.fr-goo-top { stop-color: var(--ink); stop-opacity: .15; }
+.fr-goo-low { stop-color: var(--ink); stop-opacity: .06; }
+.fr-goo-bands { opacity: .07; }
+.fr-body { position: relative; z-index: 1; opacity: 0; translate: 0 6px; transition: opacity 260ms ease-out, translate 360ms cubic-bezier(.3, 1.4, .5, 1); }
+.fr-body[data-in] { opacity: 1; translate: 0 0; }
+
+/* the cards: a body each, a lit bud with its glyph, a title, a line, a foot */
+.fr-cards { display: flex; flex-wrap: wrap; justify-content: center; gap: 22px; max-width: 1060px; }
+.fr-card { width: 232px; min-height: 186px; padding: 20px 20px 18px; display: flex; flex-direction: column; gap: 10px; text-align: left; align-items: flex-start; border-radius: 26px; will-change: translate, scale; }
+/* a sense that lands, and one that stays granted: the body washes spring from the top left */
+.fr-card.granted, .fr-card[data-just] { background: radial-gradient(120% 90% at 12% 0%, rgb(184 238 58 / .16), rgb(34 201 182 / .06) 55%, transparent 80%); }
+.fr-card[data-just] { background: radial-gradient(130% 100% at 12% 0%, rgb(184 238 58 / .34), rgb(34 201 182 / .12) 60%, transparent 85%); }
+.fr-card.denied { background: radial-gradient(120% 90% at 12% 0%, rgb(251 113 17 / .14), transparent 70%); }
+.fr-card p { margin: 0; font-size: 13px; color: var(--dim); line-height: 1.45; flex: 1; }
+.fr-card .dtitle { margin: 4px 0 0; font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
+.fr-bud { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+.fr-bud > svg { position: absolute; inset: 0; overflow: visible; filter: drop-shadow(0 3px 5px rgb(0 0 0 / .35)); }
+.fr-bud-glyph { position: relative; display: inline-flex; color: #fff; filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / .6)); }
+.fr-card-foot { display: flex; align-items: center; gap: 8px; min-height: 34px; }
+.fr-got { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); }
+.fr-got .cellcheck { width: 18px; height: 18px; }
+.fr-card-foot .dim, .fr-row .dim { font-size: 12px; color: var(--dim); }
+
+/* the look drawer as Settings draws it, one column, open, on a body of its own */
+.fr-drawerbox { width: min(680px, 90vw); }
+.fr-drawer { padding: 4px 26px 14px; text-align: left; border-radius: 30px; }
+.fr-drawer .drawer { border-bottom: 0; }
+.fr-drawer .drawer-h { pointer-events: none; }
+
+/* the keys: small caps of dark stone goo, lit */
+.fr-keys { display: inline-flex; gap: 5px; vertical-align: 1px; }
+.fr-keys span { padding: 2px 9px; border-radius: 9px; background: radial-gradient(120% 90% at 30% 0%, rgb(255 255 255 / .3), transparent 60%), linear-gradient(170deg, #6e6460, #463f3d); box-shadow: inset 0 1px 0 rgb(255 255 255 / .25), inset 0 -2px 2px rgb(0 0 0 / .3), 0 3px 6px -3px rgb(0 0 0 / .6); font-family: inherit; font-size: 0.78em; font-weight: 600; line-height: 1.5; color: #fff; text-shadow: 0 1px 2px rgb(0 0 0 / .55); }
+
+/* 6 together: the light on the real element (goo.tsx GooSpot) and the words beside it on a body */
+.fr-spot { position: fixed; inset: 0; pointer-events: none; z-index: 61; overflow: visible; }
+.fr-spot .fr-dim { fill: rgb(from var(--base-color) r g b / 0.66); }
+.fr-caption { position: fixed; z-index: 62; width: 360px; display: flex; flex-direction: column; gap: 8px; padding: 18px 20px; border-radius: 26px; text-align: left; pointer-events: auto; backdrop-filter: blur(14px); }
+.fr-caption .fr-say { font-size: 20px; }
+.fr-caption .fr-row { margin-top: 4px; }
+.fr-count { font-size: 11px; letter-spacing: 0.08em; font-variant-caps: all-small-caps; color: var(--mute); }
+
+/* 7 the card to keep */
+.fr-keepbox { width: min(440px, 90vw); }
+.fr-keepcard { padding: 22px 26px 18px; text-align: left; border-radius: 28px; display: flex; flex-direction: column; gap: 6px; }
+.fr-keepcard .dtitle { margin: 6px 0 4px; font-size: 18px; letter-spacing: -0.01em; text-transform: none; font-weight: 600; color: var(--ink); }
+.fr-keepcard p { margin: 0; font-size: 15px; line-height: 1.5; }
+.fr-keepcard p.dim { margin-top: 6px; font-size: 12px; color: var(--dim); }
+
+@media (prefers-reduced-motion: reduce) { .fr-caret { animation: none; } .fr-line i, .fr-field::after, .fr-body { transition: none; } }

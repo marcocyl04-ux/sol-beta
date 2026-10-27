@@ -2,8 +2,8 @@
 // from (CARGO_MANIFEST_DIR), and one node, whatever PATH gave; a downloaded Sol.app has neither. The root is the
 // checkout, the folder that holds `sol/`: first the path in the root file (`<app config dir>/root`, one line, written
 // by sol/install), then the build folder when it still holds sol/engine, so Marco's and the team's own builds keep
-// working with no file. No root: the main window shows the welcome page (welcome.html), whose Set up runs the bundled
-// install and whose Open Sol comes back here. node is the install's own (~/.sol/node/bin/node), else a login shell's
+// working with no file. No root: the main window shows the face on its first run (/?firstrun=1, src/firstrun), which runs
+// the bundled install and whose last button comes back here. node is the install's own (~/.sol/node/bin/node), else a login shell's
 // (what a terminal would run; an app opened from Finder has no Homebrew PATH), else `node` and PATH's luck.
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};

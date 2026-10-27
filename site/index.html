@@ -3,75 +3,290 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sol</title>
-<meta name="description" content="Sol: one window for all your AI. Install with one line, or one download.">
-<!-- sol.js.org (#169): the page people are sent to. The line with a copy button, the download, the one Open Anyway
-     picture, the Linux line. One file, no build; the colours are Sol's own (sol/design/palette.json: paper, ink).
-     The line names the github.io address until js.org approves sol.js.org (js-org/js.org#12847); then it goes back. -->
+<title>Sol · one window for all your AI</title>
+<meta name="description" content="Sol: one window for all your AI, on your own Mac. One download, or one line in Terminal.">
+<meta property="og:title" content="Sol">
+<meta property="og:description" content="One window for all your AI, on your own Mac.">
+<meta property="og:image" content="sol-window.jpg">
+<link rel="icon" href="sol.svg" type="image/svg+xml">
+<!-- sol.js.org (#169, #295): the page beta testers are sent to, written for a friend who is not a developer. What Sol
+     is, a real shot, the download and the one line, what you need, the Open Anyway step drawn, privacy in one
+     paragraph, the three pages. One file, no build. The look is Sol's own (sol/skills/sol/look.md): black, pearl ink,
+     bodies of dark goo lit from the top left, a thing that acts is a lit capsule. Sol is sol.svg drawn inline so he
+     breathes, blinks and watches the pointer like the face's (mac/src/Sol.tsx); under reduced motion he stands still.
+     The shot is the face's atlas still with the sidebar's titles blurred (they are Marco's own).
+     The line names the github.io address until js.org approves sol.js.org (js-org/js.org#12847); then it goes back.
+     privacy.html, terms.html and support.html (with text.css) came from docs/cloud/pages as PR #297 has them; the
+     privacy paragraph claims only what is true today (no crash reports, no usage data: the consent card brings them, #292). -->
 <style>
-  :root { color-scheme: dark; --page: #1a1a1a; --ink: #ebebe8; --dim: #9a9a97; --mute: #5c5c5a; --surface: #222; --line: #303030; --ok: #70df45; }
+  :root {
+    color-scheme: dark;
+    --page: #0c0c0c; --ink: #ebebe8; --dim: #9a9a97; --mute: #5c5c5a; --line: #262626;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    /* the goo body: dark goo of the ink itself, lit from the top left (firstrun.css .fr-goo) */
+    --goo: radial-gradient(120% 80% at 18% 0%, rgb(255 255 255 / .07), transparent 60%), linear-gradient(180deg, rgb(235 235 232 / .12), rgb(235 235 232 / .05));
+    --goo-shadow: 0 18px 40px -18px rgb(0 0 0 / .8);
+  }
   * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--page); color: var(--ink); font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Segoe UI", sans-serif; }
-  main { max-width: 560px; margin: 0 auto; padding: 88px 24px 64px; display: flex; flex-direction: column; gap: 28px; }
-  h1 { margin: 0; font-size: 52px; font-weight: 500; letter-spacing: -.02em; line-height: 1.05; }
-  h2 { margin: 0; font-size: 13px; font-weight: 500; color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+  html, body { margin: 0; background: var(--page); color: var(--ink); font: 17px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; -webkit-font-smoothing: antialiased; }
+  a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--mute); }
+  a:hover { border-color: var(--ink); }
   p { margin: 0; }
-  .lead { color: var(--dim); font-size: 18px; }
-  section { display: flex; flex-direction: column; gap: 10px; }
-  .line { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
-  .line code { flex: 1; font: 14px/1.4 ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink); user-select: all; overflow-wrap: anywhere; }
-  button, .btn { padding: 8px 16px; background: var(--ink); color: var(--page); border: 1px solid var(--ink); border-radius: 999px; font: inherit; font-size: 14px; cursor: pointer; text-decoration: none; white-space: nowrap; }
-  button.quiet { background: none; color: var(--ink); border-color: var(--line); }
-  button.done { color: var(--ok); border-color: var(--ok); background: none; }
-  .note { color: var(--dim); font-size: 14px; }
-  .note a { color: var(--ink); }
-  figure { margin: 6px 0 0; display: flex; flex-direction: column; gap: 8px; }
-  figure .frame { padding: 14px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; font-size: 14px; color: var(--dim); }
-  figure .frame b { color: var(--ink); font-weight: 500; }
-  figure .frame .open { display: inline-block; margin-top: 8px; padding: 4px 12px; border: 1px solid var(--mute); border-radius: 6px; color: var(--ink); }
-  figcaption { font-size: 13px; color: var(--dim); }
-  footer { color: var(--dim); font-size: 13px; }
-  footer a { color: var(--dim); }
+  main { max-width: 760px; margin: 0 auto; padding: 72px 24px 56px; display: flex; flex-direction: column; gap: 96px; }
+  section { display: flex; flex-direction: column; gap: 18px; }
+  h2 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  h3 { margin: 0; font-size: 26px; font-weight: 500; letter-spacing: -.01em; line-height: 1.2; }
+  .dim { color: var(--dim); }
+  .goo { background: var(--goo); box-shadow: var(--goo-shadow); border-radius: 28px; }
+
+  /* the top: Sol, his name, the one line */
+  .hero { align-items: center; text-align: center; gap: 14px; padding-top: 24px; }
+  .sol { width: 168px; height: 168px; cursor: pointer; overflow: visible; -webkit-tap-highlight-color: transparent; }
+  .sol .hop { transform-origin: 50% 92%; transform-box: view-box; }
+  .sol .body { transform-origin: 50% 90%; transform-box: view-box; animation: breathe 4.2s ease-in-out infinite; }
+  .sol .eyes { transform-box: fill-box; transform-origin: 50% 50%; transition: transform 90ms ease-out; }
+  .sol.squash .hop { animation: squash 320ms cubic-bezier(.3,1.4,.5,1); }
+  @keyframes breathe { 50% { transform: scale(1.025, 1.035); } }
+  @keyframes squash { 30% { transform: scale(1.14, .84); } 65% { transform: scale(.95, 1.06); } }
+  .shadow { width: 96px; height: 10px; margin-top: -18px; border-radius: 50%; background: radial-gradient(closest-side, rgb(0 0 0 / .9), transparent); filter: blur(2px); }
+  h1 { margin: 6px 0 0; font-size: 64px; font-weight: 600; letter-spacing: -.03em; line-height: 1; }
+  .lead { font-size: 26px; line-height: 1.3; letter-spacing: -.01em; }
+  .sub { color: var(--dim); max-width: 34em; }
+  .beta { display: inline-block; margin-top: 4px; padding: 3px 12px; border-radius: 999px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); box-shadow: inset 0 0 0 1px var(--line); }
+
+  /* the shot: the real window, a little wider than the column */
+  .shot { margin: -32px -60px 0; }
+  .shot .frame { padding: 10px; border-radius: 22px; background: var(--goo); box-shadow: 0 40px 80px -30px rgb(0 0 0 / .9); }
+  .shot img { display: block; width: 100%; height: auto; border-radius: 13px; }
+  .shot figcaption { margin-top: 14px; text-align: center; font-size: 14px; color: var(--dim); }
+
+  /* get it: one body, the download and the line */
+  .get { padding: 34px 34px 30px; display: flex; flex-direction: column; gap: 22px; }
+  .get .row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .or { display: flex; align-items: center; gap: 14px; color: var(--mute); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+  .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  /* the lit capsules: brand (the one thing to do), pearl, and stone (quiet) */
+  .cap { position: relative; display: inline-flex; align-items: center; gap: 10px; padding: 13px 26px; border: 0; border-radius: 999px; font: inherit; font-size: 17px; font-weight: 600; color: #fff; cursor: pointer; text-decoration: none; text-shadow: 0 1px 2px rgb(0 0 0 / .45), 0 0 8px rgb(0 0 0 / .25); transition: transform 160ms cubic-bezier(.3,1.4,.5,1), filter 160ms; }
+  .cap:hover { transform: translateY(-1px); filter: brightness(1.06); border: 0; }
+  .cap:active { transform: scale(.97, .94); }
+  .cap.brand { background: radial-gradient(120% 140% at 25% 0%, rgb(255 255 255 / .35), transparent 50%), linear-gradient(100deg, #fcd50a, #fb7111 30%, #fb3a98 65%, #fb5ad0); box-shadow: inset 0 1px 0 rgb(255 255 255 / .35), inset 0 -3px 4px rgb(0 0 0 / .18), 0 10px 24px -10px rgb(251 58 152 / .6); }
+  .cap.stone { padding: 8px 18px; font-size: 14px; background: radial-gradient(120% 90% at 30% 0%, rgb(255 255 255 / .28), transparent 60%), linear-gradient(170deg, #6e6460, #463f3d); box-shadow: inset 0 1px 0 rgb(255 255 255 / .22), inset 0 -2px 2px rgb(0 0 0 / .3), 0 4px 8px -4px rgb(0 0 0 / .6); }
+  .cap.done { background: radial-gradient(120% 90% at 30% 0%, rgb(255 255 255 / .3), transparent 60%), linear-gradient(170deg, #5fd98a, #22c9b6); }
+  .cap svg { width: 18px; height: 18px; flex: none; }
+  .line { display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 20px; border-radius: 999px; background: rgb(0 0 0 / .45); box-shadow: inset 0 1px 3px rgb(0 0 0 / .6), inset 0 0 0 1px rgb(255 255 255 / .05); }
+  .line code { flex: 1; min-width: 0; font: 13px/1.4 var(--mono); color: var(--ink); user-select: all; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .line code::-webkit-scrollbar { display: none; }
+  .hint { font-size: 15px; color: var(--dim); }
+  kbd { display: inline-block; padding: 0 8px; border-radius: 7px; font: 600 13px/1.6 inherit; color: #fff; background: radial-gradient(120% 90% at 30% 0%, rgb(255 255 255 / .25), transparent 60%), linear-gradient(170deg, #5a524f, #3a3432); box-shadow: inset 0 1px 0 rgb(255 255 255 / .2), 0 2px 4px -2px rgb(0 0 0 / .6); }
+
+  /* what you need: three bodies */
+  .need { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .need > div { padding: 22px 22px 20px; display: flex; flex-direction: column; gap: 8px; border-radius: 24px; }
+  .need b { font-size: 18px; font-weight: 600; }
+  .need p { font-size: 15px; color: var(--dim); line-height: 1.45; }
+  .need .glyph { width: 30px; height: 30px; margin-bottom: 6px; }
+  .need .opt { opacity: .78; }
+
+  /* the first open: macOS's own window, drawn */
+  .steps { display: flex; flex-direction: column; gap: 26px; }
+  .steps ol { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; counter-reset: s; }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 28px 1fr; gap: 10px; font-size: 15px; color: var(--dim); line-height: 1.45; }
+  .steps li::before { content: counter(s); width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 600; color: #fff; background: radial-gradient(120% 90% at 30% 0%, rgb(255 255 255 / .28), transparent 60%), linear-gradient(170deg, #6e6460, #463f3d); }
+  .steps li b { color: var(--ink); font-weight: 600; }
+  .steps li.here::before { background: radial-gradient(120% 90% at 30% 0%, rgb(255 255 255 / .35), transparent 55%), linear-gradient(170deg, #fcd50a, #fb7111); }
+  .mac { border-radius: 14px; overflow: hidden; background: #1e1e1e; box-shadow: 0 0 0 1px rgb(255 255 255 / .1), 0 30px 60px -24px rgb(0 0 0 / .9); font: 13px/1.35 -apple-system, BlinkMacSystemFont, sans-serif; color: #e5e5e5; user-select: none; }
+  .mac .win { display: grid; grid-template-columns: 190px 1fr; min-height: 300px; }
+  .mac .side { padding: 12px 10px; background: #262626; display: flex; flex-direction: column; gap: 2px; }
+  .mac .lights { display: flex; gap: 8px; padding: 2px 4px 14px; }
+  .mac .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+  .mac .lights i:nth-child(2) { background: #febc2e; } .mac .lights i:nth-child(3) { background: #28c840; }
+  .mac .search { margin: 0 2px 10px; padding: 4px 8px; border-radius: 7px; background: #333; color: #8a8a8a; font-size: 12px; }
+  .mac .item { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; color: #d8d8d8; white-space: nowrap; }
+  .mac .item i { width: 18px; height: 18px; border-radius: 5px; flex: none; }
+  .mac .item.on { background: #0a64d8; color: #fff; }
+  .mac .pane { padding: 20px 26px; display: flex; flex-direction: column; gap: 12px; }
+  .mac .title { font-size: 15px; font-weight: 700; }
+  .mac .label { margin-top: 4px; font-size: 12px; font-weight: 700; color: #a8a8a8; }
+  .mac .group { border-radius: 10px; background: #2a2a2a; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .06); }
+  .mac .group > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; }
+  .mac .group > div + div { border-top: 1px solid #383838; }
+  .mac .pop { padding: 2px 8px; border-radius: 6px; background: #3d3d3d; font-size: 12px; color: #e5e5e5; white-space: nowrap; }
+  .mac .anyway { position: relative; padding: 3px 12px; border-radius: 6px; background: #4a4a4a; color: #fff; font-size: 12.5px; white-space: nowrap; }
+  .mac .anyway::after { content: ""; position: absolute; inset: -7px; border-radius: 12px; box-shadow: 0 0 0 2px #fcd50a, 0 0 18px 2px rgb(252 213 10 / .45); animation: ring 2.4s ease-in-out infinite; }
+  @keyframes ring { 50% { inset: -10px; opacity: .55; } }
+  .mac .scroll { color: #7a7a7a; font-size: 11px; text-align: center; letter-spacing: .1em; text-transform: uppercase; }
+  .mac .dimmed { color: #8a8a8a; }
+  .later { font-size: 15px; color: var(--dim); }
+
+  /* privacy, light: one body, one paragraph */
+  .yours { padding: 28px 32px; display: grid; grid-template-columns: 56px 1fr; gap: 20px; align-items: start; }
+  .yours svg { width: 56px; height: 56px; }
+  .yours p { color: var(--dim); }
+  .yours p b { color: var(--ink); font-weight: 600; }
+
+  footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding-top: 28px; border-top: 1px solid var(--line); font-size: 14px; color: var(--dim); }
+  footer nav { display: flex; gap: 22px; }
+  footer a { color: var(--dim); border: 0; }
+  footer a:hover { color: var(--ink); }
+  .mini { display: inline-flex; align-items: center; gap: 8px; }
+  .mini svg { width: 20px; height: 20px; }
+
+  @media (max-width: 860px) { .shot { margin: -32px 0 0; } }
+  @media (max-width: 640px) {
+    main { gap: 72px; padding-top: 48px; }
+    h1 { font-size: 52px; } .lead { font-size: 22px; }
+    .need { grid-template-columns: 1fr; }
+    .steps ol { grid-template-columns: 1fr; }
+    .mac .win { grid-template-columns: 1fr; } .mac .side { display: none; }
+    .mac .pane { padding: 18px 16px 20px; } .mac .group > div { padding: 10px 14px 10px 10px; } .mac .pop { font-size: 11px; }
+    .get { padding: 26px 20px; } .yours { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) { .sol .body, .mac .anyway::after { animation: none; } .sol.squash .hop { animation: none; } }
 </style>
 </head>
 <body>
 <main>
-  <div>
+
+  <section class="hero">
+    <svg class="sol" id="sol" viewBox="0 0 100 100" role="img" aria-label="Sol">
+      <defs>
+        <clipPath id="b"><path id="outline" d="M89.1 53.4C89.1 54.3 89.0 55.4 88.7 56.3C88.4 57.3 88.0 58.3 87.5 59.2C86.9 60.1 86.1 60.9 85.2 61.7C84.3 62.4 83.2 63.1 82.1 63.7C81.0 64.3 79.6 64.7 78.6 65.2C77.6 65.7 76.5 66.0 75.9 66.6C75.3 67.2 75.0 67.8 75.0 68.7C74.9 69.6 75.4 70.7 75.8 71.9C76.1 73.1 76.9 74.6 77.2 76.0C77.6 77.3 77.9 78.8 77.9 80.1C77.9 81.3 77.7 82.5 77.3 83.5C76.9 84.5 76.4 85.4 75.7 86.2C75.1 87.1 74.3 87.8 73.4 88.4C72.6 88.9 71.7 89.4 70.7 89.8C69.7 90.2 68.6 90.4 67.5 90.5C66.4 90.5 65.2 90.5 64.1 90.2C62.9 89.9 61.6 89.5 60.4 88.9C59.2 88.3 58.0 87.4 56.9 86.7C55.8 85.9 54.8 85.0 53.8 84.3C52.9 83.7 52.1 83.1 51.3 82.8C50.5 82.4 49.8 82.2 49.1 82.2C48.4 82.1 47.8 82.2 47.1 82.4C46.4 82.7 45.8 83.0 45.0 83.6C44.3 84.1 43.5 84.9 42.7 85.7C41.8 86.6 40.9 87.7 39.9 88.7C38.8 89.7 37.7 90.9 36.5 91.8C35.3 92.7 34.1 93.5 32.9 94.0C31.7 94.6 30.4 94.9 29.2 95.1C28.0 95.3 26.8 95.3 25.7 95.1C24.6 95.0 23.5 94.6 22.5 94.2C21.5 93.7 20.6 93.1 19.8 92.3C19.0 91.6 18.3 90.7 17.7 89.7C17.2 88.6 16.8 87.4 16.6 86.1C16.4 84.8 16.5 83.3 16.5 81.9C16.5 80.6 16.7 79.2 16.5 78.2C16.2 77.2 15.6 76.6 14.8 76.1C13.9 75.6 12.6 75.4 11.3 75.1C10.1 74.7 8.5 74.5 7.3 74.0C6.1 73.5 4.8 72.9 3.9 72.1C3.0 71.4 2.2 70.5 1.7 69.5C1.1 68.6 0.8 67.5 0.7 66.4C0.6 65.3 0.7 64.1 1.0 62.9C1.3 61.8 1.8 60.6 2.5 59.5C3.2 58.4 4.2 57.2 5.1 56.2C6.1 55.2 7.3 54.2 8.3 53.4C9.4 52.5 10.6 51.7 11.4 50.9C12.3 50.2 13.1 49.5 13.3 48.7C13.6 48.0 13.3 47.2 13.0 46.3C12.6 45.4 11.8 44.4 11.3 43.4C10.8 42.4 10.3 41.3 10.0 40.2C9.7 39.1 9.5 38.1 9.5 37.1C9.5 36.0 9.6 35.0 9.9 34.1C10.2 33.2 10.6 32.3 11.1 31.5C11.6 30.7 12.2 29.9 13.0 29.3C13.7 28.6 14.5 28.0 15.4 27.6C16.3 27.1 17.3 26.8 18.4 26.6C19.4 26.4 20.6 26.3 21.8 26.4C23.0 26.5 24.4 26.8 25.6 27.1C26.8 27.4 28.1 27.9 29.1 28.2C30.2 28.5 31.1 28.8 32.0 28.9C32.8 29.0 33.5 29.0 34.1 28.9C34.8 28.8 35.4 28.5 35.9 28.2C36.5 28.0 37.0 27.6 37.6 27.1C38.1 26.6 38.6 26.1 39.1 25.4C39.7 24.8 40.2 24.0 40.8 23.2C41.4 22.4 42.0 21.6 42.6 20.6C43.3 19.7 44.0 18.7 44.8 17.6C45.6 16.5 46.5 15.3 47.5 14.1C48.4 13.0 49.5 11.8 50.6 10.7C51.7 9.7 52.9 8.7 54.1 7.9C55.3 7.2 56.6 6.5 57.9 6.1C59.2 5.6 60.5 5.3 61.7 5.2C63.0 5.0 64.3 5.0 65.6 5.2C66.8 5.3 68.1 5.5 69.2 6.0C70.3 6.4 71.5 7.0 72.4 7.8C73.3 8.7 74.1 9.8 74.7 11.0C75.2 12.3 75.6 13.8 75.8 15.4C75.9 17.0 75.8 18.9 75.4 20.8C75.0 22.7 74.2 24.9 73.5 26.9C72.8 28.8 71.8 30.8 71.2 32.3C70.7 33.8 70.2 34.9 70.1 35.9C70.0 36.9 70.2 37.5 70.5 38.1C70.8 38.7 71.4 39.1 72.0 39.6C72.7 40.0 73.6 40.3 74.6 40.7C75.6 41.0 76.9 41.3 78.1 41.7C79.3 42.1 80.8 42.5 82.0 43.1C83.2 43.6 84.4 44.3 85.4 45.0C86.3 45.7 87.1 46.6 87.7 47.5C88.2 48.4 88.6 49.4 88.8 50.4C89.0 51.3 89.1 52.4 89.1 53.4Z"/></clipPath>
+        <filter id="f" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="7"/></filter>
+      </defs>
+      <g class="hop"><g class="body">
+        <g clip-path="url(#b)"><rect width="100" height="100" fill="#fb3a98"/><g filter="url(#f)"><path d="M46.1 53.4L115.4 13.4A80 80 0 0 1 117.7 89.1Z" fill="#fcd50a"/><path d="M46.1 53.4L117.7 89.1A80 80 0 0 1 50.3 133.2Z" fill="#9ed40a"/><path d="M46.1 53.4L50.3 133.2A80 80 0 0 1 -16.5 103.2Z" fill="#fb7111"/><path d="M46.1 53.4L-16.5 103.2A80 80 0 0 1 -33.5 45.7Z" fill="#ef3a2a"/><path d="M46.1 53.4L-33.5 45.7A80 80 0 0 1 24.7 -23.7Z" fill="#b8ee3a"/><path d="M46.1 53.4L24.7 -23.7A80 80 0 0 1 115.4 13.4Z" fill="#fb5ad0"/><circle cx="46.1" cy="53.4" r="27" fill="#fb3a98"/></g></g>
+        <g class="eyes" id="eyes"><rect x="29.8" y="44.2" width="6" height="6.6" fill="#000"/><rect x="35.8" y="44.2" width="6" height="6.6" fill="#fff"/><rect x="47.4" y="44.2" width="6.3" height="6.6" fill="#000"/><rect x="53.7" y="44.2" width="6" height="6.6" fill="#fff"/></g>
+      </g></g>
+    </svg>
+    <div class="shadow"></div>
     <h1>Sol</h1>
-    <p class="lead">One window for all your AI, on your own Mac. Your chats, your coding agents, your browser, a desk, your voice, and the tools you make, in one place that is yours.</p>
-  </div>
+    <p class="lead">One window for all your AI.</p>
+    <p class="sub">Claude, ChatGPT's Codex, your browser, notes and your voice, together in one app on your own Mac. You talk; Sol does the clicking.</p>
+    <span class="beta">beta · round one</span>
+  </section>
 
-  <section>
-    <h2>Mac, the line</h2>
-    <div class="line"><code id="line">curl -fsSL https://marcocyl04-ux.github.io/sol-beta/install | sh</code><button id="copy" class="quiet" type="button">copy</button></div>
-    <p class="note">Paste it in Terminal. It asks what to call you, puts Sol in <code>~/Sol</code> and opens it. A few minutes, once. No GitHub account, no Homebrew.</p>
+  <figure class="shot">
+    <div class="frame"><img src="sol-window.jpg" width="1600" height="1029" alt="Sol's window on a Mac: a list of your chats on the left, Sol in the middle, and one box at the bottom to talk to Claude or Codex."></div>
+    <figcaption>Sol on a Mac: your chats on the left, one box to talk to any of your AIs.</figcaption>
+  </figure>
+
+  <section id="get">
+    <h2>Get Sol</h2>
+    <div class="get goo">
+      <div class="row">
+        <a class="cap brand" href="https://github.com/marcocyl04-ux/sol-beta/releases/latest/download/Sol-mac.zip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
+          Download Sol for Mac
+        </a>
+        <p class="hint">Unzip it, open Sol, and it sets itself up.<br>The first time, macOS asks you to allow it (below).</p>
+      </div>
+      <div class="or">or, one line</div>
+      <div class="line"><code id="line">curl -fsSL https://marcocyl04-ux.github.io/sol-beta/install | sh</code><button id="copy" class="cap stone" type="button">copy</button></div>
+      <p class="hint">Open Terminal (press <kbd>⌘</kbd> <kbd>space</kbd>, type <i>Terminal</i>, press <kbd>return</kbd>), paste the line, press <kbd>return</kbd>. It asks your name, sets everything up and opens Sol. A few minutes, once. This way skips the macOS step below.</p>
+    </div>
   </section>
 
   <section>
-    <h2>Mac, the download</h2>
-    <div><a class="btn" href="https://github.com/marcocyl04-ux/sol-beta/releases/latest/download/Sol-mac.zip">download Sol for Mac</a></div>
-    <p class="note">Unzip, open Sol. It asks the same question and sets itself up. Sol is not yet signed with Apple, so the first time macOS stops and asks once:</p>
-    <figure>
-      <div class="frame"><b>"Sol" Not Opened</b><br>Apple could not verify "Sol" is free of malware.<br><span class="open">Open Anyway</span> &nbsp;<span style="font-size:12px">in System Settings → Privacy &amp; Security, under the message</span></div>
-      <figcaption>one click, one time; the line above needs none</figcaption>
-    </figure>
+    <h2>What you need</h2>
+    <div class="need">
+      <div class="goo">
+        <svg class="glyph" viewBox="0 0 30 30" fill="none" stroke="#ebebe8" stroke-width="2" stroke-linecap="round"><rect x="4" y="6" width="22" height="14" rx="2.5"/><path d="M11 25h8M15 20v5"/></svg>
+        <b>A Mac</b>
+        <p>Any recent Mac. Windows and Linux come later.</p>
+      </div>
+      <div class="goo">
+        <svg class="glyph" viewBox="0 0 30 30" fill="none" stroke="#ebebe8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="15" r="5.5"/><path d="M15.5 15H27M23 15v4M27 15v3"/></svg>
+        <b>Your own Claude plan</b>
+        <p>Claude Pro or Max. You sign in to Claude yourself, so the thinking runs on your own plan.</p>
+      </div>
+      <div class="goo opt">
+        <svg class="glyph" viewBox="0 0 30 30" fill="none" stroke="#ebebe8" stroke-width="2" stroke-linecap="round"><rect x="11" y="3" width="8" height="15" rx="4"/><path d="M6 14a9 9 0 0 0 18 0M15 23v4"/></svg>
+        <b>A Gemini key, for voice</b>
+        <p>Only if you want to talk out loud with Sol. It's free from <a href="https://aistudio.google.com/apikey">Google AI Studio</a>; skip it otherwise.</p>
+      </div>
+    </div>
   </section>
 
   <section>
-    <h2>Linux, and Windows under WSL</h2>
-    <div class="line"><code>curl -fsSL https://marcocyl04-ux.github.io/sol-beta/install | sh</code></div>
-    <p class="note">The same line; no app there, Sol opens in your browser. Windows: inside Ubuntu under WSL (<code>wsl --install</code> once in PowerShell).</p>
+    <h2>The first open</h2>
+    <h3>macOS asks once. Here's where to click.</h3>
+    <p class="dim">Sol isn't signed by Apple yet, so the first time you open the download, your Mac stops it to be careful. You allow it once and it never asks again.</p>
+    <div class="steps">
+      <ol>
+        <li><span>Open Sol. macOS says <b>"Sol" Not Opened</b>. Click <b>Done</b>.</span></li>
+        <li class="here"><span>Open <b>System Settings</b>, then <b>Privacy &amp; Security</b>. Scroll down and click <b>Open Anyway</b>.</span></li>
+        <li><span>Click <b>Open Anyway</b> once more and type your Mac's password. Sol opens.</span></li>
+      </ol>
+      <div class="mac" role="img" aria-label="macOS System Settings, Privacy and Security: under Security, the message Sol was blocked to protect your Mac, with an Open Anyway button beside it.">
+        <div class="win">
+          <div class="side">
+            <div class="lights"><i></i><i></i><i></i></div>
+            <div class="search">Search</div>
+            <div class="item"><i style="background:#2e8cf0"></i>Wi‑Fi</div>
+            <div class="item"><i style="background:#2e8cf0"></i>Bluetooth</div>
+            <div class="item"><i style="background:#8a8a8a"></i>General</div>
+            <div class="item"><i style="background:#8a8a8a"></i>Appearance</div>
+            <div class="item"><i style="background:#ff6b3d"></i>Notifications</div>
+            <div class="item on"><i style="background:#2e8cf0"></i>Privacy &amp; Security</div>
+            <div class="item"><i style="background:#8a8a8a"></i>Desktop &amp; Dock</div>
+            <div class="item"><i style="background:#3fbf5c"></i>Battery</div>
+          </div>
+          <div class="pane">
+            <div class="title">Privacy &amp; Security</div>
+            <div class="group">
+              <div><span>Location Services</span><span class="pop">On</span></div>
+              <div><span>Accessibility</span><span class="dimmed">›</span></div>
+            </div>
+            <div class="scroll">scroll down</div>
+            <div class="label">Security</div>
+            <div class="group">
+              <div><span>Allow applications from</span><span class="pop">App Store &amp; Known Developers ⌃</span></div>
+              <div><span>"Sol" was blocked to protect your Mac.</span><span class="anyway">Open Anyway</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
-  <footer>Sol is in beta. The code: <a href="https://github.com/marcocyl04-ux/sol-beta">github.com/marcocyl04-ux/sol-beta</a>. Something wrong, or a thought: open an issue there.</footer>
+  <section>
+    <h2>Your things stay yours</h2>
+    <div class="yours goo">
+      <svg viewBox="0 0 56 56" fill="none" stroke="#ebebe8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="12" width="40" height="27" rx="3.5"/><path d="M21 46h14M28 39v7"/><rect x="22" y="22" width="12" height="9" rx="2"/><path d="M24.5 22v-3a3.5 3.5 0 0 1 7 0v3"/></svg>
+      <p><b>Sol runs on your computer.</b> Your chats and your files stay there; what you ask Claude goes straight from your Mac to Claude, under your own account. Sol sends us no crash reports and nothing about how you use it. The whole story is on the <a href="privacy.html">privacy page</a>.</p>
+    </div>
+  </section>
+
+  <footer>
+    <span class="mini"><svg viewBox="0 0 100 100"><use href="#outline" fill="#ebebe8"/></svg><span>Sol is in beta. Something wrong, or a thought? <a href="support.html">Tell us</a>.</span></span>
+    <nav><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="support.html">Support</a></nav>
+  </footer>
+
 </main>
 <script>
+  // copy the line
   const b = document.getElementById("copy");
   b.addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText(document.getElementById("line").textContent); b.textContent = "copied"; b.className = "done"; }
+    try { await navigator.clipboard.writeText(document.getElementById("line").textContent); b.textContent = "copied"; b.classList.add("done"); }
     catch { b.textContent = "select and copy"; }
-    setTimeout(() => { b.textContent = "copy"; b.className = "quiet"; }, 2000);
+    setTimeout(() => { b.textContent = "copy"; b.classList.remove("done"); }, 2000);
   });
+
+  // Sol's life, as in the face (mac/src/Sol.tsx): he blinks now and then, his eyes follow the pointer, a click squashes him
+  const sol = document.getElementById("sol"), eyes = document.getElementById("eyes");
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let lx = 0, ly = 0, shut = false;
+  const draw = () => { eyes.style.transform = `translate(${lx}px, ${ly}px)` + (shut ? " scaleY(.12)" : ""); };
+  if (!still) {
+    const blink = () => setTimeout(() => { shut = true; draw(); setTimeout(() => { shut = false; draw(); blink(); }, 110); }, 2400 + Math.random() * 3600);
+    blink();
+    addEventListener("pointermove", (ev) => {
+      const r = sol.getBoundingClientRect(), dx = (ev.clientX - (r.left + r.width / 2)) / r.width, dy = (ev.clientY - (r.top + r.height / 2)) / r.height;
+      const d = Math.hypot(dx, dy) || 1, k = Math.min(1, d / 3);
+      lx = (dx / d) * k * 2.4; ly = (dy / d) * k * 1.6; draw();
+    });
+    sol.addEventListener("click", () => { sol.classList.remove("squash"); void sol.getBoundingClientRect(); sol.classList.add("squash"); setTimeout(() => sol.classList.remove("squash"), 340); });
+  }
 </script>
 </body>
 </html>

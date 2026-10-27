@@ -128,7 +128,7 @@ function uptime(since?: string, now = Date.now()) {
 // shown read-only, so the page is honest about what is in force without pretending a change would land.
 // the Work modes' names, as the composer says them (#94)
 const MODE_NAMES: [string, string][] = [["auto", "auto"], ["default", "manual: ask for each"], ["acceptEdits", "accept edits"], ["plan", "plan"], ["bypassPermissions", "bypass permissions"]];
-const FALLBACK: S = {
+export const FALLBACK: S = {
   voice: "Kore", patienceMs: 600, language: "follow",
   defaults: { seat: "codex", model: { codex: "gpt-6.1-sol", claude: "claude-opus-5-5" }, effort: { codex: "medium", claude: "medium" }, mode: "default" },
   look: LOOK_DEFAULT,
@@ -136,7 +136,7 @@ const FALLBACK: S = {
 
 // The look (mine/look/SPEC.md): the base colour, how much of the desktop shows through, the blur behind, and his bubble.
 // A slider shows live while it drags (applyLook on the root) and tells the engine once, at the end, like patience.
-function LookDrawer({ s, off, onSet, open, onToggle }: { s: S; off: boolean; onSet: (patch: object) => void; open: boolean; onToggle: () => void }) {
+export function LookDrawer({ s, off, onSet, open, onToggle }: { s: S; off: boolean; onSet: (patch: object) => void; open: boolean; onToggle: () => void }) {
   const look = s.look ?? LOOK_DEFAULT;
   const [live, setLive] = useState<{ alpha?: number; blur?: number; text?: number }>({});
   const alpha = live.alpha ?? look.alpha, blur = live.blur ?? look.blur, text = live.text ?? look.text ?? LOOK_DEFAULT.text;
@@ -190,7 +190,7 @@ function LookDrawer({ s, off, onSet, open, onToggle }: { s: S; off: boolean; onS
         </div>
       </div>
       <div className="bpreview" data-bubble={look.bubble}>
-        <div className="me-row"><div className="msg me">go, start with the unshare flag, then check both engines</div></div>
+        <div className="me-row"><div className="msg me">this is how your words will look.</div></div>
       </div>
     </Drawer>
   );

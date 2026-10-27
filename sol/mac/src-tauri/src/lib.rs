@@ -613,8 +613,8 @@ pub fn run() {
             )?;
             hot::init(app.handle());
             grab::warm(app.handle());
-            // no checkout to run (a downloaded app, before its install): the welcome page instead of the face (#169)
-            if root::root(app.handle()).is_none() { welcome::show_page(app.handle(), "/welcome.html"); }
+            // no checkout to run (a downloaded app, before its install): the face on its first run, which installs (#169, #134)
+            if root::root(app.handle()).is_none() { welcome::show_page(app.handle(), "/?firstrun=1"); }
             let face_item = MenuItem::with_id(app, "face", hot::tray_text(hot::wanted(app.handle())), true, None::<&str>)?;
             app.state::<hot::Hot>().0.lock().unwrap().tray = Some(face_item.clone());
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;

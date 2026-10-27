@@ -1,5 +1,5 @@
 import { landOn } from "./land";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useLayoutEffect, useState } from "react";
 import { useEngine, keptSession } from "./useEngine";
 import { useOneSol } from "./oneSol";
 import { type AppMode } from "./ModeSwitch";
@@ -12,6 +12,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { onOpenAsk, wireSend } from "./renovation";
 import { migrate } from "./migrate";
 import { applyLook } from "./look";
+import { firstRunWanted } from "./firstrun/FirstRun";
+
+// the first run (#134, firstrun/FirstRun.tsx) lies over the app: a new person meets Sol inside the real window
+const FirstRun = lazy(() => import("./firstrun/FirstRun"));
 
 // The app has its modes, picked on the wheel at the top of the side: Home (#132: sessions in folders and chats, on
 // Work's shell, work/WorkApp.tsx) and Cowork (Home with the team, Together #31: its own side). Social waits off the
@@ -25,6 +29,7 @@ const keep = (open: object) => localStorage.setItem("sol.home.open", JSON.string
 export default function App() {
   const e = useEngine();
   const [mode, setMode] = useState<AppMode>(MODE0);
+  const [first, setFirst] = useState(firstRunWanted);
   const pick = (m: AppMode) => { localStorage.setItem("sol.mode", m); setMode(m); };
   useLayoutEffect(() => { document.documentElement.dataset.mode = mode; setPaper(mode === "home" ? "home" : "work"); }, [mode]);   // Cowork is on Work's paper
   useLayoutEffect(() => { if (e.settings) applyLook(e.settings.look); }, [e.settings]);   // the look, whenever settings arrive (look.ts)
@@ -71,5 +76,10 @@ export default function App() {
   usePings(e, useWorkWho(e, mode === "home"), SOLO);
   useOneSol();   // One Sol (#62): the main window watches the NucBox, whatever the mode shows
   if (SOLO) return <WorkApp e={e} onMode={() => {}} solo={SOLO} />;
-  return mode === "cowork" ? <CoworkApp e={e} onMode={pick} /> : <WorkApp e={e} onMode={pick} />;
+  return (
+    <>
+      {mode === "cowork" ? <CoworkApp e={e} onMode={pick} /> : <WorkApp e={e} onMode={pick} />}
+      {first && <Suspense fallback={null}><FirstRun e={e} onDone={() => setFirst(false)} /></Suspense>}
+    </>
+  );
 }
