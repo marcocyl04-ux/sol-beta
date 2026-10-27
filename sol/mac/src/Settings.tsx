@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Fold, Turn } from "./MotionKit";
-import { CFG, stagger, reducedMotion } from "./motion";
+import { reducedMotion } from "./motion";
 import { PART_NAMES, PRESETS, setPart, setVibe, useVibe, type Part, type Prefs } from "./vibe";
 import { ONE, FELL } from "./engine";
 import { ENGINE, WHICH, LIVE, NEXT, FAR_NAME, pickEngine, sameEngine, keptMachines, type Effort, type EngineInfo, type Health, type Models, type Seat, type Settings as S, type GoBackPlan } from "./useEngine";
@@ -11,6 +11,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useRenovation } from "./renovation";
 import { applyLook, BUBBLES, LOOK_DEFAULT, SWATCHES } from "./look";
+import { SettingsShell, ShellSection, Switch, useShell } from "./settingsShell";
 
 // Mutable mode (lib.rs, hot.rs): the app's windows load Vite's dev pages, so edits to sol/mac/src appear in place.
 // Only inside Sol.app; in a plain browser there is no shell to ask.
@@ -40,11 +41,11 @@ function PartRows({ k, p }: { k: keyof Prefs; p: Part }) {
       <p className="vpart-h">{PART_NAMES[k]}</p>
       <div className="field-r">
         <div className="lab"><span>shown</span></div>
-        <Pick value={p.on ? "on" : "off"} options={[["off", "off"], ["on", "on"]]} onChange={(v) => setPart(k, { on: v === "on" })} />
+        <Switch on={p.on} label={`${PART_NAMES[k]} shown`} set={(v) => setPart(k, { on: v })} />
       </div>
       <div className="field-r">
         <div className="lab"><span>follows the music</span><small>{k === "ring" ? "turns faster and swells on the beat" : "widens and brightens with what is playing"}</small></div>
-        <Pick value={p.music ? "on" : "off"} options={[["off", "off"], ["on", "on"]]} onChange={(v) => setPart(k, { music: v === "on" })} />
+        <Switch on={p.music} label={`${PART_NAMES[k]} follows the music`} set={(v) => setPart(k, { music: v })} />
       </div>
       <div className="field-r">
         <div className="lab"><span>size</span></div>
@@ -91,6 +92,7 @@ function vibeHint(v: ReturnType<typeof useVibe>): string {
 
 // Takes the place of the talk and the box. One drawer open at a time; the height animates with a grid row.
 export function Drawer({ name, open, onToggle, children }: { name: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  if (useShell()) return <ShellSection name={name}>{children}</ShellSection>;   // in Settings: one section of the rail, drawn when picked
   return (
     <section className={`drawer ${open ? "open" : ""}`}>
       <button className="drawer-h" onClick={onToggle} aria-expanded={open}>
@@ -229,9 +231,8 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
     void look();
   };
 
-  const col = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => { if (col.current) stagger(col.current.querySelectorAll(".drawer"), { y: 18, gap: 55, delay: 60, cfg: CFG.slide }); }, [!!real, up]); // eslint-disable-line react-hooks/exhaustive-deps
-  const toggle = (n: string) => setOpen((o) => (o === n ? "" : n));
+  // in the shell a section is picked, never closed: toggle is the drawers' old word for "open this one"
+  const toggle = (n: string) => setOpen(n);
   // the mark held while settings are up (Mark.tsx VibeMark): the music drawer opens here, nothing else is redrawn
   useEffect(() => {
     const f = () => setOpen("music");
@@ -292,10 +293,10 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
   );
   if (!up || (!real && !stale)) {
     return (
-      <div className="settings"><Shut onClose={onClose} /><div className="settings-col">
-        <p className="hint-line">{up ? "loading…" : "the engine is down; it comes back by itself under its keeper, or pick the other one"}</p>
+      <SettingsShell open="engine" setOpen={setOpen} peek={{ engine: <i className={`sdot ${up ? "up" : "down"}`} /> }}
+        top={<><Shut onClose={onClose} /><p className="hint-line top stale">{up ? "loading…" : "the engine is down; it comes back by itself under its keeper, or pick the other one"}</p></>}>
         {engineDrawer}
-      </div></div>
+      </SettingsShell>
     );
   }
   // no settings from this engine: its defaults, every control disabled until real ones arrive
@@ -307,11 +308,22 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
   const seatModels = (k: Seat) => models.seats.find((x) => x.seat === k)?.models ?? [];
   const patience_ = patience ?? s.patienceMs;
 
+  // what each section is set to now, as a word or a mark beside it in the rail
+  const seatNow = s.defaults.seat ?? "codex";
+  const micNow = s.mic ? mics.find((m) => m.deviceId === s.mic)?.label : "";
+  const peek: Record<string, React.ReactNode> = {
+    voice: s.voice === VOICE_OFF ? "off" : s.voice.toLowerCase(),
+    microphone: micNow ? micNow.replace(/\s*\(.*\)$/, "").slice(0, 14) : "default",
+    defaults: (s.defaults.model[seatNow] ?? "").replace(/^claude-/, "").replace(/^gpt-/, "gpt "),
+    look: <i className="sdot swatch-peek" style={{ background: s.look?.color ?? LOOK_DEFAULT.color }} />,
+    music: vb.want ? "on" : "off",
+    engine: <i className={`sdot ${up ? "up" : "down"}`} />,
+  };
+
   return (
-    <div className={`settings ${off ? "off" : ""}`}>
-      <Shut onClose={onClose} />
-      <div className="settings-col" ref={col}>
-        {off && <p className="hint-line top stale">the engine is older than this window; restart it to change these</p>}
+    <SettingsShell open={open} setOpen={setOpen} peek={peek}
+      top={<><Shut onClose={onClose} />{off && <p className="hint-line top stale">the engine is older than this window; restart it to change these</p>}</>}>
+      <div className={off ? "settings-off" : ""} style={{ display: "contents" }}>
         <ControlDrawers open={open} toggle={toggle} onSet={onSet} />
         <Drawer name="voice" open={open === "voice"} onToggle={() => toggle("voice")}>
           <div className="voices">
@@ -361,7 +373,7 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
         <Drawer name="music" open={open === "music"} onToggle={() => toggle("music")}>
           <div className="field-r">
             <div className="lab"><span>vibe mode</span><small>Sol's colours round the screen and the chat box, moving with what this Mac plays</small></div>
-            <Pick value={vb.want ? "on" : "off"} options={[["off", "off"], ["on", "on"]]} disabled={!inApp || reducedMotion()} onChange={(v) => setVibe(v === "on")} />
+            <Switch on={vb.want} label="vibe mode" disabled={!inApp || reducedMotion()} set={setVibe} />
           </div>
           <p className="hint-line">{vibeHint(vb)}</p>
           {(["screen", "frame", "ring"] as (keyof Prefs)[]).map((k) => <PartRows key={k} k={k} p={vb.prefs[k]} />)}
@@ -392,6 +404,6 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
         {engineDrawer}
         {more?.(open, toggle)}
       </div>
-    </div>
+    </SettingsShell>
   );
 }

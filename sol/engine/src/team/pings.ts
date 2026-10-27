@@ -65,6 +65,14 @@ export function pingOf(m: Record<string, any>): Ping | null {
   };
 }
 
+/** a teammate's "<name> asks for an audit" (Cowork, a person's row) when my setting under "what leaves this machine"
+ * says never: the line my agent sends straight back, or null when the ping is anything else or audits may be asked (pure) */
+export const AUDIT_ASK = /\basks for an audit\s*$/i;
+export function auditTurnedDown(p: Pick<Ping, "kind" | "line" | "from">, audit: "ask" | "never", me: string): string | null {
+  if (audit !== "never" || p.kind !== "chat" || p.from.agent || !AUDIT_ASK.test(p.line)) return null;
+  return `turned the audit down: audits are off in ${me ? `${me}'s` : "their"} settings (what leaves this machine)`;
+}
+
 /** the line a "when it matters" call leaves on the issue the ping is about (pure) */
 export const absorbedLine = (login: string, p: Pick<Ping, "kind" | "line">) => `**absorbed** by ${login}'s agent: ${p.kind} ping, ${p.line}`;
 

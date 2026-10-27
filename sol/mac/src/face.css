@@ -501,6 +501,74 @@ svg.voicebody { display: block; flex: none; }
 /* ---- settings: takes the place of the talk and the box ---- */
 .settings { flex: 1; overflow-y: auto; padding: 8px 24px 32px; }
 .settings-col { max-width: var(--col); margin: 0 auto; }
+/* the shell (settingsShell.tsx, map sol/design/maps/settings.html): a rail of grouped sections with icons on the left,
+   one section on the right; the rail and the pane scroll on their own */
+.settings-shell { flex: 1; display: grid; grid-template-columns: auto minmax(0, 1fr); padding: 0; overflow: hidden; min-height: 0; container-type: inline-size; }
+.srail { position: relative; width: 216px; display: flex; flex-direction: column; min-height: 0; padding: 12px 8px 16px 12px; border-right: 1px solid var(--line); }
+.ssearch { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; padding: 0 8px; height: 30px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-s); color: var(--mute); cursor: text; }
+.ssearch:focus-within { border-color: var(--mute); color: var(--dim); }
+.ssearch input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--ink); font: inherit; font-size: 12.5px; }
+.ssearch input::placeholder { color: var(--mute); }
+.ssearch kbd { font: inherit; font-size: 10.5px; color: var(--mute); }
+.ssearch:focus-within kbd { display: none; }
+.sitems { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.sgroup { margin: 12px 8px 4px; font-size: 11px; letter-spacing: 0.08em; font-variant-caps: all-small-caps; color: var(--mute); }
+.sgroup:first-child { margin-top: 2px; }
+.sitem { display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 8px; background: none; border: 0; border-radius: var(--r-s); color: var(--dim); font: inherit; font-size: 13px; text-align: left; cursor: pointer; flex: none; }
+.sitem .sicon { flex: none; opacity: .8; }
+.sitem .st { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sitem:hover { color: var(--ink); background: rgb(from var(--ink) r g b / 0.04); }
+.sitem.on { color: var(--ink); background: var(--raised); box-shadow: inset 0 1px 0 rgba(255,255,255,.08); }
+.sitem.on .sicon { opacity: 1; }
+.sitem:focus-visible { outline: 1px solid var(--mute); outline-offset: -1px; }
+.speek { flex: none; max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--mute); }
+.sitem.on .speek { color: var(--dim); }
+.sdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; vertical-align: middle; }
+.sdot.up { background: var(--ok, #6bd66b); box-shadow: 0 0 6px var(--ok, #6bd66b); }
+.sdot.down { background: var(--warn, #f2b24a); }
+.sdot.swatch-peek { width: 10px; height: 10px; border: 1px solid var(--edge); }
+.snone { margin: 8px; font-size: 12px; color: var(--mute); }
+.spane-wrap { min-height: 0; overflow-y: auto; padding: 22px 32px 48px; }
+.spane-wrap > .hint-line.stale { max-width: var(--col); margin: 0 0 14px; }
+.spane { max-width: var(--col); animation: spane-in .22s cubic-bezier(.2,.8,.2,1); }
+@keyframes spane-in { from { opacity: 0; transform: translateY(6px); } }
+.sp-head { display: flex; align-items: center; gap: 14px; margin: 0 0 18px; }
+.sp-ic { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: var(--r); background: var(--raised); color: var(--ink); box-shadow: inset 0 1px 0 rgba(255,255,255,.10); }
+.sp-head h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
+.sp-head p { margin: 2px 0 0; font-size: 12.5px; color: var(--dim); }
+/* the section's rows sit on one card, a hairline between them */
+.sp-body { padding: 4px 16px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); }
+.sp-body > .field-r + .field-r, .sp-body .vpart .field-r + .field-r { border-top: 1px solid var(--line); }
+.sp-body > .hint-line.top:first-child { margin: 10px 0 4px; }
+.sp-body > .hint-line { margin: 8px 0 6px; }
+.sp-body .ctl-sub { margin: 18px 0 4px; padding-top: 14px; border-top: 1px solid var(--line); }
+.sp-body .voices { margin: 12px 0 14px; }
+.sp-body .facts { padding: 12px 0 4px; }
+.sp-body .field-r.hit, .sp-body .vcard.hit, .sp-body .ctl-machine.hit, .sp-body .wcopy.hit { box-shadow: inset 2px 0 0 var(--glow); background: rgb(from var(--glow) r g b / 0.06); border-radius: var(--r-s); }
+.sp-body .field-r.hit { margin: 0 -10px; padding-left: 10px; padding-right: 10px; }
+.sp-body .ctl-sub.hit { color: var(--ink); }
+.sp-body .bubbles .pair { max-width: 520px; flex-wrap: nowrap; }
+/* the vibe parts: each part a small card of its own */
+.sp-body .vpart { margin: 10px 0 0; padding: 4px 12px 8px; border: 1px solid var(--line); border-radius: var(--r); }
+.sp-body .vpart-h { margin: 8px 0 2px; }
+/* narrow: the rail turns to icons */
+@container (max-width: 640px) {
+  .srail { width: 52px; padding: 10px 6px; }
+  .ssearch { padding: 0; justify-content: center; }
+  .ssearch input, .ssearch kbd, .sgroup, .sitem .st, .speek { display: none; }
+  .ssearch:focus-within { position: absolute; z-index: 3; width: 200px; padding: 0 8px; background: var(--pop); }
+  .ssearch:focus-within input { display: block; }
+  .sitem { justify-content: center; padding: 0; height: 34px; }
+  .spane-wrap { padding: 18px 18px 40px; }
+}
+/* a switch: on is ink, off is a hollow track */
+.switch { position: relative; flex: none; width: 38px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: var(--pill); background: rgb(from var(--ink) r g b / 0.08); cursor: pointer; transition: background .18s, border-color .18s; }
+.switch i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--dim); transition: transform .2s cubic-bezier(.3,1.4,.5,1), background .18s; }
+.switch.on { background: var(--ink); border-color: var(--ink); }
+.switch.on i { transform: translateX(16px); background: var(--base-color); }
+.switch:hover:not(:disabled) { border-color: var(--mute); }
+.switch:focus-visible { outline: 1px solid var(--mute); outline-offset: 2px; }
+.switch:disabled { opacity: .45; cursor: default; }
 /* the way out, where the panes close: under the 44px bar, clear of the traffic lights, still while the drawers scroll */
 .settings-x { position: fixed; top: 52px; right: 10px; z-index: 2; font-size: 16px; line-height: 1; }
 /* history: every conversation, by day */
@@ -578,9 +646,9 @@ svg.voicebody { display: block; flex: none; }
 .hint-line.top { margin: 0 0 6px; }
 .hint-line.stale { margin: 0 0 14px; }
 /* an engine too old to send its settings: what is in force, read-only */
-.settings.off .vcard { cursor: default; }
-.settings.off .vcard:hover { background: var(--surface); }
-.settings.off .crange { opacity: 0.5; pointer-events: none; }
+.settings-off .vcard { cursor: default; }
+.settings-off .vcard:hover { background: var(--surface); }
+.settings-off .crange { opacity: 0.5; pointer-events: none; }
 .link { background: none; border: 0; padding: 0; font: inherit; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--dim); cursor: pointer; }
 .facts { display: grid; grid-template-columns: 110px 1fr; row-gap: 8px; margin: 0; font-size: 13px; }
 .facts dt { color: var(--dim); }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Drawer, Pick } from "../Settings";
+import { Switch } from "../settingsShell";
 import { WHICH } from "../useEngine";
 import type { Work } from "./useWork";
 import { PINGS, loadPings, savePings, type Pings } from "./pings";
@@ -29,7 +30,7 @@ export function Seg<T extends string | boolean | number>({ value, options, onCha
     </div>
   );
 }
-export const OnOff = ({ on, set, disabled }: { on: boolean; set: (v: boolean) => void; disabled?: boolean }) => <Seg value={on} options={[[false, "off"], [true, "on"]]} onChange={set} disabled={disabled} />;
+export const OnOff = ({ on, set, disabled, label }: { on: boolean; set: (v: boolean) => void; disabled?: boolean; label?: string }) => <Switch on={on} set={set} disabled={disabled} label={label} />;
 
 // a text setting: kept on Enter or on leaving the field
 export function Field({ value, placeholder, onSave }: { value: string; placeholder?: string; onSave: (v: string) => void }) {
@@ -60,7 +61,7 @@ export function WorkDrawers({ w, open, toggle, flash }: { w: Work; open: string;
   const loadCopies = () => { setCopies(null); void w.ask<Copies>("work.copies", {}, 60_000).then(setCopies); };
   const loadAbout = () => void w.ask<About>("work.about", {}, 15_000).then(setAbout);
   // the slow drawers ask when they open
-  useEffect(() => { if (open === "side copies" && !copies) loadCopies(); if (["writing", "tools", "machine"].includes(open)) loadAbout(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open === "side copies" && !copies) loadCopies(); if (["sessions", "machine"].includes(open)) loadAbout(); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const remove = async (c: Copy, force = false) => {
     setBusy(c.path); setSure(null);
@@ -143,11 +144,24 @@ export function WorkDrawers({ w, open, toggle, flash }: { w: Work; open: string;
       </>)}
     </Drawer>
 
-    <Drawer name="box" open={open === "box"} onToggle={() => toggle("box")}>
+    <Drawer name="sessions" open={open === "sessions"} onToggle={() => toggle("sessions")}>
       <div className="field-r">
         <div className="lab"><span>suggested prompts</span><small>after a turn, a next prompt waits in the box; Tab or → takes it</small></div>
         <OnOff on={p?.suggest ?? true} set={(v) => void set({ suggest: v })} disabled={off} />
       </div>
+      <div className="field-r">
+        <div className="lab"><span>Claude may drive the browser</span><small>open, read and click pages in the browser pane; it still asks. From the next session that starts or wakes</small></div>
+        <OnOff on={p?.browser ?? true} set={(v) => void set({ browser: v })} disabled={off} />
+      </div>
+      <div className="field-r">
+        <div className="lab"><span>output style</span><small>how Claude writes in a new session</small></div>
+        <Pick value={p?.style ?? ""} disabled={off} onChange={(v) => void set({ style: v })}
+          options={[["", "default"], ...[...(about?.styles?.builtIn ?? []), ...(about?.styles?.custom ?? [])].map((x): [string, string] => [x, x])]} />
+      </div>
+      <p className="hint-line">
+        your own styles are .md files in {tilde(about?.styles?.dir ?? "~/.claude/output-styles")}
+        {mac && about?.styles?.dir && <> · <button className="link" onClick={() => void opener().then((o) => o.openPath(about.styles!.dir)).catch(() => flash("there is no such folder yet"))}>open it</button></>}
+      </p>
     </Drawer>
 
     <Drawer name="pings" open={open === "pings"} onToggle={() => toggle("pings")}>
@@ -161,38 +175,6 @@ export function WorkDrawers({ w, open, toggle, flash }: { w: Work; open: string;
       <div className="field-r"><div className="lab"><span>bounce the dock</span></div><OnOff on={pings.attention} set={(v) => setPing({ attention: v })} /></div>
       <div className="field-r"><div className="lab"><span>a sound</span></div><OnOff on={pings.sound} set={(v) => setPing({ sound: v })} /></div>
       {!mac && <p className="hint-line">banners come from the engine's machine; on the NucBox there are none</p>}
-    </Drawer>
-
-    <Drawer name="browser" open={open === "browser"} onToggle={() => toggle("browser")}>
-      <div className="field-r">
-        <div className="lab"><span>Claude may drive the browser</span><small>open, read and click pages in the browser pane (it still asks)</small></div>
-        <OnOff on={p?.browser ?? true} set={(v) => void set({ browser: v })} disabled={off} />
-      </div>
-      <p className="hint-line">for sessions that start or wake after this</p>
-    </Drawer>
-
-    <Drawer name="writing" open={open === "writing"} onToggle={() => toggle("writing")}>
-      <div className="field-r">
-        <div className="lab"><span>output style</span><small>how Claude writes in a new session</small></div>
-        <Pick value={p?.style ?? ""} disabled={off} onChange={(v) => void set({ style: v })}
-          options={[["", "default"], ...[...(about?.styles?.builtIn ?? []), ...(about?.styles?.custom ?? [])].map((x): [string, string] => [x, x])]} />
-      </div>
-      <p className="hint-line">
-        your own styles are .md files in {tilde(about?.styles?.dir ?? "~/.claude/output-styles")}
-        {mac && about?.styles?.dir && <> · <button className="link" onClick={() => void opener().then((o) => o.openPath(about.styles!.dir)).catch(() => flash("there is no such folder yet"))}>open it</button></>}
-      </p>
-    </Drawer>
-
-    <Drawer name="tools" open={open === "tools"} onToggle={() => toggle("tools")}>
-      {!about ? <p className="hint-line top">reading…</p> : !about.tools ? <p className="hint-line top">a session that has run since the engine started shows what it loaded</p> : (
-        <div className="wtools">
-          {([["skills", about.tools.skills], ["plugins", about.tools.plugins], ["agents", about.tools.agents]] as [string, string[]][]).map(([k, xs]) => (
-            <div key={k} className="wtrow"><span className="k">{k}</span><span className="v">{xs.length ? xs.join(" · ") : "none"}</span></div>
-          ))}
-          <div className="wtrow"><span className="k">MCP servers</span><span className="v">{about.tools.mcp.length ? about.tools.mcp.map((m) => <span key={m.name} className={`mcp ${m.status}`}>{m.name}<i /></span>) : "none"}</span></div>
-          <p className="hint-line">from ~/.claude, the plugins and the folder's .mcp.json, as the newest session loaded them{about.tools.cwd ? ` (${base(about.tools.cwd)})` : ""}</p>
-        </div>
-      )}
     </Drawer>
 
     <Drawer name="machine" open={open === "machine"} onToggle={() => toggle("machine")}>

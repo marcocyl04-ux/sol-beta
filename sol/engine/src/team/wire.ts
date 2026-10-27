@@ -41,7 +41,7 @@ import { sessionItems, sessionInfo } from "../work/sessions.js";
 import { startTry, stopTry, tryState, setTryBus, reviewTry, reviewItems, markReady, commentPr, okRepo, okPr } from "./try.js";
 import { getShared, openShared, onShared, forgetShared } from "./share.js";
 // --- Pings and felt or silent (#100)
-import { pingOf, route, keepPing, absorbedLine, flipped, learnedLine, lastPing, kindOf, claimPing, type Ping, type ClaimHit } from "./pings.js";
+import { pingOf, route, keepPing, absorbedLine, flipped, learnedLine, lastPing, kindOf, claimPing, auditTurnedDown, type Ping, type ClaimHit } from "./pings.js";
 import { flipBody } from "./mark.js";
 import { signature, mayAgentSpeak } from "./settings.js";
 import { teamNote, runGit } from "./note.js";
@@ -934,6 +934,9 @@ function heardPing(m: Record<string, any>): object | null {
   if (!p) return null;
   keepPing(p);
   const s = getTeam();
+  // an audit asked while "what leaves this machine" says never: my agent turns it down at once, no card (the switch's word)
+  const no = auditTurnedDown(p, s.leaves.audit, s.me.login);
+  if (no) { sendRelay("ping", { to: p.from.login, line: no, pingKind: "chat" }, true); return null; }
   const r = route(p.kind, s.dials[p.kind]);
   if (r.written) void writeAbsorbed(p).catch(() => {});
   return r.card ? { type: "team.pinged", id: p.id, kind: p.kind, from: p.from, line: p.line, at: p.at, ...(p.issue ? { issue: p.issue } : {}), ...(p.repo ? { repo: p.repo } : {}), ...(m.spooled ? { spooled: true } : {}) } : null;

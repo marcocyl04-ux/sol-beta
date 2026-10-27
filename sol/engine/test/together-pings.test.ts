@@ -148,3 +148,13 @@ test("team_note: a decision pings the issue's other holders; a heads-up the othe
   const down = { ...d, ping: () => false };
   assert.match(await teamNote(down, { issue: 17, kind: "heads-up", lines: "x", to: 91 }), /frank not in sight, no ping$/);
 });
+
+test("an audit asked when my setting says never: turned down at once by my agent, otherwise nothing", () => {
+  const ask = { kind: "chat" as const, line: "frank asks for an audit", from: { login: "frank", agent: false } };
+  assert.equal(P.auditTurnedDown(ask, "never", "marco"), "turned the audit down: audits are off in marco's settings (what leaves this machine)");
+  assert.equal(P.auditTurnedDown(ask, "ask", "marco"), null);                                  // may be asked: a card for me
+  assert.equal(P.auditTurnedDown({ ...ask, line: "frank: the audit is done" }, "never", "marco"), null);   // another line
+  assert.equal(P.auditTurnedDown({ ...ask, kind: "clash" }, "never", "marco"), null);           // another kind
+  assert.equal(P.auditTurnedDown({ ...ask, from: { login: "frank", agent: true } }, "never", "marco"), null);   // not from a person
+  assert.equal(P.auditTurnedDown(ask, "never", ""), "turned the audit down: audits are off in their settings (what leaves this machine)");
+});
