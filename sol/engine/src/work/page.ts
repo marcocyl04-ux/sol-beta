@@ -2,6 +2,7 @@
 // renders it with <base href="http://<engine>/pane-asset/<its folder, encoded>/">, so the page's own relative
 // assets (images, styles, scripts, fonts) come from beside it. Only files below that folder are served, and only
 // of these kinds; a path that resolves outside it (a link, "..") is refused.
+import { randomBytes } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { extname, join, sep } from "node:path";
@@ -15,9 +16,16 @@ const ASSET: Record<string, string> = {
   ".mp4": "video/mp4", ".webm": "video/webm", ".mp3": "audio/mpeg", ".wav": "audio/wav",
 };
 
-// "/pane-asset/<folder>/<rel>" → the folder (one encoded segment, an absolute path) and the relative path under it
+// The key a page's assets carry (2026-10-26): a page's images came back as "?" in a window whose requests carry no
+// Referer (the bundled window: tauri:// to http is a downgrade, so WebKit sends none), and the door refused them. The
+// key is handed only over the socket (work.read), which the door already let in, and is new each start; an asset
+// asked for under it needs no Referer. "/pane-asset/k.<key>/<folder>/<rel>"
+export const PANE_KEY = randomBytes(16).toString("hex");
+export const keyedAsset = (path: string) => path.startsWith(`/pane-asset/k.${PANE_KEY}/`);
+
+// "/pane-asset/[k.<key>/]<folder>/<rel>" → the folder (one encoded segment, an absolute path) and the relative path under it
 export function assetOf(url: string): { dir: string; rel: string } | null {
-  const m = /^\/pane-asset\/([^/?#]+)\/([^?#]*)/.exec(url);
+  const m = /^\/pane-asset\/(?:k\.[0-9a-f]{32}\/)?([^/?#]+)\/([^?#]*)/.exec(url);
   if (!m) return null;
   let dir: string, rel: string;
   try { dir = decodeURIComponent(m[1]); rel = decodeURIComponent(m[2]); } catch { return null; }

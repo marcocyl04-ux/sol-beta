@@ -83,7 +83,7 @@ export function Shared({ team }: { team: Team }) {
         <h2>shared with me</h2>
         <span className="cdim">{s.reading && !s.at ? "reading the team's repositories…" : s.at ? `${count} things in ${s.repos.length} ${s.repos.length === 1 ? "repository" : "repositories"} · ${readAgo(s.at)}` : ""}</span>
         <span className="cgrow1" />
-        <button className="cbtn ghost" onClick={() => void read(team, true)} disabled={s.reading} title="read the team's repositories again">{s.reading ? "reading…" : "read again"}</button>
+        <button className="wbtn ghost" onClick={() => void read(team, true)} disabled={s.reading} title="read the team's repositories again">{s.reading ? "reading…" : "read again"}</button>
       </header>
       {s.error && <p className="shwrong">{s.error}</p>}
       {!s.repos.length && s.at > 0 && <p className="cnone">the team has no repositories yet (Settings, the team)</p>}

@@ -1,11 +1,7 @@
-// Watching a teammate's shown session (Show to team, #101): read-only, plain lines with a mark for who said it (them,
-// their agent, a tool it used), following the end as new lines come. No box, no reply, no tool: to say something,
-// use the chat. The tail comes from this engine's memory (team.shown.get), then every line as it is heard.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { ShownLine, Showing, Team } from "./useTeam";
-import { since } from "./bits";
-
-const MARK: Record<ShownLine["role"], string> = { person: "›", agent: "◆", tool: "·" };
+// Watching a teammate's shown session (Show to team, #101): read-only, no box, no reply, no tool. The tail comes from
+// this engine's memory (team.shown.get), then every line as it is heard. A person's page draws it (Person.tsx Convo).
+import { useEffect, useState } from "react";
+import type { ShownLine, Team } from "./useTeam";
 
 /** one teammate's shown session, watched while the caller is mounted (#101, #223; a room session's too, #238): its tail
  *  from this engine's memory, then every line as it is heard; on a cloud, the hub is asked to send its lines here, and
@@ -51,36 +47,4 @@ export function useWatch(team: Team, login: string, id: string, ask = true) {
   const note = refused || (light === "red" ? "Cowork is chat only for now; the AI view comes back later"
     : light === "yellow" || light === "orange" ? "the cloud is busy: updates come slower" : "");
   return { lines, ended, note, waiting };
-}
-
-export function Watch({ team, show, onClose }: { team: Team; show: Showing; onClose: () => void }) {
-  const w = useWatch(team, show.login, show.session.id), { lines, note } = w, ended = w.ended || w.waiting;   // a show this engine no longer knows is no longer shown
-
-  // the pane follows the end while you are at the end; scrolled up, it stays where you are
-  const box = useRef<HTMLDivElement>(null);
-  const atEnd = useRef(true);
-  useLayoutEffect(() => { const b = box.current; if (b && atEnd.current) b.scrollTop = b.scrollHeight; }, [lines]);
-
-  return (
-    <section className="cwatch" aria-label={`${show.login}'s session, read-only`}>
-      <header>
-        <span className={`cwatchdot ${ended ? "off" : ""}`} />
-        <b>{show.login}</b>
-        <span className="cdim">{show.issue ? `#${show.issue} ` : ""}{show.session.title.replace(/^#\d+\s*/, "")}</span>
-        <span className="cgrow1" />
-        <span className="cdim">{ended ? "no longer shown" : "read-only"}</span>
-        <button className="wlink" onClick={onClose} aria-label="close">×</button>
-      </header>
-      {note && <p className="cdim" role="status">{note}</p>}
-      <div className="cwatchlines" ref={box} onScroll={(ev) => { const b = ev.currentTarget; atEnd.current = b.scrollHeight - b.scrollTop - b.clientHeight < 24; }}>
-        {lines === null ? <p className="cnone">reading…</p>
-          : !lines.length ? <p className="cnone">nothing said since the show began</p>
-          : lines.map((l, i) => (
-            <p key={i} className={`cwl ${l.role}`} title={`${l.role === "person" ? show.login : l.role === "agent" ? `${show.login}'s agent` : "a tool"} · ${since(l.at)}`}>
-              <i>{MARK[l.role]}</i><span>{l.text}</span>
-            </p>
-          ))}
-      </div>
-    </section>
-  );
 }

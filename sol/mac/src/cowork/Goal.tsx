@@ -62,7 +62,7 @@ export function GoalPage({ team, room, onBack, flash }: { team: Team; room: Room
           <form className="rm-sh-form rm-gp-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
             <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="one line: what this room is for" aria-label="the goal" maxLength={120} />
             <textarea value={lines} onChange={(e) => setLines(e.target.value)} placeholder="a few plain lines: what done looks like (optional)" rows={4} aria-label="what done looks like" />
-            <span className="acts"><button className="cbtn" type="submit" disabled={!title.trim()}>set the goal</button>{g.title && <button className="cbtn ghost" type="button" onClick={() => setEdit(false)}>cancel</button>}</span>
+            <span className="acts"><button className="wbtn" type="submit" disabled={!title.trim()}>set the goal</button>{g.title && <button className="wbtn ghost" type="button" onClick={() => setEdit(false)}>cancel</button>}</span>
           </form>
         ) : (<>
           <h2 className="rm-gp-t">{g.title}</h2>
@@ -93,9 +93,9 @@ export function GoalPage({ team, room, onBack, flash }: { team: Team; room: Room
                 <textarea value={adding.text} onChange={(e) => setAdding({ ...adding, text: e.target.value, error: undefined })} placeholder="paste a prompt or a brief: text, 64 KB at most" rows={6} aria-label="the file's text" />
                 {adding.error && <span className="err" role="alert">{adding.error}</span>}
                 <span className="acts">
-                  <button className="cbtn" type="submit" disabled={adding.busy}>{adding.busy ? "adding…" : "put it beside the goal"}</button>
-                  <button className="cbtn ghost" type="button" onClick={() => pick.current?.click()}>or pick a text file</button>
-                  <button className="cbtn ghost" type="button" onClick={() => setAdding(null)}>cancel</button>
+                  <button className="wbtn" type="submit" disabled={adding.busy}>{adding.busy ? "adding…" : "put it beside the goal"}</button>
+                  <button className="wbtn ghost" type="button" onClick={() => pick.current?.click()}>or pick a text file</button>
+                  <button className="wbtn ghost" type="button" onClick={() => setAdding(null)}>cancel</button>
                 </span>
               </form>
             ) : (

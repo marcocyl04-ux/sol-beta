@@ -1,6 +1,7 @@
 /* The room (#234; the studio PRD §3–§4, vM.html frame s1). Every surface stands on a step of the look (README "The
    look: the glass"): --page, --side, --surface, --raised, --line, --edge, --ink, --dim, --mute. The only hue is a
-   person's colour (--who, on the tile they are in) and the creature's own pixels. Motion moves transform only. */
+   person's family band (--fam, the ring on the tile they are in and the neck to their bud, bits.tsx useBand) and the
+   creature's own pixels. Motion moves transform only. */
 .cstage[data-view="dashboard"], .cstage[data-view="thing"], .cstage[data-view="member"], .cstage[data-view="goal"] { overflow: hidden; position: relative; }
 .cstage[data-view="repo"] { overflow-y: auto; }
 .rm-room { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 400px; }
@@ -36,31 +37,34 @@
 .rm-note { margin: 0 0 12px; font-size: 12.5px; color: var(--dim); }
 .rm-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; max-width: 900px; }
 .rm-tile { position: relative; aspect-ratio: 1; min-width: 0; border-radius: var(--r-l); background: var(--surface); border: 1px solid var(--line); }
-.rm-tile.in { border: 2px solid var(--who); }
+/* a tile someone is in: a ring in their family's band (mine/look/COWORK.html), their bud on the corner on a neck of it */
+.rm-tile.in::after { content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 2px; background: var(--fam); pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
 .rm-tile.add { background: none; border: 1.5px dashed var(--mute); }
 .rm-tile-in { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: flex-start; padding: 16px 16px 14px; border: 0; border-radius: inherit; background: none; font: inherit; color: var(--ink); text-align: left; cursor: pointer; }
 .rm-tile-in:hover { transform: translateY(-2px); }
 .rm-tile .nm { margin-top: auto; font-size: 14px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .rm-tile.add .nm { color: var(--dim); font-weight: 500; }
 .rm-tile .wh { font-size: 11.5px; color: var(--dim); line-height: 1.35; margin-top: 3px; }
-.rm-tile .wh.now { color: var(--who); font-weight: 500; }
-.rm-tile-hand { position: absolute; top: -20px; right: -8px; pointer-events: auto; }
+.rm-tile .wh.now { color: var(--ink); font-weight: 500; }
+.rm-tile-hand { position: absolute; top: -13px; right: -10px; z-index: 2; display: flex; pointer-events: auto; }
+.rm-tile-hand .neck { position: absolute; right: 14px; top: 10px; width: 12px; height: 12px; border-radius: 50%; background: var(--fam); filter: blur(.4px); z-index: -1; }
 .rm-tile-x { position: absolute; top: 6px; right: 8px; width: 22px; height: 22px; border: 0; border-radius: var(--r-s); background: none; color: var(--mute); font-size: 15px; line-height: 1; cursor: pointer; opacity: 0; }
 .rm-tile:hover .rm-tile-x, .rm-tile-x:focus-visible { opacity: 1; }
 .rm-tile-x:hover { color: var(--ink); background: var(--raised); }
 .rm-tile.in .rm-tile-x { display: none; }
 .rm-add { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px; padding: 14px; justify-content: flex-end; }
 .rm-add input { width: 100%; box-sizing: border-box; height: 30px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--page); color: var(--ink); font: inherit; font-size: 12.5px; }
-.rm-add .err { font-size: 11.5px; color: var(--red-soft); line-height: 1.35; }
+.rm-add .err { font-size: 11.5px; color: var(--ember); line-height: 1.35; }
 .rm-add .acts { display: flex; gap: 6px; }
 .rm-glyph { display: block; flex: none; }
-.rm-hand { display: block; }
-.rm-hand.bob { animation: rbob 600ms steps(1, end) infinite; }
-@keyframes rbob { 0% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 
 /* the box */
-.rm-box { flex: none; display: flex; align-items: center; gap: 10px; height: 46px; margin-top: 12px; padding: 0 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
-.rm-box:focus-within { border-color: var(--mute); background: var(--raised); }
+/* the box is Home's island (face.css .ask-inner): one floating slab, the same edge, radius and shade, its inner edge lit
+   when focused. The model, effort and mode pills are a session's, so they stay at Home. */
+.rm-box { flex: none; display: flex; align-items: center; gap: 10px; min-height: 50px; margin-top: 12px; padding: 0 16px; background: var(--island); border: 1px solid var(--edge); border-radius: 18px;
+  box-shadow: inset 0 1px 0 var(--edge), 0 18px 40px -18px var(--shade); transition: box-shadow 0.15s; }
+.rm-box:focus-within { box-shadow: inset 0 1px 0 rgb(from var(--on) r g b / 0.16), inset 0 0 0 1px rgb(from var(--on) r g b / 0.12), 0 18px 40px -18px var(--shade); }
 .rm-box input { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink); font: inherit; font-size: 14px; outline: none; }
 .rm-box input::placeholder { color: var(--dim); }
 .rm-box .k { font-size: 12px; color: var(--mute); }
@@ -76,8 +80,7 @@
 .rm-feed .flist li.none { display: block; color: var(--dim); border: 0; }
 .rm-feed .flist time { font: 11.5px var(--mono); color: var(--dim); padding-top: 2px; }
 .rm-feed .flist b { font-weight: 600; }
-.rm-feed .flist li.ag b { color: var(--amber); }
-.rm-feed .fnote { flex: none; margin: 0; padding: 8px 20px; font-size: 11.5px; color: var(--dim); }
+.rm-feed .flist .fwho { margin-right: 7px; vertical-align: -2px; }
 .rm-talk { min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); padding-top: 8px; }
 .rm-talk > * { flex: 1; min-height: 0; }
 
@@ -97,20 +100,19 @@
 .rm-ps-name h2 { margin: 0; font-size: 28px; font-weight: 600; line-height: 1.15; overflow-wrap: anywhere; }
 .rm-ps-name h2 span { font-weight: 400; color: var(--dim); font-size: 18px; }
 .rm-ps-name p { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; font-size: 14px; color: var(--dim); }
-.rm-ps-dot { flex: none; width: 8px; height: 8px; background: var(--green); }
-.rm-ps-dot.away, .rm-ps-dot.off { background: var(--mute); }
-.rm-ps-dot.elsewhere { background: var(--sun); }
 .rm-ps-did { list-style: none; margin: 0; padding: 0; }
 .rm-ps-did li { display: grid; grid-template-columns: 64px 1fr; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; line-height: 1.45; }
 .rm-ps-did li.none { display: block; color: var(--dim); font-size: 13.5px; }
 .rm-ps-did time { font: 12px var(--mono); color: var(--dim); padding-top: 2px; }
 .rm-ps-did .tx { display: flex; flex-direction: column; min-width: 0; }
-.rm-ps-did em.ag { font-style: normal; color: var(--amber); font-size: 13px; }
+.rm-ps-did em.ag { font-style: normal; color: var(--dim); font-size: 13px; margin-left: 8px; display: inline-flex; align-items: center; gap: 5px; vertical-align: -1px; }
 .rm-ps-did small { margin-top: 2px; font: 12px var(--mono); color: var(--dim); }
 .rm-ps-in { display: flex; flex-wrap: wrap; gap: 12px; }
 .rm-ps-in .none { margin: 0; font-size: 13.5px; color: var(--dim); }
-.rm-ps-thing { display: flex; align-items: center; gap: 14px; min-width: 260px; max-width: 320px; padding: 16px 18px; border: 2px solid var(--who); border-radius: var(--r-l); background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.rm-ps-thing { position: relative; display: flex; align-items: center; gap: 14px; min-width: 260px; max-width: 320px; padding: 16px 18px; border: 0; border-radius: var(--r-l); background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .rm-ps-thing:hover { transform: translateY(-2px); }
+.rm-ps-thing::after { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 2px; background: var(--fam); pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
 .rm-ps-thing span { display: flex; flex-direction: column; min-width: 0; }
 .rm-ps-thing b { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .rm-ps-thing small { font-size: 12px; color: var(--dim); margin-top: 2px; }
@@ -127,8 +129,6 @@
 .rm-cv-tabs button.on { color: var(--ink); background: var(--raised); border-color: var(--mute); }
 .rm-cv-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .rm-cv-live { flex: none; display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 20px 0; font: 11.5px var(--mono); color: var(--dim); }
-.rm-cv-live i { width: 7px; height: 7px; background: var(--green); }
-.rm-cv-live i.off { background: var(--mute); }
 .rm-cv-note { flex: none; margin: 6px 20px 0; font-size: 12px; color: var(--sun); }
 .rm-cv-lines { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 14px 20px 18px; }
 .rm-cv-lines .none { margin: 0; font-size: 13px; color: var(--dim); }
@@ -171,7 +171,7 @@
 .rm-gp-add { display: flex; flex-direction: column; gap: 8px; padding: 14px; }
 .rm-gp-add input, .rm-gp-add textarea { box-sizing: border-box; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--page); color: var(--ink); font: inherit; font-size: 14px; resize: vertical; }
 .rm-gp-add textarea { font: 13px/1.5 var(--mono); }
-.rm-gp-add .err { font-size: 12.5px; color: var(--red-soft); }
+.rm-gp-add .err { font-size: 12.5px; color: var(--ember); }
 .rm-gp-add .acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .rm-gp-foot { margin-top: auto; padding-top: 28px; }
 
@@ -183,11 +183,12 @@
 
 /* the bar's for you and who I am */
 .rm-fy { position: relative; flex: none; margin-right: 10px; }
-.rm-fy-pill { white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; padding: 3px 11px; border: 1px solid var(--line); border-radius: var(--pill); background: var(--surface); color: var(--dim); font: inherit; font-size: 12px; cursor: pointer; }
-.rm-fy-pill.on { color: var(--ink); border-color: var(--mute); }
-.rm-fy-pill .sq { width: 8px; height: 8px; background: var(--mute); }
-.rm-fy-pill.on .sq { background: var(--sun); }
-.rm-fy-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: 400px; padding: 4px 0; border-radius: var(--r); background: var(--pop); border: 1px solid var(--edge); box-shadow: 0 12px 40px var(--shade); }
+/* for you: a quiet pill with an empty ring; when something waits, the black pill of the bar card it hangs over, the
+   needs-you droplet in it (mine/look/COWORK.html .foryou) */
+.rm-fy-pill { white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 12px 0 10px; border: 0; box-shadow: inset 0 0 0 1px var(--line); border-radius: var(--pill); background: var(--surface); color: var(--dim); font: inherit; font-size: 12px; cursor: pointer; }
+.rm-fy-pill:hover { color: var(--ink); }
+.rm-fy-pill.on { background: #000; box-shadow: none; color: #e9e6df; }
+.rm-fy-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: 400px; padding: 4px 0; border-radius: var(--r); background: var(--pop); border: 1px solid var(--edge); box-shadow: var(--pop-shadow); }
 .rm-fy-pop .fy { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 13px; line-height: 1.45; }
 .rm-fy-pop .fy:first-child { border-top: 0; }
 .rm-fy-pop .k { font: 10.5px var(--mono); letter-spacing: 0.06em; color: var(--dim); }
@@ -236,7 +237,7 @@
 .rm-s4.with .rm-s4-talk { flex: 0 1 46%; min-width: 360px; }
 .rm-s4.with > .rm-thing { flex: 1 1 54%; min-width: 0; }
 .rm-s4-open { position: absolute; top: 10px; right: 16px; z-index: 5; }
-.rm-s4-pick { position: absolute; right: 0; top: calc(100% + 4px); width: 280px; max-height: 320px; overflow-y: auto; padding: 4px; border-radius: var(--r); background: var(--pop); border: 1px solid var(--edge); box-shadow: 0 12px 40px var(--shade); }
+.rm-s4-pick { position: absolute; right: 0; top: calc(100% + 4px); width: 280px; max-height: 320px; overflow-y: auto; padding: 4px; border-radius: var(--r); background: var(--pop); border: 1px solid var(--edge); box-shadow: var(--pop-shadow); }
 .rm-s4-pick button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: 0; border-radius: var(--r-s); background: none; color: var(--ink); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
 .rm-s4-pick button:hover { background: var(--raised); }
 @container (max-width: 820px) { .rm-s4.with { flex-direction: column; } .rm-s4.with .rm-s4-talk { flex-basis: 50%; min-width: 0; } }
@@ -248,17 +249,15 @@
 .rm-room { --ease: cubic-bezier(.16, 1, .3, 1); }
 @keyframes rm-up { from { opacity: 0; transform: translateY(8px); } }
 @keyframes rm-left { from { opacity: 0; transform: translateX(18px); } }
-@keyframes rm-breathe { to { opacity: 0.35; } }
 .rm-tile, .rm-ps-did li, .rm-gp-files > li, .rm-ps-thing { animation: rm-up 320ms var(--ease) backwards; animation-delay: calc(var(--i, 0) * 28ms); }
 .rm-goal, .rm-ps-head, .rm-gp-t { animation: rm-up 360ms var(--ease) backwards; }
 .rm-convo { animation: rm-left 340ms var(--ease) backwards; }
 .rm-cv-l, .rm-cv-steps, .rm-gp-read, .rm-gp-add { animation: rm-up 240ms var(--ease) backwards; }
 .rm-cv-l.person { animation-name: rm-left; }
-.rm-cv-live i:not(.off) { animation: rm-breathe 1.2s var(--ease) infinite alternate; }
 .rm-tile-in, .rm-ps-thing { transition: transform 180ms var(--ease); }
 @media (prefers-reduced-motion: reduce) {
   .rm-tile, .rm-ps-did li, .rm-gp-files > li, .rm-ps-thing, .rm-goal, .rm-ps-head, .rm-gp-t, .rm-convo,
-  .rm-cv-l, .rm-cv-l.person, .rm-cv-steps, .rm-gp-read, .rm-gp-add, .rm-cv-live i, .rm-cv-live i:not(.off), .rm-hand.bob { animation: none; }
+  .rm-cv-l, .rm-cv-l.person, .rm-cv-steps, .rm-gp-read, .rm-gp-add { animation: none; }
   .rm-tile-in, .rm-ps-thing { transition: none; }
   .rm-tile-in:hover, .rm-ps-thing:hover { transform: none; }
 }
@@ -280,15 +279,15 @@
 .rm-mkfolder { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }
 .rm-mkfolder input { width: 180px; height: 26px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-s); background: var(--page); color: var(--ink); font: inherit; font-size: 12.5px; }
 .rm-gh { min-height: 28px; align-items: center; }
-.rm-gh .rm-mkfolder .err { font-size: 12px; line-height: 1.3; color: var(--red-soft); max-width: 240px; white-space: normal; overflow: visible; }
+.rm-gh .rm-mkfolder .err { font-size: 12px; line-height: 1.3; color: var(--ember); max-width: 240px; white-space: normal; overflow: visible; }
 .rm-tile.dragging { opacity: .45; }
 .rm-tile-hand.stack { display: flex; }
-.rm-tile-hand.stack > svg + svg { margin-left: -8px; }
+.rm-tile-hand.stack > .cwho + .cwho { margin-left: -8px; }
 .rm-tile-mv { position: absolute; top: 6px; right: 32px; width: 22px; height: 22px; border: 0; border-radius: var(--r-s); background: none; color: var(--mute); font-size: 14px; line-height: 1; cursor: pointer; opacity: 0; }
 .rm-tile:hover .rm-tile-mv, .rm-tile-mv:focus-visible, .rm-tile-mv[aria-expanded="true"] { opacity: 1; }
 .rm-tile-mv:hover { color: var(--ink); background: var(--raised); }
 .rm-tile.in .rm-tile-mv { right: 8px; }
-.rm-tile-menu { position: absolute; left: 8px; right: 8px; top: 32px; z-index: 3; display: flex; flex-direction: column; padding: 4px; border-radius: var(--r-s); background: var(--pop); border: 1px solid var(--edge); box-shadow: 0 12px 40px var(--shade); }
+.rm-tile-menu { position: absolute; left: 8px; right: 8px; top: 32px; z-index: 3; display: flex; flex-direction: column; padding: 4px; border-radius: var(--r-s); background: var(--pop); border: 1px solid var(--edge); box-shadow: var(--pop-shadow); }
 .rm-tile-menu .hd { padding: 4px 8px 6px; font-size: 11.5px; color: var(--dim); }
 .rm-tile-menu button { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 0; border-radius: var(--r-s); background: none; color: var(--ink); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .rm-tile-menu button:hover, .rm-tile-menu button:focus-visible { background: var(--raised); outline: none; }
@@ -302,4 +301,4 @@
 /* a room that moved to the cloud (#246): one line above the things, one button */
 .rm-moved { display: flex; align-items: center; gap: 14px; margin: 14px 0 0; padding: 12px 16px; border-radius: var(--r); border: 1px solid var(--edge); background: var(--surface); font-size: 13.5px; line-height: 1.45; color: var(--dim); }
 .rm-moved b { color: var(--ink); font-weight: 600; }
-.rm-moved .cbtn { flex: none; margin-left: auto; }
+.rm-moved .wbtn { flex: none; margin-left: auto; }

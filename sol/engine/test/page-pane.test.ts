@@ -31,3 +31,13 @@ test("only files below the page's folder are served, of the kinds a page uses", 
   assert.equal(await assetPath(page, "img"), null);                 // a folder
   assert.equal(await assetPath(page, "missing.png"), null);
 });
+
+// 2026-10-26: an asset asked for under the key the socket hands out needs no Referer; the folder is read past the key
+import { PANE_KEY, keyedAsset } from "../src/work/page.js";
+test("a keyed asset path is the key's and parses past it", () => {
+  const p = `/pane-asset/k.${PANE_KEY}/${encodeURIComponent("/Users/x/look")}/atlas/a.png`;
+  assert.equal(keyedAsset(p), true);
+  assert.equal(keyedAsset(`/pane-asset/k.${"0".repeat(32)}/${encodeURIComponent("/Users/x/look")}/atlas/a.png`), PANE_KEY === "0".repeat(32));
+  assert.deepEqual(assetOf(p), { dir: "/Users/x/look", rel: "atlas/a.png" });
+  assert.deepEqual(assetOf(`/pane-asset/${encodeURIComponent("/Users/x/look")}/atlas/a.png`), { dir: "/Users/x/look", rel: "atlas/a.png" });
+});

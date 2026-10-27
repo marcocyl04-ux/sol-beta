@@ -180,6 +180,8 @@ export class Run {
           "is start_session with initiation \"proposal\". " +
           "On a team issue, look at mcp__sol__pings at each pause: what reached Marco while you worked (#100). " +
           "Link a session as [its title](#session/<session id>) and a file as [name](<path>:<line>), so Marco can open them with a click. " +
+          "A mockup, review page, board or anything else made for Marco to look at is shown in the page pane, never the browser tab: " +
+          "write the HTML file with the Write or Edit tool (an Edit, even one word, shows it again), so the pane opens it and he annotates it there. " +
           "The engine you run inside renews itself: a saved edit to sol/engine/src is built and goes live at the next quiet moment, " +
           "so never restart it from here (launchctl kickstart, stop, bootout, kill): that ends this very session mid-turn. " +
           speakParagraph(getTeam()),   // where my agent may speak, how it signs (Control, team.json)

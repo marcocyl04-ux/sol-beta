@@ -1,4 +1,5 @@
-/* Talk (#37): the team's group chat. Ink text, hairline capsules, no colour at rest; signatures amber (.csig). */
+/* Talk (#37): the team's group chat, in Home's bubbles (mine/look/COWORK.html): mine is Home's .msg.me on the right
+   (its style follows Settings → look), theirs a surface bubble beside their mark. The box is Home's island. */
 .cstage[data-view="chat"] { overflow: hidden; }
 .tk { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
@@ -12,11 +13,20 @@
 
 .tk-talk { padding-top: 4px; }
 .tk-group { margin: 0 0 16px; }
-.tk-who { display: flex; align-items: baseline; gap: 8px; margin: 0 0 3px; }
+.tk-group.them { display: flex; align-items: flex-end; gap: 9px; }
+.tk-group.them .tk-bud { margin-bottom: 3px; }
+.tk-col { min-width: 0; max-width: 78%; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.tk-who { display: flex; align-items: baseline; gap: 8px; margin: 0 0 1px 4px; }
+.tk-name { font-size: 11.5px; color: var(--dim); }
 .tk-src { align-self: center; }
 .tk-at { font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; }
-.tk-line { display: flex; align-items: baseline; gap: 8px; }
-.tk-line p { margin: 0 0 2px; font-size: 13.5px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.tk-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tk-line p { margin: 0; padding: 7px 13px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); font-size: calc(var(--chat-text, 15px) * 0.9); line-height: 1.5; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }   /* 13.5 px at the look's 15 px default; follows settings → look → text (#268) */
+.tk-line:last-child p { border-bottom-left-radius: var(--r-s); }
+.tk-group.mine { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.tk-group.mine .me-row { align-items: center; gap: 8px; width: 100%; margin: 0; }
+.tk-group.mine .msg.me { margin: 0; font-size: calc(var(--chat-text, 15px) * 0.9); line-height: 1.5; }   /* as a room's lines (#268) */
+.tk-group.mine .tk-at { margin: 1px 4px 0; }
 
 .tk-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12vh 0 24px; text-align: center; }
 .tk-drop { max-width: 520px; border: 1px solid var(--line); border-radius: 14px; padding: 12px 18px; text-align: left; }
@@ -25,15 +35,14 @@
 .tk-drop code, .tk-hint code { font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px; color: var(--ink); border: 1px solid var(--line); border-radius: var(--pill); padding: 0 6px; }
 
 .tk-foot { flex: none; padding: 6px 28px 18px; max-width: calc(var(--col) + 48px); width: 100%; box-sizing: border-box; margin: 0 auto; }
-.tk-box { display: flex; align-items: flex-end; gap: 8px; padding: 6px 6px 6px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; }
-.tk-box:focus-within { border-color: var(--mute); }
+.tk-box { display: flex; align-items: flex-end; gap: 8px; padding: 10px 10px 10px 16px; background: var(--island); border: 1px solid var(--edge); border-radius: 18px;
+  box-shadow: inset 0 1px 0 var(--edge), 0 18px 40px -18px var(--shade); transition: box-shadow 0.15s; }
+.tk-box:focus-within { box-shadow: inset 0 1px 0 rgb(from var(--on) r g b / 0.16), inset 0 0 0 1px rgb(from var(--on) r g b / 0.12), 0 18px 40px -18px var(--shade); }
 .tk-box textarea { flex: 1; min-height: 22px; max-height: 160px; field-sizing: content; resize: none; padding: 3px 0; background: none; border: 0; outline: 0; font: inherit; font-size: 13.5px; line-height: 1.45; color: var(--ink); }
 .tk-box textarea::placeholder { color: var(--mute); }
 .tk-hint { margin: 6px 4px 0; font-size: 11.5px; color: var(--mute); }
 .tk-said { display: flex; align-items: center; gap: 7px; margin: 0 4px 7px; font-size: 12px; color: var(--dim); }
-.tk-said::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: var(--pill); background: var(--green); }
 .tk-said.tk-no { color: var(--ink); }
-.tk-said.tk-no::before { background: var(--red-strong); }
 
 /* a narrow stage (cowork.css makes .cstage the container): the margins come in */
 @container (max-width: 600px) { .tk-head, .tk-foot { padding-inline: 16px; } }

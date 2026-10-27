@@ -1,13 +1,12 @@
-// The mode wheel (Together #31): the pill at the top of the side shows the modes, the current one lit with the
-// creature's cells on it. Hold the pill (350 ms), right-click it, or hold ⌘⌃M (App.tsx) and the names come out on a
-// ring around it on the springs, the cells on the lit one; a release on a name picks it, a release elsewhere closes.
+// The mode wheel (Together #31): the pill at the top of the side shows the modes, the current one lit by the capsule,
+// which travels as goo (SeatSwitch useBridgeThumb). Hold the pill (350 ms), right-click it, or hold ⌘⌃M (App.tsx) and the names come out on a
+// ring around it on the springs; a release on a name picks it, a release elsewhere closes.
 // Opened by a right-click or the keys it stays: click a name, or arrows and Enter, Esc closes. Home and Cowork since
 // #132; Social returns with its first button. Reduced motion: the names as a plain list, nothing travels.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CFG, enter, reducedMotion, useSpring } from "./motion";
-import { SeatCells } from "./creature/indicators";
-import type { Life } from "./creature/Widget";
+import { CFG, enter, reducedMotion } from "./motion";
+import { useBridgeThumb } from "./SeatSwitch";
 import type { AppMode } from "./ModeSwitch";
 import "./cowork/cowork.css";
 import { useCover } from "./cowork/thingView";
@@ -21,23 +20,19 @@ export const MODES: Spot[] = [
 const ORDER = MODES.map((m) => m.id);
 const NAME = Object.fromEntries(MODES.map((m) => [m.id, m.name])) as Record<AppMode, string>;
 const tint = (m: AppMode): "home" | "work" => (m === "cowork" ? "work" : "home");
+// each side mounts its own pill, so the mode the last one showed is kept here: a pill mounting after a switch travels
+let shown: AppMode | null = null;
 
 export function ModeWheel({ mode, onPick }: { mode: AppMode; onPick: (m: AppMode) => void }) {
   const pill = useRef<HTMLDivElement>(null);
-  const life = useRef<Life | null>(null);
   const [open, setOpen] = useState<null | { kind: "hold" | "stick"; r: DOMRect }>(null);
   useCover(!!open);   // the wheel's scrim is over everything, a thing's native page too (#236)
   const held = useRef(false), timer = useRef<number | undefined>(undefined);
   const pair = ORDER, at = Math.max(0, pair.indexOf(mode));
-  // the thumb: the seat switch's spring, stretching while it travels and landing with one overshoot
-  const thumb = useRef<HTMLElement>(null);
-  const th = useSpring(at, { k: 330, z: 0.52, eps: 0.002 }, (v, sp) => {
-    const el = thumb.current;
-    if (!el) return;
-    el.style.transform = `translateX(${v * 100}%) scaleX(${1 + Math.min(0.28, Math.abs(sp.vel) * 0.07)})`;
-    el.style.transformOrigin = sp.vel > 0 ? "0 50%" : "100% 50%";
-  });
-  useLayoutEffect(() => { th.to(at); }, [at]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the thumb: a goo bridge from the word it leaves to the word it lands on, starting where the last pill was
+  const [start] = useState(() => Math.max(0, pair.indexOf(shown ?? mode)));
+  useLayoutEffect(() => { shown = mode; }, [mode]);
+  const thumb = useBridgeThumb(at, start);
   // where the ring goes: round the pill, or the window's top left when the side is away (the keys opened it)
   const rect = () => {
     const r = pill.current?.getBoundingClientRect();
@@ -57,7 +52,6 @@ export function ModeWheel({ mode, onPick }: { mode: AppMode; onPick: (m: AppMode
         onPointerDown={(ev) => { if (ev.button !== 0) return; held.current = false; stop(); timer.current = window.setTimeout(() => { held.current = true; show("hold"); }, 350); }}
         onPointerUp={stop} onPointerLeave={stop} onContextMenu={(ev) => { ev.preventDefault(); stop(); show("stick"); }}>
         <i ref={thumb as React.RefObject<HTMLUnknownElement>} className="thumb" />
-        <SeatCells seat={tint(mode)} life={life} />
         {pair.map((m) => (
           <button key={m} type="button" data-seat={m === mode ? tint(m) : undefined} data-mode={m} className={m === mode ? "on" : ""}
             onClick={() => { if (held.current) { held.current = false; return; } choose(m); }}>{NAME[m]}</button>
@@ -74,7 +68,6 @@ function Wheel({ r, kind, mode, onChoose, onClose }: { r: DOMRect; kind: "hold" 
   const litRef = useRef(lit); litRef.current = lit;
   const over = useRef<AppMode | null>(null);
   const box = useRef<HTMLDivElement>(null);
-  const life = useRef<Life | null>(null);
   const plain = reducedMotion();
   const rx = r.width * 0.5, ry = r.height / 2 + 36;
   const pos = (m: Spot, i: number) => plain
@@ -121,9 +114,8 @@ function Wheel({ r, kind, mode, onChoose, onClose }: { r: DOMRect; kind: "hold" 
       )}
       {!plain && <span className="mwnow" style={{ left: r.width / 2, top: PAD + r.height / 2 }}>in {NAME[mode]}</span>}
       {MODES.map((m, i) => (
-        // one spot per name: the cells (SeatCells reads its parent's buttons) sit on the lit one only
+        // one spot per name, the lit one raised
         <span key={m.id} className="mwspot" style={pos(m, i)}>
-          {m.id === lit && <SeatCells key={lit} seat={tint(lit)} life={life} />}
           <button type="button" role="menuitem" data-mode={m.id} data-seat={m.id === lit ? tint(m.id) : undefined}
             className={`${m.id === lit ? "lit" : ""} ${m.id === mode ? "on" : ""}`} title={m.title}
             onPointerEnter={() => { over.current = m.id; setLit(m.id); }} onPointerLeave={() => { if (over.current === m.id) over.current = null; }}

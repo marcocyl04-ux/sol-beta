@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { VibeMark } from "../Mark";
+import { SeatScene } from "../SeatScene";
 import type { AppMode } from "../ModeSwitch";
 import { ModeWheel } from "../ModeWheel";
 import { CFG, enter, useSpring } from "../motion";
@@ -600,7 +600,7 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onConve
       <aside ref={f.ref} className={`side wside ${f.open ? "open" : ""} ${pinned ? "pinned" : ""}`} onMouseEnter={f.onMouseEnter} onMouseLeave={f.onMouseLeave}
         aria-hidden={!f.open} inert={!f.open} onKeyDown={carKey}>
         <div className="side-head" data-s>
-          <div className="brand"><VibeMark size={22} /><span className="word">sol</span></div>
+          <SeatScene mode="home" />
           <ModeWheel mode="home" onPick={onMode} />
         </div>
         <button className="newc" data-s onClick={() => onFresh()}><Plus /><span>new session</span><kbd>⌘N</kbd></button>

@@ -17,7 +17,10 @@ import { describe, lineOf, throughBrowser, wordsOf, withBase, type Page } from "
 // An artifact on claude.ai is shown through Sol's browser instead (Screencast, its own tab in this session): a click
 // asks the engine what is under it (browser.inspect) and the answer is a pin like any other; after the pane sends
 // input, or the tab goes to another address, the pins are found again by their selectors (browser.locate).
-type Read = { path?: string; text?: string; mtime?: number; error?: string; tooBig?: boolean; binary?: boolean; dir?: boolean };
+type Read = { path?: string; text?: string; mtime?: number; error?: string; tooBig?: boolean; binary?: boolean; dir?: boolean; assetKey?: string };
+// annotate is a switch, off by default (2026-10-26): off, the page is used as any page (option-click or option-drag
+// still marks); on, a click, a drag over words and a drag elsewhere each mark. Kept across pages and relaunches.
+const ANNOTATE = "sol.page.annotate";
 // box: where a pin in a browser tab is, in the tab's CSS px (null: its element is not on the page now)
 // kind: point (at: the spot), words (rects: the lines of the selection), box (area, and img when the box lies on a
 // picture: its name and the box inside it in percent); all in the page's own coordinates (scroll taken out). A pin
@@ -70,7 +73,9 @@ export function PagePane({ w, e, cwd, pages, onBox, onFile }: {
   const [html, setHtml] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [title, setTitle] = useState("");
-  const [mode, setMode] = useState<"comment" | "live">("comment");
+  const [mode, setModeRaw] = useState<"comment" | "live">(() => (localStorage.getItem(ANNOTATE) === "1" ? "comment" : "live"));
+  const setMode = (f: (m: "comment" | "live") => "comment" | "live") => setModeRaw((m) => { const n = f(m); localStorage.setItem(ANNOTATE, n === "comment" ? "1" : "0"); return n; });
+  const [key, setKey] = useState("");
   const [pins, setPins] = useState<Pin[]>([]);
   const [writing, setWriting] = useState<Pin | null>(null);
   const [text, setText] = useState("");
@@ -87,6 +92,7 @@ export function PagePane({ w, e, cwd, pages, onBox, onFile }: {
     setNote("");
     const r = await w.ask<Read>("work.read", { cwd, path: page.path });
     if (r.error || r.tooBig || r.binary || r.dir || r.text === undefined) { setHtml(null); setNote(r.error ?? (r.tooBig ? "too big to show here." : "not a page that can be shown.")); return; }
+    setKey(r.assetKey ?? "");
     setHtml(r.text);
   };
   useEffect(() => { void load(); }, [page?.path, page?.n, cwd]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -98,6 +104,15 @@ export function PagePane({ w, e, cwd, pages, onBox, onFile }: {
     const d = frame.current?.contentDocument;
     if (!d) return;
     setDoc(d); setTitle(d.title); bump();
+    // an image the engine refused (no Referer, and an engine from before the key): the pane fetches it itself, its
+    // request carrying this window's Origin, and hands the page the bytes
+    const fix = (img: HTMLImageElement) => {
+      if (img.dataset.solFetched || !img.src.includes("/pane-asset/")) return;
+      img.dataset.solFetched = "1";
+      void fetch(img.src).then((r) => (r.ok ? r.blob() : null)).then((b) => { if (b) img.src = URL.createObjectURL(b); }).catch(() => {});
+    };
+    d.addEventListener("error", (ev) => { if (ev.target instanceof d.defaultView!.HTMLImageElement) fix(ev.target); }, true);
+    for (const img of d.images) if (img.complete && img.naturalWidth === 0) fix(img);
     d.addEventListener("scroll", bump, { passive: true, capture: true });
     d.defaultView?.addEventListener("resize", bump);
   };
@@ -316,7 +331,7 @@ export function PagePane({ w, e, cwd, pages, onBox, onFile }: {
   };
 
   const dir = page?.path ? page.path.replace(/\/[^/]*$/, "") : "";
-  const src = html && page?.path ? withBase(html, `${HTTP}/pane-asset/${encodeURIComponent(dir)}/`) : "";
+  const src = html && page?.path ? withBase(html, `${HTTP}/pane-asset/${key ? `k.${key}/` : ""}${encodeURIComponent(dir)}/`, dir) : "";
 
   if (!pages.length) return <Empty>no page in this session yet. When Claude writes an HTML file or an artifact, it shows here.</Empty>;
   return (
@@ -332,9 +347,10 @@ export function PagePane({ w, e, cwd, pages, onBox, onFile }: {
           {page.path && <button className="wlink" onClick={() => void load()}>read again</button>}
           {page.path && <button className="wlink" onClick={() => onFile(page.path!)} title="the source, in the file pane">source</button>}
           <span className="grow" />
-          {(page.path || via) && <button className={`wlink ${mode === "live" ? "on" : ""}`} onClick={() => setMode((m) => (m === "live" ? "comment" : "live"))}
-            title={mode === "live" ? "the page is live: click, scroll and type as usual; option-click pins. Click to go back to commenting" : via ? "a click pins a spot. Click to use the page instead" : "a click pins a point, a drag over words selects them, a drag elsewhere draws a box (option-drag: always a box). Click to use the page instead"}>
-            {mode === "live" ? "live" : "commenting"}</button>}
+          {(page.path || via) && <button className={`wpannot ${mode === "comment" ? "on" : ""}`} aria-pressed={mode === "comment"} onClick={() => setMode((m) => (m === "live" ? "comment" : "live"))}
+            title={mode === "live" ? "annotate is off: the page works as usual (option-click or option-drag still marks). Click to annotate" : via ? "annotate is on: a click marks a spot. Click to turn it off" : "annotate is on: a click marks a point, a drag over words lights them, a drag elsewhere draws a box. Click to turn it off"}>
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden><path d="M3 13l1-3.5L10.5 3a1.4 1.4 0 0 1 2 0l.5.5a1.4 1.4 0 0 1 0 2L6.5 12 3 13z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>
+            annotate<i aria-hidden /></button>}
           {(pins.length > 0 || (writing && text.trim())) && <button className="wbtn" onClick={send}>to the box <kbd>⌘↵</kbd></button>}
         </div>
       )}

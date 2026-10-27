@@ -1,12 +1,14 @@
 // The room (#234; the studio PRD §3–§4, frame s1 of vM.html): Cowork's first page. Top to bottom: the people (one
 // small worker each, what they are on), the goal (one line, set by hand), the things we are making (one rounded square
-// each, a person's hand on the one they are in), and a line to tell my agent what to start. Beside it: what happened,
+// each, a person's mark on the one they are in, the tile ringed in their band), and a line to tell my agent what to start. Beside it: what happened,
 // and the room's talk. Everything else (the board, try, ship, hands, settings) is one click away, never on this page.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Team, Member } from "./useTeam";
 import type { Room as RoomData, Thing, ThingKind, FeedLine, Folder } from "./useRoom";
-import { GLYPHS, HAND, type Cell } from "./pixels";
-import { since, readAgo, STATE_WORD } from "./bits";
+import { GLYPHS, type Cell } from "./pixels";
+import { since, readAgo, STATE_WORD, Who, useBand } from "./bits";
+import { date, hhmm } from "./util";
+import { Sol } from "../Sol";
 import { Talk } from "./Talk";
 import { ThingPane } from "./ThingPane";   // S2: a thing opened in the centre (#236)
 import { PersonMain, PersonSide, personOf } from "./Person";   // S3: a person (#238)
@@ -15,34 +17,13 @@ import { ToolPage, TOOLS, toolLine } from "./Tools";   // the room's own tools, 
 import type { ToolId } from "./useRoom";
 import "./room.css";
 
-// each person's colour: the creature's own, me first (README "The look: the creature"); a hand wears it
-const COLOURS = ["#f89b2a", "#fd69b9", "#70df45", "#f4c82a", "#ff2e4e", "#fb9ed5"];
-const mix = (hex: string, to: number, t: number) => {
-  const n = parseInt(hex.slice(1), 16), c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.round(v + (to - v) * t));
-  return `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
-};
-export const colourOf = (who: string, people: string[]) => COLOURS[Math.max(0, people.indexOf(who)) % COLOURS.length];
-
 /** a glyph of the creature's grammar: integer cells, crisp at any size */
 export function Glyph({ kind, size = 56 }: { kind: string; size?: number }) {
   const cells: Cell[] = GLYPHS[kind] ?? GLYPHS.web;
   return <svg className="rm-glyph" viewBox="0 0 14 14" width={size} height={size} shapeRendering="crispEdges" aria-hidden="true">{cells.map(([x, y, w, h, f], i) => <rect key={i} x={x} y={y} width={w} height={h} fill={f} />)}</svg>;
 }
 
-/** a person's hand, in their colour; it bobs while their agent has a turn running */
-export function Hand({ colour, size = 36, bob, title }: { colour: string; size?: number; bob?: boolean; title?: string }) {
-  const fill = { L: mix(colour, 255, 0.45), B: colour, D: mix(colour, 0, 0.25), W: "#ffffff", K: "#0a0a0a" };
-  return (
-    <svg className={`rm-hand ${bob ? "bob" : ""}`} viewBox="0 0 9 9" width={size} height={size} shapeRendering="crispEdges" role="img" aria-label={title}>
-      {title && <title>{title}</title>}
-      {HAND.map(([x, y, w, h, r], i) => <rect key={i} x={x} y={y} width={w} height={h} fill={fill[r]} />)}
-    </svg>
-  );
-}
-
 const KIND_WORD: Record<ThingKind, string> = { doc: "a doc", slides: "slides", sheet: "a sheet", github: "a repository", figma: "a Figma file", web: "a page", file: "a file" };
-const date = (iso: string) => { const d = new Date(iso); return Number.isNaN(+d) ? "" : `${d.getMonth() + 1}/${d.getDate()}`; };
-const hhmm = (iso: string) => { const d = new Date(iso); return Number.isNaN(+d) ? "" : Date.now() - +d > 86_400_000 ? date(iso) : d.toTimeString().slice(0, 5); };
 
 export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, flash, open, onClose, onShrink, onWork, person, goal, onBack, onHand, tool, onTool }: {
   team: Team; room: RoomData; onPerson: (login: string) => void; onGoal: () => void; onThing: (t: Thing) => void; onRepo: (t: Thing) => void;
@@ -55,6 +36,7 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
   tool?: ToolId | null; onTool?: (id: ToolId) => void;
 }) {
   const s = team.state, me = team.me;
+  const band = useBand();   // a person's family band: the ring on a tile they are in, and the neck to their mark
   const roster = s?.roster ?? [];
   const up = !!s?.relay.up;
   // the people: me first, then who is on, then every member of the room
@@ -176,7 +158,7 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
             return (
               <span key={who} role="listitem" className="rm-li"><button className={`rm-worker ${dark ? "unseen" : ""} ${person === who ? "on" : ""}`} aria-current={person === who ? "page" : undefined} onClick={() => onPerson(who)}
                 title={`${who}${mine ? " (you)" : ""}: ${what}. Click for what they did here.`}>
-                <Hand colour={colourOf(who, people)} size={34} bob={!dark && state === "working"} />
+                <Who login={who} size={34} away={dark || state === "away"} working={!dark && state === "working"} needs={!dark && state === "yourcall"} />
                 <span className="tx">
                   <span className="n">{who}{mine && <span> (you)</span>}</span>
                   <span className="l">{what}{m && !dark ? ` · ${since(m.since)}` : ""}</span>
@@ -187,7 +169,7 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
         </div>
 
         {person ? (
-          <PersonMain team={team} room={room} login={person} people={people} entry={personOf(roster, person)} roomName={name} onBack={() => onBack?.()}
+          <PersonMain team={team} room={room} login={person} entry={personOf(roster, person)} roomName={name} onBack={() => onBack?.()}
             onThing={(t) => (t.kind === "github" ? onRepo(t) : onThing(t))} convo={convo} onConvo={() => setConvo(true)} />
         ) : goal ? (
           <GoalPage key={s?.settings.room} team={team} room={room} onBack={() => onBack?.()} flash={flash} />
@@ -195,9 +177,9 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
           <ToolPage key={`${s?.settings.room}:${tool}`} team={team} room={room} id={tool} people={people} onBack={() => onBack?.()} flash={flash} />
         ) : open ? (
           <ThingPane team={team} thing={open} mode="s2"
-            me={{ colour: colourOf(me, people), working: entryOf(me)?.state === "working" }}
+            me={{ working: entryOf(me)?.state === "working" }}
             others={people.filter((who) => who !== me && (entryOf(who)?.thing?.id === open.id || open.inNow.includes(who)))
-              .map((who) => ({ who, colour: colourOf(who, people), working: entryOf(who)?.state === "working" }))}
+              .map((who) => ({ who, working: entryOf(who)?.state === "working" }))}
             onBack={onClose} onShrink={onShrink} onWork={() => onWork?.(open)} />
         ) : (<>
         {/* the goal: one line, set by hand, read by every agent before it works */}
@@ -219,14 +201,14 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
         {room.moved && (
           <div className="rm-moved" role="status">
             <span><b>this room moved to the cloud</b> as {room.moved.name}{room.moved.by ? `, moved by ${room.moved.by}` : ""}{room.moved.at ? ` · ${date(room.moved.at)}` : ""}. What is said and added here now happens there.</span>
-            <button className="cbtn" onClick={() => void (room.moved!.have
+            <button className="wbtn" onClick={() => void (room.moved!.have
               ? team.ask("team.settings", { patch: { room: room.moved!.have } })
               : team.ask<{ room?: { name?: string }; error?: string }>("team.room.join", { code: room.moved!.code }).then((r) => flash(r.error ? `couldn't join: ${r.error}` : `you are in ${r.room?.name ?? "the new room"} on the cloud`)))}>
               {room.moved.have ? "go there ›" : `join it (${room.moved.code}) ›`}
             </button>
           </div>
         )}
-        {/* the things: one rounded square each; a hand on a thing means that person is in it now */}
+        {/* the things: one rounded square each; a person's mark on a thing, its ring in their band, means they are in it now */}
         <div className="rm-gh">
           <nav className="rm-crumbs" aria-label="where you are in the room's things">
             <b>what we're making in </b>
@@ -238,12 +220,12 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
               </span>
             ))}
           </nav>
-          {!making && <span>{cur ? `${shown.length} thing${shown.length === 1 ? "" : "s"} here` : `${room.things.length} thing${room.things.length === 1 ? "" : "s"}${folders.length ? ` · ${folders.length} folder${folders.length === 1 ? "" : "s"}` : ""}`} · a hand on a tile means that person is in it now</span>}
+          {!making && <span>{cur ? `${shown.length} thing${shown.length === 1 ? "" : "s"} here` : `${room.things.length} thing${room.things.length === 1 ? "" : "s"}${folders.length ? ` · ${folders.length} folder${folders.length === 1 ? "" : "s"}` : ""}`} · a mark on a tile means that person is in it now</span>}
           {canFold && !cur && (making ? (
             <form className="rm-mkfolder" onSubmit={(e) => { e.preventDefault(); void makeFolder(); }}>
               <input autoFocus value={making.name} maxLength={60} placeholder="the folder's name" aria-label="the new folder's name"
                 onChange={(e) => setMaking({ name: e.target.value })} onKeyDown={(e) => e.key === "Escape" && setMaking(null)} />
-              <button type="submit" className="cbtn">{first ? "all updated, make it" : "make"}</button><button type="button" className="cbtn ghost" onClick={() => setMaking(null)}>cancel</button>
+              <button type="submit" className="wbtn">{first ? "all updated, make it" : "make"}</button><button type="button" className="wbtn ghost" onClick={() => setMaking(null)}>cancel</button>
               {making.error ? <span className="err" role="alert">{making.error}</span>
                 : first && <span className="warn">the first folder: older Sols then only read this room’s things</span>}
             </form>
@@ -254,12 +236,12 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
           {room.readOnly && <p className="rm-note">this room's things were written by a newer Sol: you can open them; update Sol to add, move or take any off</p>}
           {cur && !shown.length && <p className="rm-note">nothing in {here!.name} yet: drag a thing onto it in {name}, use a thing's “move to…”, or add one here</p>}
           <div className="rm-grid">
-            {/* the room's own tools, pinned first at the top (#245): Sol's own pages; a hand when someone has one open */}
+            {/* the room's own tools, pinned first at the top (#245): Sol's own pages; a mark when someone has one open */}
             {!cur && TOOLS.map((t, ti) => {
               const inNow = people.filter((who) => entryOf(who)?.thing?.id === t.tile);
-              const who = inNow[0], col = who ? colourOf(who, people) : undefined;
+              const who = inNow[0], col = who ? band(who) : undefined;
               return (
-                <div key={t.id} className={`rm-tile own ${who ? "in" : ""}`} style={{ "--i": ti, ...(col ? { "--who": col } : {}) } as React.CSSProperties}>
+                <div key={t.id} className={`rm-tile own ${who ? "in" : ""}`} style={{ "--i": ti, ...(col ? { "--fam": col } : {}) } as React.CSSProperties}>
                   <button className="rm-tile-in" onClick={() => onTool?.(t.id)} title={`${t.name}: ${t.line}. Sol's own page; click to open it.`}>
                     <Glyph kind={t.glyph} size={56} />
                     <span className="nm">{t.name}</span>
@@ -267,7 +249,7 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
                       : <span className="wh">{toolLine(t.id, room)}</span>}
                   </button>
                   <span className="rm-tile-tag" aria-hidden="true">sol</span>
-                  {who && <span className="rm-tile-hand"><Hand colour={col!} size={30} title={`${who} is in it now`} /></span>}
+                  {who && <span className="rm-tile-hand"><i className="neck" aria-hidden="true" /><Who login={who} size={28} working={entryOf(who)?.state === "working"} title={`${who} is in it now`} /></span>}
                 </div>
               );
             })}
@@ -276,9 +258,9 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
               const there = [...new Set(inside.flatMap(inThing))];
               const last = inside.reduce<Thing | null>((b, t) => (!b || touched(t) > touched(b) ? t : b), null);
               const lastWho = last ? last.lastTouch.who || last.addedBy : f.by, lastAt = last ? last.lastTouch.at || last.at : f.at;
-              const col = there[0] ? colourOf(there[0], people) : undefined;
+              const col = there[0] ? band(there[0]) : undefined;
               return (
-                <div key={f.id} className={`rm-tile folder ${there.length ? "in" : ""} ${over === f.id ? "drop" : ""}`} style={{ "--i": Math.min(lead + fi, 11), ...(col ? { "--who": col } : {}) } as React.CSSProperties} {...dropOn(f.id, f.id)}>
+                <div key={f.id} className={`rm-tile folder ${there.length ? "in" : ""} ${over === f.id ? "drop" : ""}`} style={{ "--i": Math.min(lead + fi, 11), ...(col ? { "--fam": col } : {}) } as React.CSSProperties} {...dropOn(f.id, f.id)}>
                   <button className="rm-tile-in" onClick={() => { setAt(f.id); setMenu(""); }}
                     title={`a folder: ${f.name}, ${n} thing${n === 1 ? "" : "s"}. Click to go in${canFold ? "; drop a thing on it to move it in" : ""}.`}>
                     <Glyph kind="folder" size={56} />
@@ -286,12 +268,12 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
                     {there.length ? <span className="wh now">{there.join(", ")} · in it now</span>
                       : <span className="wh">{n} thing{n === 1 ? "" : "s"}{lastWho ? ` · ${lastWho}` : ""}{lastAt ? ` · ${since(lastAt) === "now" ? "now" : `${since(lastAt)} ago`}` : ""}</span>}
                   </button>
-                  {there.length > 0 && <span className="rm-tile-hand stack">{there.slice(0, 3).map((who) => <Hand key={who} colour={colourOf(who, people)} size={26} bob={entryOf(who)?.state === "working"} title={`${who} is in a thing in ${f.name}`} />)}</span>}
+                  {there.length > 0 && <span className="rm-tile-hand stack"><i className="neck" aria-hidden="true" />{there.slice(0, 3).map((who) => <Who key={who} login={who} size={26} working={entryOf(who)?.state === "working"} title={`${who} is in a thing in ${f.name}`} />)}</span>}
                   {canFold && (removing === `f:${f.id}` ? (
                     <span className="rm-tile-ask" role="group" aria-label={`take the folder ${f.name} off?`}>
                       <span>take the folder off? {n ? `its ${n} thing${n === 1 ? "" : "s"} move${n === 1 ? "s" : ""} up to ${trail.length ? trail[trail.length - 1].name : name}` : "it is empty"}</span>
-                      <button className="cbtn" autoFocus onClick={() => { setRemoving(""); void room.unfolder(f.id).then((r) => r.error && flash(r.error)); }}>yes</button>
-                      <button className="cbtn ghost" onClick={() => setRemoving("")}>no</button>
+                      <button className="wbtn" autoFocus onClick={() => { setRemoving(""); void room.unfolder(f.id).then((r) => r.error && flash(r.error)); }}>yes</button>
+                      <button className="wbtn ghost" onClick={() => setRemoving("")}>no</button>
                     </span>
                   ) : (
                     <button className="rm-tile-x" title={`take the folder ${f.name} off; what is in it moves up one level, nothing is lost`} aria-label={`remove the folder ${f.name}`}
@@ -302,12 +284,12 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
             })}
             {shown.map((t, ti) => {
               const inNow = inThing(t);
-              const who = inNow[0], col = who ? colourOf(who, people) : undefined;
+              const who = inNow[0], col = who ? band(who) : undefined;
               const working = who ? entryOf(who)?.state === "working" : false;
               const by = entryOf(who ?? "")?.thing?.source === "agent" ? `${who}'s agent` : who;
               const targets: { id: string; name: string }[] = canFold ? [...(cur ? [{ id: "", name: `${name} (the top)` }] : []), ...folders.filter((f) => f.id !== cur).map((f) => ({ id: f.id, name: f.name }))] : [];
               return (
-                <div key={t.id} className={`rm-tile ${who ? "in" : ""} ${drag === t.id ? "dragging" : ""}`} style={{ "--i": Math.min(lead + shownFolders.length + ti, 11), ...(col ? { "--who": col } : {}) } as React.CSSProperties}
+                <div key={t.id} className={`rm-tile ${who ? "in" : ""} ${drag === t.id ? "dragging" : ""}`} style={{ "--i": Math.min(lead + shownFolders.length + ti, 11), ...(col ? { "--fam": col } : {}) } as React.CSSProperties}
                   draggable={canFold && targets.length > 0} onDragStart={(e) => { setDrag(t.id); setMenu(""); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", t.id); }}
                   onDragEnd={() => { setDrag(""); setOver(""); }}>
                   <button className="rm-tile-in" onClick={() => (t.kind === "github" ? onRepo(t) : onThing(t))}
@@ -317,7 +299,7 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
                     {who ? <span className="wh now">{by} · {working ? "changing it now" : "in it now"}</span>
                       : <span className="wh">{t.lastTouch.who || t.addedBy} · {since(t.lastTouch.at || t.at) === "now" ? "now" : `${since(t.lastTouch.at || t.at)} ago`}</span>}
                   </button>
-                  {who && <span className="rm-tile-hand"><Hand colour={col!} size={30} bob={working} title={`${by} is in it now`} /></span>}
+                  {who && <span className="rm-tile-hand"><i className="neck" aria-hidden="true" /><Who login={who} size={28} working={working} title={`${by} is in it now`} /></span>}
                   {targets.length > 0 && removing !== t.id && (
                     <button className="rm-tile-mv" aria-haspopup="menu" aria-expanded={menu === t.id} aria-label={`move ${t.name} to…`} title="move to a folder"
                       onClick={() => setMenu(menu === t.id ? "" : t.id)}>⋯</button>
@@ -334,8 +316,8 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
                   {room.readOnly ? null : removing === t.id ? (
                     <span className="rm-tile-ask" role="group" aria-label={`take ${t.name} off the room?`}>
                       <span>take it off for everyone?</span>
-                      <button className="cbtn" autoFocus onClick={() => { setRemoving(""); void room.remove(t.id).then((r) => r.error && flash(r.error)); }}>yes</button>
-                      <button className="cbtn ghost" onClick={() => setRemoving("")}>no</button>
+                      <button className="wbtn" autoFocus onClick={() => { setRemoving(""); void room.remove(t.id).then((r) => r.error && flash(r.error)); }}>yes</button>
+                      <button className="wbtn ghost" onClick={() => setRemoving("")}>no</button>
                     </span>
                   ) : (
                     <button className="rm-tile-x" title={`take ${t.name} off this room's things (the link itself is untouched; the room's record keeps who did)`} aria-label={`remove ${t.name}`}
@@ -351,7 +333,7 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
                   <input autoFocus value={adding.url} placeholder="paste a link (https)" aria-label="the link of the thing"
                     onChange={(e) => setAdding({ url: e.target.value })} onKeyDown={(e) => e.key === "Escape" && setAdding(null)} />
                   {adding.error ? <span className="err">{adding.error}</span> : <span className="wh">a Google Doc, Slides, a Sheet, a repo, Figma, a page</span>}
-                  <span className="acts"><button type="submit" className="cbtn">add</button><button type="button" className="cbtn ghost" onClick={() => setAdding(null)}>cancel</button></span>
+                  <span className="acts"><button type="submit" className="wbtn">add</button><button type="button" className="wbtn ghost" onClick={() => setAdding(null)}>cancel</button></span>
                 </form>
               ) : (
                 <button className="rm-tile-in" onClick={() => setAdding({ url: "" })} title={`add a thing the room is making${cur ? ` to ${here!.name}` : ""}: paste its link`}>
@@ -387,7 +369,7 @@ export function Room({ team, room, onPerson, onGoal, onThing, onRepo, onStart, f
   );
 }
 
-/** what happened, newest first; an agent's line wears the creature's mark */
+/** what happened, newest first; each line wears its person's mark (an agent wears its person's), Sol's own when no one */
 function Happened({ lines, readAt, error }: { lines: FeedLine[]; readAt?: number; error?: string }) {
   return (
     <section className="rm-feed" aria-label="what happened">
@@ -397,11 +379,10 @@ function Happened({ lines, readAt, error }: { lines: FeedLine[]; readAt?: number
         {lines.slice(0, 60).map((l) => (
           <li key={l.id} className={l.agent ? "ag" : ""} title={l.ephemeral ? "live: seen as it happened, not kept" : "from the room's record"}>
             <time dateTime={l.at}>{hhmm(l.at)}</time>
-            <span><b>{l.who ? (l.agent ? `${l.who}'s agent` : l.who) : "sol"}</b> {l.text}</span>
+            <span>{l.who ? <Who login={l.who} size={14} className="fwho" /> : <span className="cwho fwho"><Sol size={14} /></span>}<b>{l.who ? (l.agent ? `${l.who}'s agent` : l.who) : "sol"}</b> {l.text}</span>
           </li>
         ))}
       </ol>
-      <p className="fnote">lines in amber were done by an agent, not a person</p>
     </section>
   );
 }

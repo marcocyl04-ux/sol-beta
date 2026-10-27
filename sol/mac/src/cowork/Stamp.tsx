@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Menu, type MenuItem } from "../work/Menu";
 import { stables, stamp, type Stables, type StampDone } from "./stable";
+import { StateMark } from "./bits";
 import "./ship.css";
 
 type Phase =
@@ -85,18 +86,18 @@ export function Stamp({ others = [] }: { others?: string[] }) {
       {p.k === "confirm" ? (
         <>
           <span className="q">stamp <b>{p.short}</b> as stable? {to} will be offered it</span>
-          <button className="first" onClick={() => void go()} autoFocus>stamp</button>
-          <button onClick={() => put({ k: "rest" })}>keep</button>
+          <button className="wbtn" onClick={() => void go()} autoFocus>stamp</button>
+          <button className="wbtn ghost" onClick={() => put({ k: "rest" })}>keep</button>
         </>
       ) : p.k === "busy" ? (
-        <span className="said busy"><i />{p.said}</span>
+        <span className="said busy"><StateMark kind="running" />{p.said}</span>
       ) : p.k === "done" ? (
         "error" in p.r
-          ? <span className="said no" title={p.r.error}><i />{p.back ? "not moved" : "not stamped"}: {p.r.error}</span>
-          : <span className="said ok" title={p.r.note || ""}><i />{p.back ? "stable is back on " : "stamped "}<b>{p.r.tag}</b>{p.r.recorded ? ` · ${p.r.recorded}` : ""}{p.r.beta ? ` · ${p.r.beta}` : ""}{p.r.note ? ` · ${p.r.note}` : ""}</span>
+          ? <span className="said no" title={p.r.error}><StateMark kind="failed" />{p.back ? "not moved" : "not stamped"}: {p.r.error}</span>
+          : <span className="said ok" title={p.r.note || ""}><StateMark kind="done" />{p.back ? "stable is back on " : "stamped "}<b>{p.r.tag}</b>{p.r.recorded ? ` · ${p.r.recorded}` : ""}{p.r.beta ? ` · ${p.r.beta}` : ""}{p.r.note ? ` · ${p.r.note}` : ""}</span>
       ) : (
         <>
-          <button className="first" disabled={p.k === "looking"} onClick={() => void ask()} title="make what main has now the version everyone runs">stamp stable</button>
+          <button className="wbtn" disabled={p.k === "looking"} onClick={() => void ask()} title="make what main has now the version everyone runs">stamp stable</button>
           <button ref={backBtn} className="quiet" disabled={p.k === "looking"} onClick={() => void openBack()} title="move stable back to one of the last five">one stable back</button>
         </>
       )}

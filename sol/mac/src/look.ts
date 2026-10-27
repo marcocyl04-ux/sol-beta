@@ -6,7 +6,7 @@ import type { Look } from "./useEngine";
 import { setPaperLook } from "./creature/ring";
 import type { RGB } from "./creature/palette";
 
-export const LOOK_DEFAULT: Look = { color: "#000000", alpha: 0.78, blur: 48, bubble: "edge" };
+export const LOOK_DEFAULT: Look = { color: "#000000", alpha: 0.78, blur: 48, bubble: "edge", text: 15 };
 export const BUBBLES: [Look["bubble"], string][] = [["edge", "edge"], ["slab", "slab"], ["glass", "glass"], ["outline", "outline"], ["bare", "bare"], ["classic", "classic"]];
 export const SWATCHES: [string, string][] = [["#000000", "black"], ["#06101f", "deep blue"], ["#2a1030", "aubergine"], ["#0c2418", "forest"], ["#ffffff", "white"]];
 const KEY = "sol.look";
@@ -27,6 +27,7 @@ export function cleanLook(raw: unknown): Look {
     alpha: num(r.alpha, 0.5, 1, LOOK_DEFAULT.alpha),
     blur: Math.round(num(r.blur, 0, 64, LOOK_DEFAULT.blur)),
     bubble: BUBBLES.some(([b]) => b === r.bubble) ? (r.bubble as Look["bubble"]) : LOOK_DEFAULT.bubble,
+    text: Math.round(num(r.text, 12, 24, LOOK_DEFAULT.text)),
   };
 }
 
@@ -59,6 +60,7 @@ export function applyLook(look: Look | undefined | null, engine = true) {
   for (const [name, of, a] of STEPS) root.style.setProperty(name, rgba(of === "base" ? base : on, a));
   root.style.colorScheme = on[0] ? "dark" : "light";
   root.dataset.bubble = l.bubble;
+  root.style.setProperty("--chat-text", `${l.text}px`);   // the talk's words (face.css .msg, cowork's .tk-line); nothing else reads it
   setPaperLook(base, on);
   try { localStorage.setItem(KEY, JSON.stringify(l)); } catch { /* private mode: the default next time */ }
 }

@@ -1,4 +1,4 @@
-import { VoiceArms } from "../creature/indicators";
+import { VoiceBody } from "../creature/Voice";
 import { forcedState } from "../creature/state";
 import type { ButtonDef } from "./types";
 
@@ -15,7 +15,7 @@ export default {
   where: "outside a session, with Codex",
   on: ({ e }) => e.callState !== "off",
   look: ({ e }) => `barbtn wcall call-${e.callState}`,
-  badge: ({ e }) => e.callState === "live" || forcedState === "speaking" ? <VoiceArms /> : e.callState === "ringing" ? <><i className="pulse" />{phone}</> : null,
+  badge: ({ e }) => e.callState === "live" || forcedState === "speaking" ? <VoiceBody kind="speaking" size={22} /> : e.callState === "ringing" ? <><i className="pulse" />{phone}</> : null,
   hover: ({ e }) => e.callState === "off" ? "call Sol" : e.callState === "ringing" ? "connecting…" : "hang up",
   press: ({ e }) => e.call(),
 } satisfies ButtonDef;

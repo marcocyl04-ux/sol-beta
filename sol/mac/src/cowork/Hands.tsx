@@ -10,14 +10,14 @@ import type { MenuItem } from "../work/Menu";
 import { Fold } from "../MotionKit";
 import { CFG, enter } from "../motion";
 import type { Card, PR } from "./useTeam";
-import { Sig, since } from "./bits";
+import { Sig, StateMark, Who, since } from "./bits";
 import { handTo, later, pass, passing, take, unlater, useHands, type HandRow, type Handed } from "./handed";
+import { openUrl } from "./util";
 import "./hands.css";
 
 const HOW: Record<HandRow["how"], string> = { hand: "handed", taken: "taken", passed: "passed back", review: "review asked" };
 /** the brief in one dim line: its lines without the title and the headings Sol writes ("the plan:", "where it stands:") */
 const briefLine = (b: string) => b.split("\n").map((l) => l.trim().replace(/^- /, "")).filter((l, i) => l && !(i === 0 && /^#\d+/.test(l)) && !/:$/.test(l)).slice(0, 3).join(" · ");
-const openUrl = (url: string) => { import("@tauri-apps/plugin-opener").then((o) => o.openUrl(url)).catch(() => window.open(url, "_blank")); };
 
 /** a card's hand items: one per teammate, each a short list; with nobody on the team's line, a login can be typed */
 export function handItems(c: Card, others: string[], prs: PR[] = []): MenuItem[] {
@@ -52,7 +52,7 @@ export function HandsRecord() {
   return (
     <section className="chands hrec">
       <h4 className="csub">hands</h4>
-      {said && <p className={`hsaid ${said.failed ? "failed" : ""}`} role="status"><i />{said.text}</p>}
+      {said && <p className={`hsaid ${said.failed ? "failed" : ""}`} role="status"><StateMark kind={said.failed ? "failed" : "done"} />{said.text}</p>}
       {h.hands.length ? (
         <ol>
           {h.hands.map((r, i) => (
@@ -98,16 +98,16 @@ export function HandLine({ onTaken }: { onTaken: (sessionId: string, repo: strin
   return (
     <div ref={ref} className={`hline ${cls}`} role="status">
       <div className="hrow1">
-        <span className="what" title={h.brief}><i />{d ? d.said : line}</span>
+        <span className="what" title={h.brief}>{d ? <StateMark kind={d.taking ? "running" : d.failed ? "failed" : "done"} seed={h.id} /> : <Who login={h.from} size={16} needs />}{d ? d.said : line}</span>
         {!d?.taking && !(d && !d.failed) && !asking && (
           <span className="moves">
             {!d && (h.review
-              ? <button className="first" onClick={() => { openUrl(`https://github.com/${h.repo}/pull/${h.issue}`); later(h); }} title="open the PR on GitHub">Open</button>
+              ? <button className="wbtn" onClick={() => { openUrl(`https://github.com/${h.repo}/pull/${h.issue}`); later(h); }} title="open the PR on GitHub">Open</button>
               : <>
-                <button className="first take" onClick={() => void take(h)} title="the branch comes down, and a session opens with the brief">Take</button>
-                <button onClick={() => { setAsking(true); requestAnimationFrame(() => field.current?.focus()); }} title="give it back, with one line why">Pass</button>
+                <button className="wbtn take" onClick={() => void take(h)} title="the branch comes down, and a session opens with the brief">Take</button>
+                <button className="wbtn ghost" onClick={() => { setAsking(true); requestAnimationFrame(() => field.current?.focus()); }} title="give it back, with one line why">Pass</button>
               </>)}
-            <button onClick={() => later(h)} title="keep it under its repo, in the side, as handed to you">Later</button>
+            <button className="wbtn ghost" onClick={() => later(h)} title="keep it under its repo, in the side, as handed to you">Later</button>
           </span>
         )}
       </div>
@@ -116,8 +116,8 @@ export function HandLine({ onTaken }: { onTaken: (sessionId: string, repo: strin
         <div className="hpass">
           <input ref={field} value={why} placeholder={`why, in one line, for ${h.from}`} onChange={(e) => setWhy(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setAsking(false); passing(""); } }} />
-          <button className="first" disabled={!why.trim()} onClick={send}>Pass back</button>
-          <button onClick={() => { setAsking(false); passing(""); }}>keep it</button>
+          <button className="wbtn" disabled={!why.trim()} onClick={send}>Pass back</button>
+          <button className="wbtn ghost" onClick={() => { setAsking(false); passing(""); }}>keep it</button>
         </div>
       </Fold>
     </div>
@@ -130,7 +130,7 @@ export function HandedRows({ repo }: { repo: string }) {
   const mine = h.pending.filter((p) => p.repo === repo);
   return <>{mine.map((p: Handed) => (
     <div key={p.id} className="row crow hside" data-s onClick={() => unlater(p.id)} title={`handed to you by ${p.from}${h.laterOf(p.id) ? " · put off; click to see it again" : ""}`}>
-      <span className="cdot yourcall"><i /></span>
+      <StateMark kind="needs" seed={p.id} />
       <span className="t"><span className="cnum">#{p.issue}</span> {p.title || "handed to you"}</span>
       <Sig s={{ login: p.from, agent: false }} />
     </div>

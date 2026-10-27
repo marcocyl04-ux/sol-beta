@@ -42,8 +42,9 @@ export type Language = "follow" | "english" | "cantonese" | "dutch";
 // what Claude may do without asking in a Work session (#94); the engine checks the value
 export type WorkMode = "default" | "acceptEdits" | "plan" | "auto" | "bypassPermissions";
 export type Bubble = "slab" | "glass" | "edge" | "classic" | "outline" | "bare";
-// the look (mine/look/SPEC.md): the window's base colour, its opacity over the desktop, the native blur, his bubble's style
-export type Look = { color: string; alpha: number; blur: number; bubble: Bubble };
+// the look (mine/look/SPEC.md): the window's base colour, its opacity over the desktop, the native blur, his bubble's style,
+// the size of the chat's words (#268)
+export type Look = { color: string; alpha: number; blur: number; bubble: Bubble; text: number };
 export type Settings = {
   voice: string; patienceMs: number; language: Language; mic?: string;
   defaults: { seat: Seat; model: Record<Seat, string>; effort: Record<Seat, Effort>; mode: WorkMode };

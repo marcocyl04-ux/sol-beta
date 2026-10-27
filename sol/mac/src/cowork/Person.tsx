@@ -17,22 +17,13 @@ export function personOf(roster: Member[], login: string): Member | undefined {
   return { ...rest, ...(sessions.length ? { sessions } : {}), ...(thing ? { thing } : {}), ...(all.every((m) => m.quiet) ? { quiet: true as const } : {}) };
 }
 import type { Room as RoomData, Thing, FeedLine } from "./useRoom";
-import { Hand, Glyph, colourOf } from "./Room";
+import { Glyph } from "./Room";
 import { useWatch } from "./Watch";
-import { since, STATE_WORD } from "./bits";
-import { CELLS, LET, EYES } from "../Mark";
-
-/** the creature's mark, still, small: an agent's line wears it (the mockup's), the eyes where the map leaves them white */
-function SolMark({ size = 14 }: { size?: number }) {
-  return (
-    <svg className="mk" viewBox="0 0 14 14" width={size} height={size} shapeRendering="crispEdges" aria-hidden="true">
-      {CELLS.map((c) => { const k = LET[c.ch]; const eye = EYES.find(([x]) => x === c.i); return <rect key={`${c.i}-${c.j}`} x={c.i} y={c.j} width={1} height={1} fill={k ? `rgb(${k.join(",")})` : eye && c.j === 6 ? eye[1] : "#0a0a0a"} />; })}
-    </svg>
-  );
-}
+import { since, STATE_WORD, Who, useBand } from "./bits";
+import { hhmm } from "./util";
+import { Droplet } from "../creature/goo";
 
 type Row = { id: string; at: string; text: string; sub?: string; agent: boolean };
-const hhmm = (iso: string) => { const d = new Date(iso); return Number.isNaN(+d) ? "" : Date.now() - +d > 86_400_000 ? `${d.getMonth() + 1}/${d.getDate()}` : d.toTimeString().slice(0, 5); };
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 /** what a person did in the room, newest first (pure): the room's feed lines that are theirs, and the record's log of
@@ -54,8 +45,8 @@ export function didOf(login: string, feed: FeedLine[], log: { at: string; text: 
 }
 
 /** the centre of S3: the larger worker, what they did, the things they are in */
-export function PersonMain({ team, room, login, people, entry, roomName, onBack, onThing, convo, onConvo }: {
-  team: Team; room: RoomData; login: string; people: string[]; entry?: Member; roomName: string; onBack: () => void; onThing: (t: Thing) => void;
+export function PersonMain({ team, room, login, entry, roomName, onBack, onThing, convo, onConvo }: {
+  team: Team; room: RoomData; login: string; entry?: Member; roomName: string; onBack: () => void; onThing: (t: Thing) => void;
   convo: boolean; onConvo: () => void;
 }) {
   const me = team.me, mine = login === me, up = !!team.state?.relay.up;
@@ -83,7 +74,7 @@ export function PersonMain({ team, room, login, people, entry, roomName, onBack,
     const r = await team.ask<{ ok?: boolean }>("team.ping", { to: login, line: `${me} asks for an audit` });
     setAsked(r.ok ? "asked" : "failed");
   };
-  const colour = colourOf(login, people);
+  const band = useBand();
   return (
     <div className="rm-page rm-person">
       <div className="rm-pg-top">
@@ -92,10 +83,10 @@ export function PersonMain({ team, room, login, people, entry, roomName, onBack,
         {!convo && <button className="rm-th-link" onClick={onConvo}>{mine ? "your conversation ›" : "their conversation ›"}</button>}
       </div>
       <header className="rm-ps-head">
-        <Hand colour={colour} size={64} bob={!dark && state === "working"} />
+        <Who login={login} size={64} away={dark || state === "away"} working={!dark && state === "working"} needs={!dark && state === "yourcall"} />
         <div className="rm-ps-name">
           <h2>{login}{mine && <span> (you)</span>}</h2>
-          <p><i className={`rm-ps-dot ${dark ? "off" : state ?? "here"}`} aria-hidden="true" />{where}</p>
+          <p>{where}</p>
         </div>
       </header>
       <h3 className="rm-pg-h">what {mine ? "you" : "they"} did in {roomName} · newest first</h3>
@@ -104,14 +95,14 @@ export function PersonMain({ team, room, login, people, entry, roomName, onBack,
         {rows.map((r, i) => (
           <li key={r.id} style={{ "--i": Math.min(i, 11) } as React.CSSProperties}>
             <time dateTime={r.at}>{hhmm(r.at)}</time>
-            <span className="tx"><span>{r.text}{r.agent && <em className="ag"> · {mine ? "your" : "their"} agent</em>}</span>{r.sub && <small>{r.sub}</small>}</span>
+            <span className="tx"><span>{r.text}{r.agent && <em className="ag"><Who login={login} size={12} />{mine ? "your" : "their"} agent</em>}</span>{r.sub && <small>{r.sub}</small>}</span>
           </li>
         ))}
       </ol>
       <h3 className="rm-pg-h">things {mine ? "you are" : "they are"} in</h3>
       <div className="rm-ps-in">
         {inNow.length === 0 ? <p className="none">none right now</p> : inNow.map((t) => (
-          <button key={t.id} className="rm-ps-thing" style={{ "--who": colour } as React.CSSProperties} onClick={() => onThing(t)} title={`open ${t.name}`}>
+          <button key={t.id} className="rm-ps-thing" style={{ "--fam": band(login) } as React.CSSProperties} onClick={() => onThing(t)} title={`open ${t.name}`}>
             <Glyph kind={t.kind} size={36} />
             <span><b>{t.name}</b><small>{entry?.thing?.source === "agent" ? `${mine ? "your" : "their"} agent is in it now` : "in it now"}</small></span>
           </button>
@@ -205,7 +196,7 @@ function Convo({ team, login, id, mine }: { team: Team; login: string; id: strin
   }, [lines]);
   return (
     <div className="rm-cv-body">
-      <p className="rm-cv-live"><i className={ended || waiting ? "off" : ""} aria-hidden="true" />{ended ? "this session ended" : waiting ? "not live yet: it shows once it starts showing" : mine ? "live to the room" : "live · you are watching"}</p>
+      <p className="rm-cv-live">{ended ? <Droplet kind="done" size={12} seed={id} /> : waiting ? <span className="cnobody" aria-hidden="true" /> : <Droplet kind="running" size={12} seed={id} />}{ended ? "this session ended" : waiting ? "not live yet: it shows once it starts showing" : mine ? "live to the room" : "live · you are watching"}</p>
       {note && <p className="rm-cv-note" role="status">{note}</p>}
       <div className="rm-cv-lines" aria-live="polite">
         {lines === null ? <p className="none">reading…</p>
@@ -217,7 +208,7 @@ function Convo({ team, login, id, mine }: { team: Team; login: string; id: strin
             </button>
           ) : (
             <div key={g.k} className={`rm-cv-l ${g.role}`}>
-              {g.role === "agent" && <SolMark />}
+              {g.role === "agent" && <Who login={login} size={14} className="mk" />}
               <div><time>{hhmm(new Date(g.lines[0].at).toISOString())}</time><p>{g.lines[0].text}</p></div>
             </div>
           ))}

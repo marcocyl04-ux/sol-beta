@@ -1,11 +1,11 @@
-// Every indicator in Sol is a small creature-thing, ported from the prototype's INDICATORS tiles.
-// Each one is a Creature (Widget.tsx) with its own draw; they share one loop and one state.
-// Motion: everything that moves is a spring or a body (Widget.tsx), quantised to the cell grid only when drawn;
-// colour changes are dither sweeps (`l.sliceAt`), never fades.
-import { useEffect, useRef, useState } from "react";
-import { Body, Creature, ditherPick, spring, type Life } from "./Widget";
-import { live } from "./state";
-import { PAPER, TINTS, bandColour, tintAt, rgba, type Tint } from "./ring";
+// The small indicators of Sol, since 2026-10-27 drawn in goo (creature/goo.tsx, mine/look/DIRECTION-4.html):
+// the engine's eyes on a pill, the daily mark, the liquid slider and the Bypass pill's sheen. Nothing is one flat
+// colour; motion is springs (motion.ts) and SMIL. The pixel versions went with the pixel creature.
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { enginePhase, live } from "./state";
+import { Bands, Droplet, Goo, JOBS, Light, bandsCss, reduced } from "./goo";
+import { useSpring, type Cfg } from "../motion";
+import { SOL_EYES } from "../solShape";
 
 // ---- a rounded rectangle's outline as a path you can walk by distance ----
 // `at` writes into one shared point (read it before the next call): walking a path allocates nothing.
@@ -33,260 +33,168 @@ export function outline(x: number, y: number, w: number, h: number, r: number) {
   return { len, at };
 }
 
-// ---- status: a fragment of the creature with an eye. Green slice when the engine is up, ember when down ----
-// Transitions of its own: the engine going down shakes it a cell each way, then the ember sweeps in through the
-// dither; the creature's `ok` stamps a cell check (it drops in from two cells above and lands with a squash), and
-// when ok ends the body rises back into place from below.
-const BODY = [[0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 1], [4, 2], [0, 2], [1, 2], [2, 2], [3, 2], [1, 3], [2, 3], [3, 0]];
-const CHECK = [[0, 2], [1, 3], [2, 2], [3, 1], [4, 0]];
-export function Status({ up, title }: { up: boolean; title?: string }) {
+// ---- status: the engine's eyes (mine/look/DIRECTION-4.html, 2026-10-27). Not a body: Sol's two black-and-white
+// squares alone on a soft pill of the brand's pink to orange. Up: eyes open, a blink now and then. Starting: the pill
+// breathes and the eyes are half shut. Down: a stone pill, eyes nearly closed. The creature's `ok` washes the pill
+// spring green while it lasts. A click squashes it (the poke).
+const EYE_X0 = SOL_EYES[0].x, EYE_X1 = SOL_EYES[3].x + SOL_EYES[3].w, EYE_Y = SOL_EYES[0].y + SOL_EYES[0].h / 2;
+export function Status({ up, title, phase: force }: { up: boolean; title?: string; phase?: ReturnType<typeof enginePhase> }) {
+  const id = useId().replace(/:/g, "");
+  const [look, setLook] = useState(live.look);
+  const [phase, setPhase] = useState(enginePhase());
+  const [blink, setBlink] = useState(false);
+  const [squash, setSquash] = useState(false);
+  // the look and the phase, polled a few times a second (the canvases read `live` each frame; this needs it rarely)
+  useEffect(() => {
+    const t = window.setInterval(() => { setLook((l) => (l === live.look ? l : live.look)); setPhase((p) => { const q = enginePhase(); return p === q ? p : q; }); }, 200);
+    return () => window.clearInterval(t);
+  }, []);
+  useEffect(() => {
+    if (reduced || !up) return;
+    let t = 0;
+    const next = () => { t = window.setTimeout(() => { setBlink(true); t = window.setTimeout(() => { setBlink(false); next(); }, 120); }, 2600 + Math.random() * 4200); };
+    next();
+    return () => window.clearTimeout(t);
+  }, [up]);
+  const starting = !up && (force ?? phase) === "starting";
+  const kind = up ? (look === "ok" ? "ok" : "up") : starting ? "starting" : "down";
+  const cols = kind === "ok" ? [JOBS.spring[1], JOBS.spring[2]] : kind === "down" ? [JOBS.stone[1], JOBS.stone[2]] : [JOBS.brand[5], JOBS.brand[2]];
+  const open = blink ? 0.12 : up ? 1 : starting ? 0.4 : 0.14;
+  const k = 60 / (EYE_X1 - EYE_X0);   // the eyes span 60 of the pill's 104
   return (
-    <span className="status" title={title ?? (up ? "engine up" : "engine not reachable")}>
-      <Creature dustCell={2} setup={(l) => { l.maxDust = 16; l.data.up = up ? 1 : 0; l.data.upAt = -1e9; }}
-        transition={(l, from, to) => {
-          if (!l.fresh) return;
-          if (to === "ok") l.body.drop(2);                  // the check falls in
-          else if (from === "ok") { const r = l.sp(0); r.v = 2; r.vel = 0; } // the body comes back up from below
-        }}
-        draw={(l, x, w, h, t, dt) => {
-          const cell = 3, now = l.now;
-          // the engine's own edge, independent of the creature's state
-          if ((up ? 1 : 0) !== l.data.up) {
-            l.data.up = up ? 1 : 0; l.data.upAt = now;
-            if (!up) l.shake.vel = 46;
-          }
-          const k = Math.max(0, Math.min(1, (now - l.data.upAt - (up ? 0 : 170)) / 380));
-          const stamp = live.look === "ok" && up;
-          // up wears green to lime (as before step 3), its done stamp green, down red soft (the Unplugged colour)
-          const from = up ? TINTS.unplugged : TINTS.ok, to = up ? (stamp ? TINTS.done : TINTS.ok) : TINTS.unplugged;
-          l.slice = to;
-          const shape = stamp ? CHECK : BODY;
-          // squash: wider and shorter, standing on its bottom edge, whole pixels
-          const sq = Math.max(-0.4, Math.min(0.6, l.body.sq.v + l.press.v * 0.25));
-          const cw = Math.max(2, Math.round(cell * (1 + sq * 0.3))), ch = Math.max(1, Math.round(cell * (1 - sq * 0.5)));
-          const rows = 4;
-          const ox = Math.round((w - 5 * cw) / 2) + Math.round(l.shake.v) * cell;
-          const rise = l.sp(0); spring(rise, 0, dt, 300, 0.5);
-          const base = Math.round((h + rows * cell) / 2) + (l.body.cy + Math.round(rise.v)) * cell; // bottom edge
-          for (const [i, j] of shape) {
-            const s = ditherPick(from, to, k, i, j, (i + (3 - j)) / 8);
-            x.fillStyle = rgba(tintAt(s, (i + j) * 0.12 + t * s.speed));
-            x.fillRect(ox + i * cw, base - (rows - j) * ch, cw, ch);
-          }
-          if (!stamp) l.eye(x, ox + cw, base - 2.5 * ch, cell, up ? l.eyeOpen() : 0.15, l.look.x, l.look.y);
-        }} onPoke={(l) => { l.poke(); l.shed(6, l.w / 2, l.h / 2, 0.4); return true; }} />
+    <span className={`status st-${kind}${squash ? " squash" : ""}`} title={title ?? (up ? "engine up" : starting ? "engine starting" : "engine not reachable")}
+      onClick={() => { if (!reduced) { setSquash(true); window.setTimeout(() => setSquash(false), 320); } }}>
+      <svg width="26" height="16" viewBox="0 0 104 64" aria-hidden="true">
+        <defs>
+          <Bands id={`${id}p`} cols={cols} angle={0} spread={1.3} soft={0.12} />
+          <Light id={id} cx={30} cy={8} r={40} />
+        </defs>
+        <g className="spill">
+          <rect x="2" y="2" width="100" height="60" rx="30" fill={`url(#${id}p)`} />
+          <rect x="2" y="2" width="100" height="60" rx="30" fill={`url(#${id}hi)`} />
+          <rect x="2" y="2" width="100" height="60" rx="30" fill={`url(#${id}lo)`} />
+        </g>
+        <g transform={`translate(52 32) scale(${k.toFixed(3)}) translate(${-(EYE_X0 + EYE_X1) / 2} ${-EYE_Y})`}>
+          <g className="eyes" style={{ transform: `scaleY(${open})`, transformBox: "fill-box", transformOrigin: "center" }}>
+            {SOL_EYES.map((e, i) => <rect key={i} x={e.x} y={e.y} width={e.w} height={e.h} fill={e.fill} />)}
+          </g>
+        </g>
+      </svg>
     </span>
   );
 }
 
-// ---- running: the arm reaching along the diagonal, shedding cells. Sits in the step's glyph slot ----
-// The head is a spring chasing the far end of the diagonal: it accelerates out, decelerates in with a small
-// overshoot, rests a beat, and pulls back. The arm stretches with speed (up to four cells) and gathers into one
-// cell at rest; dust leaves the head with the head's own velocity.
-export function Runner() {
-  return (
-    <Creature className="runner" dustCell={2} setup={(l) => { l.gravity = 10; l.maxDust = 14; l.data.p = 0; l.data.v = 0; l.data.goal = 1; l.sp(0); l.data.rest = 0; }}
-      draw={(l, x, w, h, _t, dt) => {
-        const cell = 3, len = Math.min(Math.floor(w / cell), Math.floor(h / cell));
-        const ox = Math.round((w - len * cell) / 2), oy = Math.round((h - len * cell) / 2);
-        const d = l.data, goal = d.goal * (len - 1);
-        const sp = l.sp(0);
-        const k = (l.hover ? 150 : 90) * (0.7 + live.slice.speed * 0.5) * Math.max(0.3, live.tempo);
-        spring(sp, goal, dt, k, 0.62);
-        d.p = sp.v; d.v = sp.vel;
-        if (Math.abs(d.p - goal) < 0.2 && Math.abs(d.v) < 1) { d.rest += dt; if (d.rest > 0.14) { d.goal = 1 - d.goal; d.rest = 0; } }
-        const head = Math.max(0, Math.min(len - 1, Math.round(d.p)));
-        const dir = d.v >= 0 ? 1 : -1;
-        const arm = 1 + Math.min(3, Math.floor(Math.abs(d.v) / 5));
-        for (let a = arm - 1; a >= 0; a--) {
-          const c = head - a * dir;
-          if (c < 0 || c >= len) continue;
-          const s = l.sliceAt(c, len - 1 - c, c / len);
-          x.fillStyle = rgba(tintAt(s, a * 0.25 + l.flow), a === 0 ? 1 : a === 1 ? 0.7 : a === 2 ? 0.45 : 0.3);
-          x.fillRect(ox + c * cell, oy + (len - 1 - c) * cell, cell, cell);
-        }
-        // dust leaves the head moving the way the head moves (up-right along the diagonal is +x, -y)
-        if (Math.abs(d.v) > 6 && Math.random() < 0.25) l.shed(1, ox + head * cell + 1, oy + (len - 1 - head) * cell + 1, 0.15, d.v * cell * 0.5, -d.v * cell * 0.5);
-      }} />
-  );
-}
+// ---- running: the daily mark turning (creature/goo.tsx, 2026-10-27; the diagonal arm of cells went with it) ----
+export function Runner() { return <Droplet kind="running" className="runner" seed="runner" />; }
 
+// ---- slider: liquid in a dry channel (mine/look/DIRECTION-4.html, 2026-10-27) ----
+// The channel is a row of dry dots; the value is liquid in the shore bands that has wet it up to the knob, and the knob
+// is the liquid's head (one goo body, so the liquid pours into it). Three springs: the knob overshoots its target and
+// rings back, the liquid follows slower and thins into a neck while it trails, and the value buds up out of the knob in
+// a capsule bridged by goo while the pointer (or an arrow key) is down, sinking back in on release. The drawing works
+// in units where the track is 0..100 wide (1u = 1.8px on the 180px track), so <Bands> spans the whole track and the
+// hue tells the value. A native range stays over it, invisible, for pointer and keyboard.
+const SU = 1.8, SY = 30, KR = 4, LH = 2;   // px per unit, the channel's centre, the knob's radius, the liquid's half height
+const SX = (f: number) => KR + Math.max(0, Math.min(1, f)) * (100 - 2 * KR);
+const KNOB: Cfg = { k: 380, z: 0.42, eps: 0.02 }, LIQ: Cfg = { k: 150, z: 0.55, eps: 0.02 }, BUDX: Cfg = { k: 260, z: 0.6, eps: 0.02 };
+const BUD_UP: Cfg = { k: 300, z: 0.55, eps: 0.004 }, BUD_DOWN: Cfg = { k: 360, z: 0.85, eps: 0.004 };
+const KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"]);
 
-// ---- slider: a dithered band for a track, a 3x3 ink knob with an eye, dust while dragging ----
-// The knob is a spring (it overshoots a column and comes back); quantised to the columns when drawn.
-function drawSlider(l: Life, x: CanvasRenderingContext2D, w: number, h: number, frac: number, t: number, dt: number, focus = false) {
-  const cell = 4;
-  const cols = Math.floor(w / cell);
-  const d = l.data;
-  const sp = l.sp(0);
-  if (d.k === undefined) { d.k = sp.v = frac; d.kv = 0; }
-  // the knob is a heavier spring while it travels (it lags the pointer and overshoots a column), and every detent
-  // it reaches lands: a squash on the body, a puff of dust, the eye blinks
-  spring(sp, frac, dt, 300, 0.42);
-  d.k = sp.v; d.kv = sp.vel;
-  if (d.last !== undefined && Math.abs(frac - d.last) > 1e-6) { l.body.sq.vel += 6 * Math.sign(frac - d.last) * -1 + 3; l.blink = 0.08; }
-  d.last = frac;
-  const kc = Math.max(0, Math.min(cols - 3, Math.round(d.k * (cols - 3)))); // the knob's first column
-  const y = Math.round(h / 2 - cell / 2);
-  for (let i = 0; i < cols; i++) {
-    const c = i <= kc + 1 ? bandColour(l.sliceAt(i, 0, i / cols), (i / cols) * 2 + l.flow, i, 0) : PAPER.raised;
-    x.fillStyle = rgba(c);
-    x.fillRect(i * cell, y, cell, cell);
-  }
-  const kx = kc * cell + Math.round(l.shake.v) * cell, ky = Math.round(h / 2 - cell * 1.5) + l.body.cy * cell + Math.round(l.press.v);
-  if (focus) { x.fillStyle = PAPER.mute; x.fillRect(kx - 1, ky - 1, cell * 3 + 2, cell * 3 + 2); }
-  // stretched along its travel by speed, squashed by the landing
-  const str = Math.min(cell, Math.round(Math.abs(d.kv) * 0.08)), sqz = Math.round(Math.max(-1, Math.min(1, l.body.sq.v)) * 1.5);
-  x.fillStyle = PAPER.ink;
-  x.fillRect(kx - (d.kv < 0 ? str : 0), ky + Math.max(0, sqz), cell * 3 + str, cell * 3 - Math.max(0, sqz));
-  l.eye(x, kx + 3, ky + cell * 1.5, 3, l.eyeOpen(), l.look.x * 0.5 + Math.max(-1, Math.min(1, d.kv * 0.3)), 0);
-  if ((l.down || Math.abs(d.kv) > 1.5) && Math.random() < 0.5) l.shed(1, kx + cell * 1.5, h / 2, 0.5, d.kv * w * 0.4, 0);
-  void t;
-}
-
-// over a track that owns the pointer (Picker): the canvas only draws
-export function CellTrack({ frac }: { frac: number }) {
-  return <Creature className="cells" host="parent" dustCell={2} draw={(l, x, w, h, t, dt) => drawSlider(l, x, w, h, frac, t, dt)} />;
-}
-
-// a native range kept for keyboard and pointer, invisible, over the cells (Settings)
 export function CellRange(props: React.InputHTMLAttributes<HTMLInputElement> & { min: number; max: number; value: number }) {
-  const focus = useRef(false);
+  const id = useId().replace(/:/g, "");
   const frac = (props.value - props.min) / (props.max - props.min || 1);
+  const x = SX(frac);
+  const [held, setHeld] = useState(false);
+  const [ring, setRing] = useState(false);
+  const label = String(props.value), bw = Math.max(9, (label.length * 6.4 + 10) / SU);
+  const r = useRef<{ liq?: SVGRectElement | null; neck?: SVGRectElement | null; knob?: SVGEllipseElement | null; hi?: SVGEllipseElement | null; ring?: SVGCircleElement | null; bud?: SVGRectElement | null; num?: SVGGElement | null }>({});
+  const draw = () => {
+    const e = r.current, lx = liq.v, b = Math.max(0, bud.v);
+    // the knob runs a few units past its target (the side away from the trailing liquid), never off the track: at the
+    // ends its middle stops where it rests at min and max
+    let kx = knob.v, ov = kx - knob.target;
+    if (ov * (knob.target - lx) > 0) kx = knob.target + 4 * Math.tanh(ov / 4);
+    kx = Math.max(KR, Math.min(100 - KR, kx));
+    const bx = Math.max(KR, Math.min(100 - KR, budX.v));
+    const gap = Math.abs(kx - lx), thin = Math.min(0.6, gap * 0.03);
+    // the liquid to where it has caught up, then a neck stretched to the knob, thinner the further it trails
+    const lh = LH - thin, lend = Math.min(lx, kx);
+    e.liq?.setAttribute("width", Math.max(2 * lh, lend).toFixed(2));
+    e.liq?.setAttribute("y", (SY - lh).toFixed(2)); e.liq?.setAttribute("height", (2 * lh).toFixed(2)); e.liq?.setAttribute("rx", lh.toFixed(2));
+    const nh = Math.max(0.8, LH - gap * 0.06), n0 = Math.min(lx, kx), n1 = Math.max(lx, kx);
+    e.neck?.setAttribute("x", n0.toFixed(2)); e.neck?.setAttribute("width", (n1 - n0).toFixed(2));
+    e.neck?.setAttribute("y", (SY - nh).toFixed(2)); e.neck?.setAttribute("height", (2 * nh).toFixed(2));
+    // the knob: a little bigger while held, stretched along its travel by speed
+    const st = Math.min(1.4, Math.abs(knob.vel) * 0.004), kr = KR + 0.6 * Math.min(1, b);
+    for (const el of [e.knob, e.hi]) { el?.setAttribute("cx", kx.toFixed(2)); }
+    e.knob?.setAttribute("rx", (kr + st).toFixed(2)); e.knob?.setAttribute("ry", (kr - st * 0.45).toFixed(2));
+    e.hi?.setAttribute("rx", (kr * 0.95 + st).toFixed(2)); e.hi?.setAttribute("ry", (kr * 0.95 - st * 0.45).toFixed(2));
+    e.ring?.setAttribute("cx", kx.toFixed(2)); e.ring?.setAttribute("r", (kr + 1.6).toFixed(2));
+    // the bud: rises out of the knob's top and swings a little behind it
+    const by = SY - 10 * b, s = Math.min(1.08, b);
+    // drawn in the track's own units (no transform), so the bands under it are the bands at its place on the track
+    const w = bw * s, hh = 9 * s;
+    if (e.bud) { e.bud.setAttribute("x", (bx - w / 2).toFixed(2)); e.bud.setAttribute("y", (by - hh / 2).toFixed(2)); e.bud.setAttribute("width", w.toFixed(2)); e.bud.setAttribute("height", hh.toFixed(2)); e.bud.setAttribute("rx", (hh / 2).toFixed(2)); }
+    e.num?.setAttribute("transform", `translate(${bx.toFixed(2)} ${by.toFixed(2)}) scale(${Math.max(0.001, s).toFixed(3)})`);
+    e.num?.setAttribute("opacity", Math.max(0, Math.min(1, (b - 0.45) / 0.4)).toFixed(2));
+  };
+  const knob = useSpring(x, KNOB, draw), liq = useSpring(x, LIQ, draw), budX = useSpring(x, BUDX, draw), bud = useSpring(0, BUD_UP, draw);
+  useLayoutEffect(() => { knob.to(x); liq.to(x); budX.to(x); draw(); }, [x]);
+  useEffect(() => { bud.to(held ? 1 : 0, { cfg: held ? BUD_UP : BUD_DOWN }); }, [held]);
+  useEffect(() => {
+    if (!held) return;
+    const up = () => setHeld(false);
+    addEventListener("pointerup", up); addEventListener("pointercancel", up); addEventListener("blur", up);
+    return () => { removeEventListener("pointerup", up); removeEventListener("pointercancel", up); removeEventListener("blur", up); };
+  }, [held]);
+  const dots: number[] = [];
+  for (let i = 2.5; i < 100; i += 5) dots.push(i);
   return (
     <span className="crange">
-      <Creature host="parent" dustCell={2} draw={(l, x, w, h, t, dt) => drawSlider(l, x, w, h, frac, t, dt, focus.current)} />
+      <svg className="cgoo" viewBox={`-7 10 114 30`} style={{ left: -7 * SU, top: `calc(50% - ${20 * SU}px)`, width: 114 * SU, height: 30 * SU }} aria-hidden>
+        <defs>
+          <Goo id={`${id}f`} blur={1.15} />
+          <Bands id={`${id}g`} cols={JOBS.shore.slice(0, 4)} angle={0} spread={1} soft={0.08} />
+          <radialGradient id={`${id}h`} cx=".34" cy=".3" r=".75"><stop offset="0" stopColor="#fff" stopOpacity=".55" /><stop offset=".45" stopColor="#fff" stopOpacity="0" /><stop offset=".8" stopColor="#000" stopOpacity="0" /><stop offset="1" stopColor="#000" stopOpacity=".2" /></radialGradient>
+        </defs>
+        {dots.map((d) => <circle key={d} className="dry" cx={d} cy={SY} r={0.8} />)}
+        <g filter={`url(#${id}f)`} fill={`url(#${id}g)`}>
+          <rect ref={(el) => { r.current.liq = el; }} x={0} y={SY - LH} width={x} height={2 * LH} rx={LH} />
+          <rect ref={(el) => { r.current.neck = el; }} x={x} y={SY - LH} width={0} height={2 * LH} />
+          <ellipse ref={(el) => { r.current.knob = el; }} cx={x} cy={SY} rx={KR} ry={KR} />
+          <rect ref={(el) => { r.current.bud = el; }} x={x} y={SY} width={0} height={0} />
+        </g>
+        <ellipse ref={(el) => { r.current.hi = el; }} cx={x} cy={SY} rx={KR * 0.95} ry={KR * 0.95} fill={`url(#${id}h)`} />
+        {ring && <circle ref={(el) => { r.current.ring = el; draw(); }} className="cring" cx={x} cy={SY} r={KR + 1.6} />}
+        <g ref={(el) => { r.current.num = el; }} opacity={0} transform={`translate(${x} ${SY}) scale(0.001)`}>
+          <text className="cnum" textAnchor="middle" dominantBaseline="central" fontSize={10 / SU}>{label}</text>
+        </g>
+      </svg>
       <input type="range" {...props}
-        onFocus={(e) => { focus.current = e.currentTarget.matches(":focus-visible"); props.onFocus?.(e); }}
-        onBlur={(e) => { focus.current = false; props.onBlur?.(e); }} />
+        onPointerDown={(e) => { if (!props.disabled) setHeld(true); props.onPointerDown?.(e); }}   // a disabled range still hears the press in Chromium: no bud
+        onKeyDown={(e) => { if (KEYS.has(e.key) && !props.disabled) setHeld(true); props.onKeyDown?.(e); }}
+        onKeyUp={(e) => { if (KEYS.has(e.key)) setHeld(false); props.onKeyUp?.(e); }}
+        onFocus={(e) => { setRing(e.currentTarget.matches(":focus-visible")); props.onFocus?.(e); }}
+        onBlur={(e) => { setRing(false); setHeld(false); props.onBlur?.(e); }} />
     </span>
   );
 }
 
-// ---- voice: the arms stretch with the sound (env is the real mic / speaker level when there is one) ----
-// Each arm is a spring chasing its height, so a loud syllable throws it past and it rings back.
-export function VoiceArms() {
-  return (
-    <Creature className="arms" host="parent" draw={(l, x, w, h, t, dt) => {
-      const cell = 2, n = 5;
-      const active = live.look === "listening" || live.look === "speaking";
-      const e = active ? live.env : l.hover ? 0.5 + 0.5 * Math.sin(t * 5) : 0.15;
-      const mid = Math.floor(h / cell / 2), ox = Math.round((w - (n * 2 - 1) * cell) / 2);
-      for (let k = 0; k < n; k++) {
-        const target = (0.5 + 0.5 * Math.sin(t * 9 + k * 1.3)) * (0.6 + e * 3.6) * (1 - Math.abs(k - 2) / 4) + 0.6;
-        const sp = l.sp(k);
-        spring(sp, target, dt, 320, 0.32);
-        const amp = Math.max(1, Math.min(4, Math.round(sp.v)));
-        const c = rgba(tintAt(l.sliceAt(k, 0, k / n), k * 0.12 + l.flow));
-        const cx = ox + k * cell * 2;
-        for (let j = 0; j < amp; j++) {
-          x.globalAlpha = j === amp - 1 ? 0.5 : 1;
-          x.fillStyle = c;
-          x.fillRect(cx, (mid - j) * cell, cell, cell);
-          if (j) x.fillRect(cx, (mid + j) * cell, cell, cell);
-        }
-      }
-      x.globalAlpha = 1;
-    }} />
-  );
-}
+// ---- a finished step: the daily mark settled into its check (creature/goo.tsx). `land`: it just finished in front of
+// you, so the running drop pulls in and the check draws out of it; without it, the check is just there ----
+export function CellCheck({ land }: { land?: boolean }) { return <Droplet kind="done" className="cellcheck" land={land} />; }
 
-// ---- seat switch: each seat a 3x3 fragment with an eye in its own colours; the active one wiggles on hover ----
-// Picking a seat: the new fragment hops a cell and lands with a squash, its eye opening; the old one's lid drops.
-const FRAG = [[0, 0], [1, 0], [0, 1], [1, 1], [2, 1], [1, 2], [2, 2], [2, 0]];
-const seatBodies = new WeakMap<Life, { home: Body; work: Body; was: string; at: number }>();
-export function SeatCells({ seat, life }: { seat: "home" | "work"; life: React.MutableRefObject<Life | null> }) {
-  return (
-    <Creature className="seatcells" host="parent" life={life} dustCell={3} setup={(l) => { l.maxDust = 30; }} onPoke={() => true} draw={(l, x, _w, h, t, dt) => {
-      const cell = 4;
-      let sb = seatBodies.get(l);
-      if (!sb) { sb = { home: new Body(), work: new Body(), was: seat, at: -1e9 }; seatBodies.set(l, sb); }
-      if (sb.was !== seat) { sb.was = seat; sb.at = l.now; sb[seat].jump(1); }
-      const c = x.canvas, cr = c.getBoundingClientRect();
-      c.parentElement?.querySelectorAll<HTMLButtonElement>("button[data-seat]").forEach((b) => {
-        const name = b.dataset.seat as "home" | "work";
-        const on = name === seat;
-        const body = sb![name];
-        body.step(dt, 0);
-        const s: Tint = TINTS[name];
-        const br = b.getBoundingClientRect();
-        const sq = Math.max(-0.4, Math.min(0.6, body.sq.v));
-        const cw = Math.max(2, Math.round(cell * (1 + sq * 0.25))), ch = Math.max(2, Math.round(cell * (1 - sq * 0.4)));
-        const ox = Math.round(br.left - cr.left + 9), base = Math.round(h / 2 + cell * 1.5) + body.cy * cell;
-        const wig = on && l.hover ? Math.round(Math.sin(t * 12) * 2) : 0;
-        for (const [i, j] of FRAG) {
-          x.fillStyle = rgba(tintAt(s, (i + j) * 0.2 + t * s.speed), on ? 1 : 0.45);
-          x.fillRect(ox + i * cw + (j === 1 ? wig : 0), base - (3 - j) * ch, cw, ch);
-        }
-        // the eye: the new seat's opens in two steps, the old seat's lid drops in two
-        const since = l.now - sb!.at;
-        const step = since < 140 ? (since < 70 ? 1 : 2) : 3;
-        const open = on ? (step === 3 ? l.eyeOpen() : step / 3) : step === 3 ? 0.15 : 1 - step / 3;
-        l.eye(x, ox + cw * 0.5, base - 1.5 * ch, 3, open, l.look.x * 0.4, 0);
-        l.data[name] = ox + cell * 1.5;
-      });
-    }} />
-  );
-}
-
-// ---- a finished step: a check made of cells in green to lime (ring.ts TINTS.ok) ----
-// `land`: the step just finished in front of you, so the check falls in from two cells above and lands with a
-// squash (a Body, drawn on the device-pixel grid), then turns into the still SVG. Without it, it is just there.
-function CheckSvg() {
-  return (
-    <svg className="cellcheck" viewBox="0 0 5 4" width="10" height="8" shapeRendering="crispEdges" aria-hidden="true">
-      {CHECK.map(([i, j]) => <rect key={i} x={i} y={j} width="1" height="1" fill={rgba(tintAt(TINTS.ok, i * 0.2))} />)}
-    </svg>
-  );
-}
-export function CellCheck({ land }: { land?: boolean }) {
-  const [done, setDone] = useState(!land);
-  useEffect(() => { if (done) return; const t = window.setTimeout(() => setDone(true), 750); return () => window.clearTimeout(t); }, [done]);
-  if (done) return <CheckSvg />;
-  return (
-    <Creature className="cellcheck" style={{ width: 10, height: 14, marginTop: -6 }} setup={(l) => { l.body.drop(2); l.maxDust = 6; l.gravity = 40; }}
-      draw={(l, x, w, h) => {
-        const dpr = x.canvas.width / (w || 1), px = (v: number) => Math.round(v * dpr) / dpr;
-        const b = l.body;
-        if (b.landed === 1 && !l.data.dusted) { l.data.dusted = 1; l.shed(3, w / 2, h - 1, 0.25); }
-        const sq = Math.max(-0.4, Math.min(0.6, b.sq.v));
-        const cw = px(2 * (1 + sq * 0.25)), ch = Math.max(1 / dpr, px(2 * (1 - sq * 0.5)));
-        const ox = px(w / 2 - 2.5 * cw), base = h + b.cy * 2;
-        for (const [i, j] of CHECK) {
-          x.fillStyle = rgba(tintAt(TINTS.ok, i * 0.2));
-          x.fillRect(ox + i * cw, px(base - (4 - j) * ch), cw, ch);
-        }
-      }} />
-  );
-}
-
-// ---- the Bypass pill's ambient life (mine/look/SITTING-3.md, item 3): a faint aurora inside the pill ----
-// A soft band of --glow (the canvas wears it as its colour) at .10–.18 drifts left to right across the pill over ~6 s
-// and back (the dithered run along its ring went on 2026-10-25: Marco, "remove that pixelated shimmer"). The pill's words stay
-// above it in --ink. It stands still (the band at rest) while the window is unfocused or under
-// prefers-reduced-motion. pointer-events none: the pill is the button, this only draws.
-const RM = typeof matchMedia !== "undefined" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+// ---- the Bypass pill's ambient life: the shore's bands drifting through the pill (mine/look/DIRECTION-4.html) ----
+// A banded gradient of the shore colours (JOBS.shore), twice the pill's width, slides left to right and back over
+// ~6 s at .22 under the words (the pill's own --glow band went 2026-10-27: nothing is one flat colour). It stands still
+// while the window is unfocused or under prefers-reduced-motion. pointer-events none: the pill is the button, this only draws.
+const AURORA_BG = bandsCss([...JOBS.shore, ...[...JOBS.shore].reverse().slice(1)], 90, 0.04);
 export function Aurora() {
-  return (
-    <Creature className="aurora" dustCell={2} setup={(l) => { l.maxDust = 0; l.data.t = 1.5; }}
-      draw={(l, x, w, h, _t, dt) => {
-        const d = l.data;
-        const still = !!RM?.matches || (typeof document !== "undefined" && !document.hasFocus());
-        if (!still) d.t += dt;
-        const c = getComputedStyle(x.canvas).color.match(/(\d+)[ ,]+(\d+)[ ,]+(\d+)/);
-        if (!c) return;   // no colour to wear, nothing to draw (never a hue of its own)
-        const [r, g, b] = [+c[1], +c[2], +c[3]];
-        const band = w * 0.55;
-        const cx = still ? w / 2 : w / 2 + (w / 2 + band * 0.1) * Math.sin((d.t / 12) * Math.PI * 2);
-        const breath = 0.10 + 0.08 * (0.5 + 0.5 * Math.sin((d.t / 5) * Math.PI * 2));
-        const gr = x.createLinearGradient(cx - band, 0, cx + band, 0);
-        gr.addColorStop(0, `rgba(${r},${g},${b},0)`); gr.addColorStop(0.5, `rgba(${r},${g},${b},${breath})`); gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
-        x.fillStyle = gr; x.fillRect(0, 0, w, h);
-        // a softer second veil, drifting the other way, so the light never reads as one bar
-        const cx2 = still ? w * 0.35 : w / 2 - (w / 2) * Math.sin((d.t / 9.5) * Math.PI * 2 + 1.2);
-        const g2 = x.createRadialGradient(cx2, h * 0.3, 0, cx2, h * 0.3, band * 0.9);
-        g2.addColorStop(0, `rgba(${r},${g},${b},0.07)`); g2.addColorStop(1, `rgba(${r},${g},${b},0)`);
-        x.fillStyle = g2; x.fillRect(0, 0, w, h);
-      }} />
-  );
+  const [focus, setFocus] = useState(() => typeof document === "undefined" || document.hasFocus());
+  useEffect(() => {
+    const on = () => setFocus(true), off = () => setFocus(false);
+    window.addEventListener("focus", on); window.addEventListener("blur", off);
+    return () => { window.removeEventListener("focus", on); window.removeEventListener("blur", off); };
+  }, []);
+  return <span className={`aurora${focus && !reduced ? "" : " still"}`} aria-hidden="true" style={{ backgroundImage: AURORA_BG }} />;
 }

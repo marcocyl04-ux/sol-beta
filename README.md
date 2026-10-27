@@ -8,7 +8,7 @@ inside when you ask it to.
 The idea: today each AI lives in its own tab and knows nothing of the others. Sol is the one surface you sit
 at, and the AIs are its hands. Over time it becomes the system you need, built by being talked to.
 
-This is the version beta testers run: stable-20261026-1756. It is made from the development repository by the stamp that
+This is the version beta testers run: stable-20261027-0137. It is made from the development repository by the stamp that
 moves stable, and holds only what runs. Nothing here is edited by hand; the next version replaces it.
 
 ## Install

@@ -136,10 +136,10 @@ const FALLBACK: S = {
 // A slider shows live while it drags (applyLook on the root) and tells the engine once, at the end, like patience.
 function LookDrawer({ s, off, onSet, open, onToggle }: { s: S; off: boolean; onSet: (patch: object) => void; open: boolean; onToggle: () => void }) {
   const look = s.look ?? LOOK_DEFAULT;
-  const [live, setLive] = useState<{ alpha?: number; blur?: number }>({});
-  const alpha = live.alpha ?? look.alpha, blur = live.blur ?? look.blur;
-  const drag = (k: "alpha" | "blur", v: number) => { setLive((l) => ({ ...l, [k]: v })); applyLook({ ...look, ...live, [k]: v }); };
-  const drop = (k: "alpha" | "blur") => { if (live[k] !== undefined) { onSet({ look: { [k]: live[k] } }); setLive((l) => ({ ...l, [k]: undefined })); } };
+  const [live, setLive] = useState<{ alpha?: number; blur?: number; text?: number }>({});
+  const alpha = live.alpha ?? look.alpha, blur = live.blur ?? look.blur, text = live.text ?? look.text ?? LOOK_DEFAULT.text;
+  const drag = (k: "alpha" | "blur" | "text", v: number) => { setLive((l) => ({ ...l, [k]: v })); applyLook({ ...look, ...live, [k]: v }); };
+  const drop = (k: "alpha" | "blur" | "text") => { if (live[k] !== undefined) { onSet({ look: { [k]: live[k] } }); setLive((l) => ({ ...l, [k]: undefined })); } };
   const custom = !SWATCHES.some(([c]) => c === look.color);
   return (
     <Drawer name="look" open={open} onToggle={onToggle}>
@@ -169,6 +169,14 @@ function LookDrawer({ s, off, onSet, open, onToggle }: { s: S; off: boolean; onS
           <CellRange min={0} max={64} step={1} value={blur} aria-label="blur" disabled={off}
             onChange={(ev) => drag("blur", Number(ev.target.value))} onPointerUp={() => drop("blur")} onKeyUp={() => drop("blur")} />
           <span className="val">{blur} px</span>
+        </div>
+      </div>
+      <div className="field-r">
+        <div className="lab"><span>text</span><small>the chat's words alone; nothing around them grows</small></div>
+        <div className="range">
+          <CellRange min={12} max={24} step={1} value={text} aria-label="text size" disabled={off}
+            onChange={(ev) => drag("text", Number(ev.target.value))} onPointerUp={() => drop("text")} onKeyUp={() => drop("text")} />
+          <span className="val">{text} px</span>
         </div>
       </div>
       <div className="field-r bubbles">

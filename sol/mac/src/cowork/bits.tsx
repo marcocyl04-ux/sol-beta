@@ -1,29 +1,63 @@
-// Small things Cowork draws everywhere: a person's presence dot, a signature, a card's lift.
-import { useRef } from "react";
-import { Runner } from "../creature/indicators";
+// Small things Cowork draws everywhere: a person's mark, a signature, a card's lift.
+// A person is one mark wherever they show (mine/look/COWORK.html, 2026-10-27): their family's bud from the goo look, the
+// same one their agent wears at Home; mine is Sol. Presence is the mark's own state: eyes open here, shut and
+// stone-washed when away or not seen; a running droplet on its shoulder while their agent works, the needs-you halo when
+// they wait on a person. The room's `me` comes down through MeCtx, so a signature knows which mark is Sol.
+import { createContext, useContext, useRef } from "react";
+import { Sol } from "../Sol";
+import { Bud, Droplet, FAMILIES, JOBS, bandsCss, familyOf } from "../creature/goo";
 import { CFG, useSpring } from "../motion";
 import type { Member, Presence, Sign } from "./useTeam";
 import { signOf } from "./useTeam";
 
 export const STATE_WORD: Record<Presence, string> = { here: "here", elsewhere: "elsewhere", away: "away", working: "working", yourcall: "waiting on them" };
 
-/** one cell: ink here, a ring elsewhere or away, the runner working, yellow waiting on a person; dark when not seen */
-export function Dot({ state, dark, title }: { state?: Presence; dark?: boolean; title?: string }) {
-  if (!dark && state === "working") return <span className="cdot run" title={title}><Runner /></span>;
-  return <span className={`cdot ${dark || !state ? "dark" : state}`} title={title}><i /></span>;
+/** who I am in the room, for the marks under it ("" outside Cowork: everyone is a bud) */
+export const MeCtx = createContext("");
+const same = (a: string, b: string) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+/** a talk line's sender as a person: "discord: isaac" and "frank's agent" are isaac and frank */
+export const personIn = (from: string) => from.replace(/^(discord|whatsapp):\s*/i, "").replace(/'s agent$/i, "").trim();
+
+/** a person's band, as CSS: their family's colours (Sol's own, the brand, for me), for a ring or a neck */
+export function useBand() {
+  const me = useContext(MeCtx);
+  return (login: string) => bandsCss(same(login, me) ? JOBS.brand : FAMILIES[familyOf(login)], 120);
 }
 
-/** a person's dot from the roster: a member off the team's line (or unknown) goes dark */
-export function PersonDot({ login, roster, up, me }: { login: string; roster: Member[]; up: boolean; me: string }) {
+/** a person's mark: Sol for me, their family's bud for anyone else */
+export function Who({ login, size = 14, away, working, needs, title, className }: {
+  login: string; size?: number; away?: boolean; working?: boolean; needs?: boolean; title?: string; className?: string;
+}) {
+  const me = useContext(MeCtx);
+  const st = Math.max(9, Math.round(size * 0.62));
+  return (
+    <span className={`cwho ${away ? "away" : ""} ${className ?? ""}`.trim()} title={title} style={{ width: size, height: size }}>
+      {same(login, me) ? <Sol size={size} eyes={!away} /> : <Bud login={login || "?"} size={size} on={!away} />}
+      {(working || needs) && !away && <Droplet kind={working ? "running" : "needs"} size={st} seed={login} className="cwho-st" />}
+    </span>
+  );
+}
+
+/** a state as the daily mark (creature/goo.tsx Droplet): turning while it runs, the check when done, the sag when it
+ *  failed, the halo when it waits on a person */
+export const StateMark = ({ kind, seed, size = 12 }: { kind: "running" | "done" | "failed" | "needs"; seed?: string; size?: number }) => (
+  <Droplet kind={kind} size={size} seed={seed ?? kind} className="cstate" />
+);
+
+/** a person's mark from the roster: a member off the team's line (or unknown) is not seen */
+export function PersonDot({ login, roster, up, me, size = 14 }: { login: string; roster: Member[]; up: boolean; me: string; size?: number }) {
   const m = roster.find((r) => r.who === login);
   const mine = login === me;
   const state = m?.state ?? (mine ? "here" : undefined);
   const dark = !mine && (!up || !m);
-  return <Dot state={state} dark={dark} title={`${login}: ${dark ? "not seen" : STATE_WORD[state ?? "here"]}`} />;
+  return <Who login={login} size={size} away={dark || state === "away"} working={!dark && state === "working"} needs={!dark && state === "yourcall"}
+    title={`${login}: ${dark ? "not seen" : STATE_WORD[state ?? "here"]}`} />;
 }
 
-/** the amber words of who moved something: a person, or that person's agent */
-export const Sig = ({ s }: { s?: Sign }) => (s ? <span className="csig" title={s.agent ? `moved last by ${s.login}'s agent` : `moved last by ${s.login}`}>{signOf(s)}</span> : null);
+/** who moved something: their mark and their words, a person or that person's agent */
+export const Sig = ({ s }: { s?: Sign }) => (s ? (
+  <span className="csig" title={s.agent ? `moved last by ${s.login}'s agent` : `moved last by ${s.login}`}><Who login={s.login} size={12} />{signOf(s)}</span>
+) : null);
 
 /** hover lifts it on the pop spring (a card on the board) */
 export function useLift() {

@@ -1,6 +1,7 @@
 // Talk (#37): the team's group chat in Cowork. One thread for everyone (general) and one per issue (#31), picked at the
-// top. A line is signed the way the board signs: a person, or that person's agent, in amber. Lines brought in from a
-// Discord or WhatsApp export carry a small tag of where they came from. The box sends on Enter; `/discord ` at the
+// top. Talk is Home's bubbles (mine/look/COWORK.html, 2026-10-27): my own lines are Home's bubble on the right, everyone
+// else's sit in a surface bubble beside their mark (an agent wears its person's). Lines brought in from a Discord or
+// WhatsApp export carry a small tag of where they came from. The box sends on Enter; `/discord ` at the
 // start also posts it to the team's Discord when this person's settings allow it, and the answer says so when not.
 // The engine keeps the last 200 lines a thread and sends them to a face that opens late (PROTOCOL.md round 24).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -12,7 +13,7 @@ import { Orb } from "../Orb";
 import { CFG, enter, follow, type Follow } from "../motion";
 import { Menu, type MenuItem } from "../work/Menu";
 import type { Team } from "./useTeam";
-import { since } from "./bits";
+import { StateMark, Who, personIn, since } from "./bits";
 import "./talk.css";
 
 export type TalkLine = { id: string; thread: string; from: string; at: number; text: string; source: "relay" | "discord" | "whatsapp"; agent?: boolean; to?: "discord" };
@@ -143,19 +144,32 @@ export function Talk({ team, flash }: { team: Team; flash: (s: string) => void }
       <div className="talk-wrap">
         <div className="talk tk-talk" ref={talk}>
           <div className="talk-inner" ref={inner}>
-            {here.length === 0 ? <Empty thread={thread} /> : groups.map((g) => (
-              <section key={g[0].id} className="tk-group">
-                <div className="tk-who">
-                  <span className="csig">{g[0].from}</span>
-                  {g[0].source !== "relay" && <span className="ctag tk-src">{g[0].source}</span>}
-                  <time className="tk-at" title={new Date(g[0].at).toLocaleString()}>{since(g[0].at)}</time>
-                </div>
+            {here.length === 0 ? <Empty thread={thread} /> : groups.map((g) => mineOf(g[0], team.me) ? (
+              <section key={g[0].id} className="tk-group mine">
                 {g.map((l) => (
-                  <div key={l.id} data-id={l.id} className="tk-line">
-                    <p>{l.text}</p>
+                  <div key={l.id} data-id={l.id} className="me-row tk-me">
                     {l.to === "discord" && <span className="ctag tk-src">to Discord</span>}
+                    <p className="msg me">{l.text}</p>
                   </div>
                 ))}
+                <time className="tk-at" title={new Date(g[g.length - 1].at).toLocaleString()}>{since(g[g.length - 1].at)}</time>
+              </section>
+            ) : (
+              <section key={g[0].id} className="tk-group them">
+                <Who login={personIn(g[0].from)} size={22} className="tk-bud" />
+                <div className="tk-col">
+                  <div className="tk-who">
+                    <span className="tk-name">{g[0].from}</span>
+                    {g[0].source !== "relay" && <span className="ctag tk-src">{g[0].source}</span>}
+                    <time className="tk-at" title={new Date(g[0].at).toLocaleString()}>{since(g[0].at)}</time>
+                  </div>
+                  {g.map((l) => (
+                    <div key={l.id} data-id={l.id} className="tk-line">
+                      <p>{l.text}</p>
+                      {l.to === "discord" && <span className="ctag tk-src">to Discord</span>}
+                    </div>
+                  ))}
+                </div>
               </section>
             ))}
           </div>
@@ -163,15 +177,15 @@ export function Talk({ team, flash }: { team: Team; flash: (s: string) => void }
         <Orb f={flw} />
       </div>
       <div className="tk-foot">
-        {said && <p className={`tk-said ${said.bad ? "tk-no" : ""}`} role="status">{said.t}</p>}
-        {team.state?.cloud?.need && <p className="tk-said tk-no" role="status">this room meets on the cloud: sign in to Sol to talk here{" "}
+        {said && <p className={`tk-said ${said.bad ? "tk-no" : ""}`} role="status"><StateMark kind={said.bad ? "failed" : "done"} />{said.t}</p>}
+        {team.state?.cloud?.need && <p className="tk-said tk-no" role="status"><StateMark kind="needs" />this room meets on the cloud: sign in to Sol to talk here{" "}
           <button className="wlink" disabled={signing} onClick={() => void signInSol()}>{signing ? "finish in the browser…" : "sign in with Google"}</button></p>}
-        {team.state?.cloud?.gone && <p className="tk-said tk-no" role="status">the cloud does not know this room's code yet: its maker can move it there (bash sol/cloud/move), or ask Frank or Marco to bring the NucBox's rooms over</p>}
+        {team.state?.cloud?.gone && <p className="tk-said tk-no" role="status"><StateMark kind="failed" />the cloud does not know this room's code yet: its maker can move it there (bash sol/cloud/move), or ask Frank or Marco to bring the NucBox's rooms over</p>}
         <div className="tk-box">
           <textarea ref={box} rows={1} value={text} placeholder={`say something in ${title(thread)}`} spellCheck
             onChange={(ev) => { setText(ev.target.value); if (said) setSaid(null); }}
             onKeyDown={(ev) => { if (ev.key === "Enter" && !ev.shiftKey && !composing(ev)) { ev.preventDefault(); void send(); } }} />
-          <button className="cbtn" disabled={!text.trim() || busy} onClick={() => void send()}>send</button>
+          <button className="wbtn" disabled={!text.trim() || busy} onClick={() => void send()}>send</button>
         </div>
         {thread === "general" && discord && <p className="tk-hint">start with <code>/discord</code> to post it to the team's Discord as your agent</p>}
       </div>
@@ -179,6 +193,9 @@ export function Talk({ team, flash }: { team: Team; flash: (s: string) => void }
     </div>
   );
 }
+
+/** my own line, said here (not my agent's, not one brought in from an export): Home's bubble on the right */
+const mineOf = (l: TalkLine, me: string) => !!me && l.source === "relay" && !l.agent && l.from.toLowerCase() === me.toLowerCase();
 
 /** lines in a row from the same voice, close in time, sit under one signature */
 function group(lines: TalkLine[]): TalkLine[][] {

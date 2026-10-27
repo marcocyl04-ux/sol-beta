@@ -41,7 +41,7 @@
 .tl-add .chip { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: none; color: var(--dim); font: inherit; font-size: 12.5px; cursor: pointer; }
 .tl-add .chip.on { border-color: var(--ink); color: var(--ink); background: var(--raised); }
 .tl-add .dim { font-size: 12.5px; color: var(--dim); }
-.tl-add .err { font-size: 12.5px; color: var(--red-soft); }
+.tl-add .err { font-size: 12.5px; color: var(--ember); }
 .tl-add .acts { display: flex; flex-wrap: wrap; gap: 8px; }
 .tl-add input:focus-visible, .tl-add textarea:focus-visible, .tl-add .chip:focus-visible, .tl-plus:focus-visible, .tl-rows .x:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
 

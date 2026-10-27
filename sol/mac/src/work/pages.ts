@@ -7,6 +7,7 @@ export type Page = { key: string; path?: string; url?: string; name: string; at:
 const PAGE = /\.(html?|svg)$/i;
 const LINK = /https:\/\/claude\.ai\/(?:code\/)?artifact\/[\w-]+/g;
 const WRITES = new Set(["Write", "Edit", "MultiEdit", "Artifact"]);
+const SHELL_PAGE = /(?:>>?|\btee(?:\s+-a)?|\s-o)\s*['"]?(\/[^\s'"<>|;&]+\.html?)\b/g;
 
 // an artifact on claude.ai: the pane shows it through Sol's browser, where Marco's claude.ai sign-in is kept
 export const throughBrowser = (p: Page) => !p.path && !!p.url && /^https:\/\/claude\.ai\//.test(p.url);
@@ -25,6 +26,11 @@ export function pagesOf(items: Item[]): Page[] {
       const at = Number(it.end ?? it.at ?? 0) || seq;
       if (p.startsWith("/") && PAGE.test(p)) add(p, { path: p, name: p.split("/").pop() ?? p, at });
       for (const u of String(it.out ?? "").match(LINK) ?? []) add(u, { url: u, name: "artifact", at });
+    } else if (it.kind === "tool" && it.name === "Bash" && it.done && it.ok !== false) {
+      // a page a shell command wrote (2026-10-26: sessions in bypass write files through Bash, and their pages never
+      // reached the pane): an absolute .html path after >, >>, tee or -o
+      const at = Number(it.end ?? it.at ?? 0) || seq;
+      for (const m of String(it.input?.command ?? "").matchAll(SHELL_PAGE)) add(m[1], { path: m[1], name: m[1].split("/").pop() ?? m[1], at });
     } else if (it.kind === "you" && typeof it.text === "string" && it.text.includes("claude.ai/")) {
       for (const u of it.text.match(LINK) ?? []) add(u, { url: u, name: "artifact", at: Number(it.at ?? 0) || seq });
     }
@@ -33,8 +39,14 @@ export function pagesOf(items: Item[]): Page[] {
 }
 
 // the page as the pane renders it: its own relative assets come from beside it through the engine
-export function withBase(html: string, base: string): string {
+export function withBase(html: string, base: string, dir?: string): string {
   const tag = `<base href="${base.replace(/"/g, "&quot;")}">`;
+  // an absolute Mac path in a src or href (a page written by a shell with the file's whole path) is made relative when
+  // it lies below the page's folder; outside it the door refuses it anyway, so the page should sit beside its pictures
+  if (dir) {
+    const root = dir.endsWith("/") ? dir : dir + "/";
+    html = html.replace(/(\s(?:src|href)=)(["'])(\/[^"']+)\2/g, (m, pre: string, q: string, path: string) => path.startsWith(root) ? `${pre}${q}${path.slice(root.length)}${q}` : m);
+  }
   html = html.replace(/<base\b[^>]*>/gi, "");   // a base of the page's own would win (the first one counts)
   const head = /<head[^>]*>/i.exec(html);
   if (head) return html.slice(0, head.index + head[0].length) + tag + html.slice(head.index + head[0].length);

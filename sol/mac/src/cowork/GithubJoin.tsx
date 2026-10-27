@@ -7,15 +7,12 @@ import type { Team } from "./useTeam";
 import { DEV_TEAM } from "./useTeam";
 import { link } from "../socket";
 import { ENGINE } from "../useEngine";
-import { coveredBy, inShell, onShell, originOf, shell, useCover, useCoveredBy, type Box } from "./thingView";
+import { coveredBy, inShell, onShell, originOf, shell, useCover, useCoveredBy } from "./thingView";
 import { cardFor, JoinFlow, JOIN_TAB, type Step } from "./ghJoin";
+import { openUrl as openOut, rectOf } from "./util";
 import "./ghjoin.css";
 
-const openUrl = (url: string) => {
-  if (DEV_TEAM) return;   // the dev view opens nothing
-  import("@tauri-apps/plugin-opener").then((o) => o.openUrl(url)).catch(() => window.open(url, "_blank", "noopener"));
-};
-const rectOf = (el: HTMLElement): Box => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; };
+const openUrl = (url: string) => { if (!DEV_TEAM) openOut(url); };   // the dev view opens nothing
 
 /** GitHub on this machine: signed in or not; null while it is read */
 function useGithub(team: Team, on: boolean): [{ in: boolean; who?: string } | null, () => void] {

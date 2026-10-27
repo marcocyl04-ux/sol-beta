@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { composing } from "../ime";
 import type { FileOut, Seat } from "../useEngine";
 import type { useEngine } from "../useEngine";
@@ -10,6 +11,7 @@ import { CFG, enter, reducedMotion, useSpring } from "../motion";
 import { startRecording, type Recorder } from "../voice";
 import { AsideCard } from "./Cards";
 import { Menu, type MenuItem } from "./Menu";
+import { LeashWheel } from "./LeashWheel";
 import type { Mode, Work } from "./useWork";
 import { HELD } from "./WorkSidebar";
 import { StableLine } from "../cowork/StableLine";   // Ship (#33): a new stable is out, over the composer
@@ -292,10 +294,14 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
       { label: "ask on the side", key: "⌘;", disabled: !w.live, run: () => { setAsideOn(true); box.current?.focus(); } },
     ]);
   };
-  const leash = (ev: React.MouseEvent) => at(ev, [
-    { head: "Mode" },
-    ...MODES.map((x) => ({ label: x.label, note: x.note, on: x.m === w.mode, ...(x.risky && x.m !== w.mode ? { confirm: x.risky } : {}), run: () => w.adjust({ mode: x.m }) })),
-  ]);
+  // the mode chip: a click opens the wheel and it stays; a hold (350 ms) or a right-click opens it for a release-pick (LeashWheel.tsx)
+  const leashBtn = useRef<HTMLButtonElement>(null);
+  const [wheel, setWheel] = useState<null | { kind: "hold" | "stick"; r: DOMRect }>(null);
+  const leashHeld = useRef(false), leashTimer = useRef<number | undefined>(undefined);
+  const leashOpen = (kind: "hold" | "stick") => { const r = leashBtn.current?.getBoundingClientRect(); if (r) setWheel({ kind, r }); };
+  const leashStop = () => { window.clearTimeout(leashTimer.current); leashTimer.current = undefined; };
+  const leashDown = (ev: React.PointerEvent) => { if (ev.button !== 0) return; leashHeld.current = false; leashStop(); leashTimer.current = window.setTimeout(() => { leashHeld.current = true; leashOpen("hold"); }, 350); };
+  const leash = () => { if (leashHeld.current) { leashHeld.current = false; return; } if (wheel) setWheel(null); else leashOpen("stick"); };
   const folder = (ev: React.MouseEvent) => at(ev, [
     { head: "a new session starts in" },
     ...[...w.projects].sort((a, b) => b.count - a.count).slice(0, 8).map((p) => ({ label: p.name || base(p.path), on: p.path === w.freshCwd, run: () => w.fresh(p.path) })),
@@ -391,9 +397,11 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
           onSeat={(s) => { if (s !== "claude") (w.live ? switchTo : toChat)?.(s); }} onModel={(m) => w.adjust({ model: m })} onEffort={(v) => w.adjust({ effort: v })}
           onSeatModel={toChat ? (w.live ? switchTo : toChat) : undefined}
           onMicDown={micDown} onMicUp={micUp}>
-          <button className={`wchip leash ${w.mode}`} onClick={leash} title="mode: what Claude may do without asking (cmd+shift+M)">
+          <button ref={leashBtn} className={`wchip leash ${w.mode}${wheel ? " lifted" : ""}`} onClick={leash} onPointerDown={leashDown} onPointerUp={leashStop} onPointerLeave={leashStop}
+            onContextMenu={(ev) => { ev.preventDefault(); leashStop(); leashOpen("stick"); }} title="mode: what Claude may do without asking (hold it for the wheel; cmd+shift+M steps)">
             {w.mode === "bypassPermissions" && <Aurora />}<span className="leash-w">{mode.label}</span>
           </button>
+          {wheel && createPortal(<LeashWheel r={wheel.r} kind={wheel.kind} items={MODES} mode={w.mode} onPick={(m) => w.adjust({ mode: m as Mode })} onClose={() => setWheel(null)} chip={leashBtn.current} />, document.body)}
           {!w.live && <button className="wchip" onClick={folder} title={(w.freshCwd ? tilde(w.freshCwd) : "your home folder") + (w.copy ? "\nin a side copy of its repo (its own branch)" : "")}>in {atLabel}{w.copy ? " · side copy" : ""}</button>}
         </Picker>
         </div>

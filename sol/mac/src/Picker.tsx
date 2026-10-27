@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from "react";
 import { SeatSwitch } from "./SeatSwitch";
 import { Swap } from "./MotionKit";
-import { Status, VoiceArms } from "./creature/indicators";
+import { Status } from "./creature/indicators";
+import { VoiceRibbon } from "./creature/Voice";
 import { forcedState } from "./creature/state";
 import type { Effort, Health, Part, Seat, SeatInfo } from "./useEngine";
 import { prettyModel } from "./models";
@@ -106,7 +107,7 @@ export function Picker({ seat, info, model, effort, efforts, up, health, context
         {children}
         <span className="grow" />
         <button className={`icon ${rec ? "rec" : ""}`} onPointerDown={onMicDown} onPointerUp={onMicUp} title="dictate (click, or hold)">
-          {rec || forcedState === "listening" ? <VoiceArms /> : <Mic />}
+          {rec || forcedState === "listening" ? <VoiceRibbon size={20} /> : <Mic />}
         </button>
         {up && health && <Dots h={health} />}
         <div className="state">

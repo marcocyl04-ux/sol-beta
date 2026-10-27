@@ -3,6 +3,7 @@
 // engine to fast-forward this checkout (team.update); while it runs the line says so and the buttons go; when the
 // engine's code changed Sol renews a moment later. Later puts this stable off on this Mac (both windows) for 12 hours.
 import { later, update, useStable } from "./stable";
+import { Droplet } from "../creature/goo";
 import "./ship.css";
 
 export function StableLine() {
@@ -14,13 +15,13 @@ export function StableLine() {
   return (
     <div className={`sline ${cls}`} role="status">
       <span className="what" title={`${s.tag} · ${s.sha.slice(0, 7)}`}>
-        <i />
+        <Droplet kind={d ? (d.updating ? "running" : d.failed ? "failed" : "done") : "needs"} size={12} seed={s.sha} className="cstate" />
         {d ? d.said : <>a new stable is out <b>{name}</b>{s.by && <> · by <span className="by">{s.by}</span></>}</>}
       </span>
       {!d?.updating && !(d && !d.failed) && (
         <span className="moves">
-          {!d && <button className="first" onClick={() => void update()} title="bring this Mac up to the new stable; Sol renews itself after when its code changed">Update</button>}
-          <button onClick={() => later(s.sha)} title="put it off for 12 hours, here and in the notch">Later</button>
+          {!d && <button className="wbtn" onClick={() => void update()} title="bring this Mac up to the new stable; Sol renews itself after when its code changed">Update</button>}
+          <button className="wbtn ghost" onClick={() => later(s.sha)} title="put it off for 12 hours, here and in the notch">Later</button>
         </span>
       )}
     </div>

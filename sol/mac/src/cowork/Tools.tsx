@@ -6,7 +6,8 @@
 import { useEffect, useState } from "react";
 import type { Team } from "./useTeam";
 import type { Room as RoomData, ToolId, CalEvent, Poll } from "./useRoom";
-import { Glyph, Hand, colourOf } from "./Room";
+import { Glyph } from "./Room";
+import { Who } from "./bits";
 import { since } from "./bits";
 import { focusMsg, FOCUS_AGAIN_MS } from "./thingView";
 import "./tools.css";
@@ -61,7 +62,7 @@ function useOnTile(team: Team, tile: string) {
 function Top({ onBack, children }: { onBack: () => void; children?: React.ReactNode }) {
   return <div className="rm-pg-top"><button className="rm-th-link" onClick={onBack}>‹ the room</button><span className="rm-th-sp" />{children}</div>;
 }
-function Head({ id, others }: { id: ToolId; others: { who: string; colour: string }[] }) {
+function Head({ id, others }: { id: ToolId; others: { who: string }[] }) {
   const t = TOOLS.find((x) => x.id === id)!;
   return (
     <div className="tl-head">
@@ -70,7 +71,7 @@ function Head({ id, others }: { id: ToolId; others: { who: string; colour: strin
         <h2 className="rm-gp-t">{t.name}</h2>
         <p className="rm-gp-s">{t.line}</p>
       </div>
-      {others.length > 0 && <span className="tl-here">{others.map((o) => <Hand key={o.who} colour={o.colour} size={26} title={`${o.who} is here too`} />)}<span>{others.map((o) => o.who).join(", ")} here too</span></span>}
+      {others.length > 0 && <span className="tl-here">{others.map((o) => <Who key={o.who} login={o.who} size={24} title={`${o.who} is here too`} />)}<span>{others.map((o) => o.who).join(", ")} here too</span></span>}
     </div>
   );
 }
@@ -78,7 +79,7 @@ function Head({ id, others }: { id: ToolId; others: { who: string; colour: strin
 export function ToolPage({ team, room, id, people, onBack, flash }: { team: Team; room: RoomData; id: ToolId; people: string[]; onBack: () => void; flash: (s: string) => void }) {
   const tile = TOOLS.find((t) => t.id === id)!.tile;
   useOnTile(team, tile);
-  const others = (team.state?.roster ?? []).filter((m) => m.who !== team.me && m.thing?.id === tile).map((m) => ({ who: m.who, colour: colourOf(m.who, people) }));
+  const others = (team.state?.roster ?? []).filter((m) => m.who !== team.me && m.thing?.id === tile).map((m) => ({ who: m.who }));
   const note = room.tools.note ?? room.thingsNote;
   return (
     <div className="rm-page tl-page">
@@ -89,7 +90,7 @@ export function ToolPage({ team, room, id, people, onBack, flash }: { team: Team
   );
 }
 
-type PageProps = { room: RoomData; onBack: () => void; flash: (s: string) => void; others: { who: string; colour: string }[]; note?: string };
+type PageProps = { room: RoomData; onBack: () => void; flash: (s: string) => void; others: { who: string }[]; note?: string };
 
 // ---- the calendar ----
 function CalendarPage({ team, room, people, onBack, flash, others, note }: PageProps & { team: Team; people: string[] }) {
@@ -143,8 +144,8 @@ function CalendarPage({ team, room, people, onBack, flash, others, note }: PageP
                 <span className="by">{e.by ? `${e.by}${e.agent ? "'s agent" : ""}` : ""}</span>
                 {removing === e.id ? (
                   <span className="ask" role="group" aria-label={`take ${e.title} off the calendar?`}>
-                    <button className="cbtn" autoFocus onClick={() => { setRemoving(""); void room.tool("team.calendar.remove", { id: e.id }).then((r) => r.error && flash(r.error)); }}>take it off</button>
-                    <button className="cbtn ghost" onClick={() => setRemoving("")}>keep</button>
+                    <button className="wbtn" autoFocus onClick={() => { setRemoving(""); void room.tool("team.calendar.remove", { id: e.id }).then((r) => r.error && flash(r.error)); }}>take it off</button>
+                    <button className="wbtn ghost" onClick={() => setRemoving("")}>keep</button>
                   </span>
                 ) : <button className="x" aria-label={`take ${e.title} off the calendar`} title="take it off the calendar for everyone" onClick={() => setRemoving(e.id)}>×</button>}
               </li>
@@ -169,7 +170,7 @@ function CalendarPage({ team, room, people, onBack, flash, others, note }: PageP
               <span className="dim">{form.who.length ? "" : "everyone"}</span>
             </span>
             {form.error && <span className="err" role="alert">{form.error}</span>}
-            <span className="acts"><button className="cbtn" type="submit" disabled={form.busy}>{form.busy ? "adding…" : "put it on the calendar"}</button><button className="cbtn ghost" type="button" onClick={() => setForm(null)}>cancel</button></span>
+            <span className="acts"><button className="wbtn" type="submit" disabled={form.busy}>{form.busy ? "adding…" : "put it on the calendar"}</button><button className="wbtn ghost" type="button" onClick={() => setForm(null)}>cancel</button></span>
           </form>
         ) : <button className="tl-plus" onClick={() => { const d = new Date(); setForm({ title: "", date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`, time: "10:00", allDay: true, who: [] }); }}><span aria-hidden="true">+</span> add an event or a deadline</button>}
       </div>
@@ -200,7 +201,7 @@ function DecisionsPage({ room, onBack, flash, others, note }: PageProps) {
             <input autoFocus value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value, error: undefined })} placeholder="what the room decided, in one line" aria-label="the decision" maxLength={120} />
             <textarea value={form.lines} onChange={(e) => setForm({ ...form, lines: e.target.value })} placeholder="why, and what it rules out (optional)" rows={3} aria-label="why" />
             {form.error && <span className="err" role="alert">{form.error}</span>}
-            <span className="acts"><button className="cbtn" type="submit" disabled={form.busy}>{form.busy ? "writing…" : "write it in the log"}</button><button className="cbtn ghost" type="button" onClick={() => setForm(null)}>cancel</button></span>
+            <span className="acts"><button className="wbtn" type="submit" disabled={form.busy}>{form.busy ? "writing…" : "write it in the log"}</button><button className="wbtn ghost" type="button" onClick={() => setForm(null)}>cancel</button></span>
             <span className="dim">the log is only added to: what is written stays as it was</span>
           </form>
         ) : <button className="tl-plus" onClick={() => setForm({ title: "", lines: "" })}><span aria-hidden="true">+</span> write down a decision</button>}
@@ -253,7 +254,7 @@ function PollsPage({ team, room, people, onBack, flash, others, note }: PageProp
             ))}
             {form.options.length < 5 && <button type="button" className="rm-th-link u" onClick={() => setForm({ ...form, options: [...form.options, ""] })}>+ another answer</button>}
             {form.error && <span className="err" role="alert">{form.error}</span>}
-            <span className="acts"><button className="cbtn" type="submit" disabled={form.busy}>{form.busy ? "asking…" : "ask the room"}</button><button className="cbtn ghost" type="button" onClick={() => setForm(null)}>cancel</button></span>
+            <span className="acts"><button className="wbtn" type="submit" disabled={form.busy}>{form.busy ? "asking…" : "ask the room"}</button><button className="wbtn ghost" type="button" onClick={() => setForm(null)}>cancel</button></span>
           </form>
         ) : <button className="tl-plus" onClick={() => setForm({ question: "", options: ["", ""] })}><span aria-hidden="true">+</span> ask the room a question</button>}
       </div>
@@ -284,7 +285,7 @@ function PollCard({ p, me, people, vote, close }: { p: Poll; me: string; people:
                 title={p.closed ? `${o}: ${who.length}` : mine === i ? "your vote" : `vote ${o}`}>
                 <span className="bar" style={{ transform: `scaleX(${w / 100})` }} aria-hidden="true" />
                 <span className="o">{o}</span>
-                <span className="hands" aria-label={who.length ? `${who.join(", ")}` : "no votes"}>{who.map((x) => <Hand key={x} colour={colourOf(x, people)} size={18} title={x} />)}</span>
+                <span className="hands" aria-label={who.length ? `${who.join(", ")}` : "no votes"}>{who.map((x) => <Who key={x} login={x} size={16} title={x} />)}</span>
                 <span className="n">{who.length}</span>
               </button>
             </li>

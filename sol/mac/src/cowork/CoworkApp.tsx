@@ -25,10 +25,12 @@ import { Dashboard } from "./Dashboard";
 import { Room } from "./Room";   // the room's first page (#234); a person (S3) and the goal (S6) on it (#238)
 import { useRoom, type Thing } from "./useRoom";
 import { ActionBoard, ACTIONS_HOWTO, openInHome } from "./ActionBoard";
-import { Sig } from "./bits";
+import { MeCtx, Sig } from "./bits";
+import { BarCard } from "./BarCard";
 import { Talk } from "./Talk";   // Talk (#37)
 // --- Hand (#34)
 import { HandLine } from "./Hands";
+import { useHands } from "./handed";
 // --- end Hand
 // --- Try (#35)
 import { TryFrame } from "./TryPane";
@@ -36,7 +38,8 @@ import { TryFrame } from "./TryPane";
 import { Shared, SharedPane } from "./Shared";
 import { ThingPane } from "./ThingPane";   // S4: the thing beside a session (#236)
 import { useCover } from "./thingView";
-import { colourOf, Glyph } from "./Room";
+import { Glyph } from "./Room";
+import { Droplet } from "../creature/goo";
 import "../work/work.css";
 import "./cowork.css";
 
@@ -198,8 +201,6 @@ export function CoworkApp({ e, onMode }: { e: ReturnType<typeof useEngine>; onMo
     setStage({ k: "session", repo: stage.repo, ...(id ? { thing: id } : {}) });
   };
   const [picking, setPicking] = useState(false);
-  // each person's colour as the room page orders them (Room.tsx): me first, then who is on, then the members
-  const people = [...new Set([team.me, ...(team.state?.roster ?? []).map((m) => m.who), ...(team.state?.members ?? [])].filter(Boolean))];
   const openable = room.things.filter((t) => t.kind !== "github");
   // a hand from for you: take (it starts the session the hand carries, as Take always has, so the button says so) or pass
   const answerHand = async (id: string, how: "take" | "pass", start = true) => {
@@ -210,6 +211,7 @@ export function CoworkApp({ e, onMode }: { e: ReturnType<typeof useEngine>; onMo
   };
   const roomNow = team.state?.settings.rooms.find((r) => r.id === team.state?.settings.room);
   const [fyOpen, setFyOpen] = useState(false);
+  const handNow = useHands().current;   // only to count the bar card's faces; HandLine reads its own
   // focus goes into for you once, when it opens (a ref callback would take it back on every render)
   const fyPop = useRef<HTMLDivElement>(null);
   useCover(fyOpen || picking);   // drawn over the pane: the thing's page steps aside while it is open (#236)
@@ -234,6 +236,7 @@ export function CoworkApp({ e, onMode }: { e: ReturnType<typeof useEngine>; onMo
     armed: false, setArmed: () => {}, mark: () => {} };
 
   return (
+    <MeCtx.Provider value={team.me}>
     <div className="face wface cface">
       <Space empty={stage.k !== "session" || items.length === 0} />
       <div className="bar" data-tauri-drag-region onMouseDown={onBar}>
@@ -246,12 +249,12 @@ export function CoworkApp({ e, onMode }: { e: ReturnType<typeof useEngine>; onMo
           {stage.k !== "session" && <span className="where">{stage.k === "thing" ? room.things.find((t) => t.id === stage.id)?.name ?? WHERE.thing : stage.k === "member" ? stage.login : stage.k === "tool" ? ({ calendar: "the calendar", decisions: "decisions", polls: "polls" } as const)[stage.id] : WHERE[stage.k] ?? ""}</span>}
         </div>
         <div className="spacer" data-tauri-drag-region />
-        {(stage.k === "repo" || stage.k === "actions") && <button className="cbtn ghost" onClick={() => void team.refresh()} title="read the board again">read again</button>}
+        {(stage.k === "repo" || stage.k === "actions") && <button className="wbtn ghost" onClick={() => void team.refresh()} title="read the board again">read again</button>}
         {/* for you (§3, §9.4): the hands to me and the pings that reached me, one list */}
         <div className="rm-fy">
           <button className={`rm-fy-pill ${room.foryou.length ? "on" : ""}`} onClick={() => setFyOpen((o) => !o)} aria-expanded={fyOpen}
             title="what waits on you in this room: a hand to you, a decision, a line naming you, a clash or a claim">
-            <i className="sq" aria-hidden="true" />for you {room.foryou.length}
+            {room.foryou.length ? <Droplet kind="needs" size={13} seed="foryou" /> : <span className="cnobody" aria-hidden="true" />}for you {room.foryou.length}
           </button>
           {fyOpen && (
             <div className="rm-fy-pop" role="dialog" aria-label="for you" ref={fyPop}
@@ -263,10 +266,10 @@ export function CoworkApp({ e, onMode }: { e: ReturnType<typeof useEngine>; onMo
                   <span className="k">{f.kind === "hand" ? "handed to you" : f.kind}</span>
                   <span>{f.line}</span>
                   {f.kind === "hand" && <span className="acts">
-                    <button className="cbtn" title="take it, and a session starts on it here with the brief it came with" onClick={() => { setFyOpen(false); void answerHand(f.id, "take", true); }}>take · start a session</button>
-                    <button className="cbtn ghost" title="take it, and start nothing: no agent runs until you open it" onClick={() => { setFyOpen(false); void answerHand(f.id, "take", false); }}>just take it</button>
-                    <button className="cbtn ghost" onClick={() => { setFyOpen(false); void answerHand(f.id, "pass"); }}>pass</button>
-                    <button className="cbtn ghost" onClick={() => setFyOpen(false)}>later</button>
+                    <button className="wbtn" title="take it, and a session starts on it here with the brief it came with" onClick={() => { setFyOpen(false); void answerHand(f.id, "take", true); }}>take · start a session</button>
+                    <button className="wbtn ghost" title="take it, and start nothing: no agent runs until you open it" onClick={() => { setFyOpen(false); void answerHand(f.id, "take", false); }}>just take it</button>
+                    <button className="wbtn ghost" onClick={() => { setFyOpen(false); void answerHand(f.id, "pass"); }}>pass</button>
+                    <button className="wbtn ghost" onClick={() => setFyOpen(false)}>later</button>
                   </span>}
                 </div>
               ))}
@@ -280,26 +283,29 @@ export function CoworkApp({ e, onMode }: { e: ReturnType<typeof useEngine>; onMo
         <CoworkSidebar team={team} w={raw} pinned={lay.docked} stage={stage} onMode={onMode} onStage={(s) => { if (s.k === "session") setIssue(null); setStage(s); }}
           onFresh={(r) => newSession(r)} />
         <div ref={main} className="main">
-          {/* on the room's page a ping is in for you (the bar's pill); elsewhere it is a card under the bar, as before */}
-          {stage.k !== "dashboard" && stage.k !== "thing" && stage.k !== "member" && stage.k !== "goal" && stage.k !== "tool" && team.pings.map((p) => (
-            <div key={p.id} className="wcarry cping" role="status">
-              <span className="from">{PING_WORD[p.kind] ?? "asked"}{p.issue ? ` #${p.issue}` : ""}</span>
-              <span className="t"><b>{p.line}</b><small><Sig s={p.from} /></small></span>
-              <button className="wlink" onClick={() => team.closePing(p.id)} aria-label="close">×</button>
-            </div>
-          ))}
-          {/* a friend who typed a room's code waits for my one press before Sol adds them to its repository */}
-          {team.waiting.map((a) => (
-            <div key={`${a.room} ${a.login}`} className="wcarry cping" role="status">
-              <span className="from">wants in</span>
-              <span className="t"><b>{a.login} wants into {a.name}</b><small>{a.repos.join(" · ")}</small></span>
-              <button className="cbtn" onClick={() => void team.letIn(a, true).then((r) => r.error && e.flash(r.error))}>let in</button>
-              <button className="cbtn ghost" onClick={() => void team.letIn(a, false).then((r) => r.error && e.flash(r.error))}>not now</button>
-            </div>
-          ))}
-          {/* --- Hand (#34): a hand to me, Take · Pass · Later; Take opens the session it started here */}
-          <HandLine onTaken={(id, r) => { setIssue(null); setStage({ k: "session", repo: r }); raw.open(id); }} />
-          {/* --- end Hand */}
+          {/* what waits on me hangs from the bar as one black card (BarCard), one face at a time: a hand to me, a friend who
+              wants in, and, off the room's page (where a ping is in for you, the bar's pill), a ping as before */}
+          <BarCard faces={[
+            /* --- Hand (#34): a hand to me, Take · Pass · Later; Take opens the session it started here */
+            { key: "hand", on: !!handNow, node: <HandLine onTaken={(id, r) => { setIssue(null); setStage({ k: "session", repo: r }); raw.open(id); }} /> },
+            /* --- end Hand */
+            /* a friend who typed a room's code waits for my one press before Sol adds them to its repository */
+            ...team.waiting.map((a) => ({ key: `in ${a.room} ${a.login}`, on: true, node: (
+              <div className="gline" role="status">
+                <span className="from">wants in</span>
+                <span className="t"><b>{a.login} wants into {a.name}</b><small>{a.repos.join(" · ")}</small></span>
+                <button className="wbtn" onClick={() => void team.letIn(a, true).then((r) => r.error && e.flash(r.error))}>let in</button>
+                <button className="wbtn ghost" onClick={() => void team.letIn(a, false).then((r) => r.error && e.flash(r.error))}>not now</button>
+              </div>
+            ) })),
+            ...(stage.k !== "dashboard" && stage.k !== "thing" && stage.k !== "member" && stage.k !== "goal" && stage.k !== "tool" ? team.pings : []).map((p) => ({ key: `ping ${p.id}`, on: true, node: (
+              <div className="gline" role="status">
+                <span className="from">{PING_WORD[p.kind] ?? "asked"}{p.issue ? ` #${p.issue}` : ""}</span>
+                <span className="t"><b>{p.line}</b><small><Sig s={p.from} /></small></span>
+                <button className="gx" onClick={() => team.closePing(p.id)} aria-label="close">×</button>
+              </div>
+            ) })),
+          ]} />
           <div ref={page} className="page-in cstage" data-view={stage.k}>
             {(stage.k === "dashboard" || stage.k === "thing" || stage.k === "member" || stage.k === "goal" || stage.k === "tool") && <Room team={team} room={room} flash={e.flash}
               onPerson={(login) => setStage({ k: "member", login })} onGoal={() => setStage({ k: "goal" })} onThing={(t) => setStage({ k: "thing", id: t.id })}
@@ -342,8 +348,8 @@ export function CoworkApp({ e, onMode }: { e: ReturnType<typeof useEngine>; onMo
               <Composer w={w} e={e} busy={busy} working={isWorking(raw.run)} cwd={cwd} asideOn={false} setAsideOn={() => {}} box={box} onSent={() => {}} onRec={() => {}} d={draft} setD={setDraft} cowork />
               </div>
               {beside && <ThingPane key={beside.id} team={team} thing={beside} mode="s4" onPutAway={() => putBeside(undefined)}
-                me={{ colour: colourOf(team.me, people), working: busy }}
-                others={(team.state?.roster ?? []).filter((m) => m.who !== team.me && m.thing?.id === beside.id).map((m) => ({ who: m.who, colour: colourOf(m.who, people), working: m.state === "working" }))} />}
+                me={{ working: busy }}
+                others={(team.state?.roster ?? []).filter((m) => m.who !== team.me && m.thing?.id === beside.id).map((m) => ({ who: m.who, working: m.state === "working" }))} />}
             </div>)}
           </div>
         </div>
@@ -358,5 +364,6 @@ export function CoworkApp({ e, onMode }: { e: ReturnType<typeof useEngine>; onMo
         {/* --- end Share */}
       </div>
     </div>
+    </MeCtx.Provider>
   );
 }

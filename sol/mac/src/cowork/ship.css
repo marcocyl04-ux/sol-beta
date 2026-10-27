@@ -1,27 +1,18 @@
-/* Ship (#33): the stamp in the action board's head, and the new-stable line over the composer. The companion's look:
-   ink on the dark page, hairline capsules, the first answer filled (pearl), no colour at rest; green, yellow and red
-   only where something happens (palette.css). The stamper's name is the one warm word. */
+/* Ship (#33): the stamp in the action board's head, and the new-stable line over the composer. Home's goo look:
+   ink on the dark page, Home's pill (.wbtn) for the first answer and its outline for the rest, a state as the droplet
+   (bits.tsx StateMark), the one red ember. */
 
 /* ---- the stamp (Stamp.tsx) ---- */
 .stamp { display: inline-flex; align-items: center; gap: 8px; min-width: 0; min-height: 26px; font-size: 12px; color: var(--dim); }
-.stamp > button { flex: none; padding: 3px 11px; background: var(--page); border: 1px solid var(--line); border-radius: var(--pill); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
-.stamp > button:hover:not(:disabled) { border-color: var(--mute); }
-.stamp > button:disabled { color: var(--mute); cursor: default; }
-.stamp > button.first { background: var(--ink); border-color: var(--ink); color: var(--page); }
-.stamp > button.first:hover:not(:disabled) { background: var(--on); border-color: var(--on); }
-.stamp > button.quiet { border-color: transparent; background: none; color: var(--dim); padding-inline: 6px; }
-.stamp > button.quiet:hover:not(:disabled) { color: var(--ink); border-color: transparent; }
+.stamp > .wbtn { white-space: nowrap; }
+.stamp > button.quiet { flex: none; padding: 3px 6px; border: 0; background: none; color: var(--dim); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.stamp > button.quiet:hover:not(:disabled) { color: var(--ink); }
+.stamp > button.quiet:disabled { color: var(--mute); cursor: default; }
 .stamp .q { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stamp .q b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
 .stamp .said { display: inline-flex; align-items: center; gap: 7px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stamp .said i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--mute); }
-.stamp .said.busy i { background: var(--yellow-strong); animation: ship-blink 1.1s ease-in-out infinite; }
-.stamp .said.ok i { background: var(--green-strong); }
-.stamp .said.no { color: var(--red-soft); }
-.stamp .said.no i { background: var(--red-strong); }
+.stamp .said.no { color: var(--ember); }
 .stamp .said b { color: var(--ink); font-weight: 500; }
-@keyframes ship-blink { 50% { opacity: 0.35; } }
-@media (prefers-reduced-motion: reduce) { .stamp .said.busy i { animation: none; } }
 
 /* the one-stable-back list rides the work menu (work/Menu.tsx): the stable now is ticked, its row not pressable */
 .menu .mitem .mnote.tag { font-variant-numeric: tabular-nums; }
@@ -29,16 +20,18 @@
 /* ---- the new-stable line (StableLine.tsx), over the composer in Work and Cowork ---- */
 .sline { display: flex; align-items: center; gap: 12px; margin: 0 0 8px; padding: 7px 8px 7px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); font-size: 12px; color: var(--dim); }
 .sline .what { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* FileLine (src/FileLine.tsx) borrows .sline, its <i> and its plain buttons: they keep Home's pill look here */
 .sline .what i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ink); }
 .sline .what b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
-.sline .what .by { color: var(--amber); }
-.sline.busy .what i { background: var(--yellow-strong); animation: ship-blink 1.1s ease-in-out infinite; }
-.sline.done .what i { background: var(--green-strong); }
-.sline.failed .what { color: var(--red-soft); }
-.sline.failed .what i { background: var(--red-strong); }
+.sline .what .by { color: var(--ink); }
+.sline.failed .what { color: var(--ember); }
 .sline .moves { flex: none; display: flex; gap: 6px; }
-.sline .moves button { padding: 3px 11px; background: var(--page); border: 1px solid var(--line); border-radius: var(--pill); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
-.sline .moves button:hover:not(:disabled) { border-color: var(--mute); }
-.sline .moves button.first { background: var(--ink); border-color: var(--ink); color: var(--page); }
-.sline .moves button.first:hover { background: var(--on); border-color: var(--on); }
-@media (prefers-reduced-motion: reduce) { .sline.busy .what i { animation: none; } }
+.sline .moves button:not(.wbtn) { height: 26px; padding: 0 11px; background: none; border: 0; box-shadow: inset 0 0 0 1px var(--edge); border-radius: var(--pill); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+.sline .moves button:not(.wbtn):hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--mute); }
+.sline .moves button.first { background: var(--ink); box-shadow: none; color: var(--base-color); }
+
+/* Home's outline beside the pill (cowork.css carries it too): StableLine also stands over Home's composer and in
+   ship.html, where Cowork's sheet may not be loaded */
+.sline .wbtn.ghost, .stamp .wbtn.ghost { background: none; box-shadow: inset 0 0 0 1px var(--edge); color: var(--ink); }
+.sline .wbtn.ghost:hover:not(:disabled), .stamp .wbtn.ghost:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--mute); }
+.sline .wbtn:disabled, .stamp .wbtn:disabled { opacity: .4; cursor: default; }

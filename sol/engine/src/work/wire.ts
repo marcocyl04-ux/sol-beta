@@ -1,5 +1,6 @@
 // The Work wire (PROTOCOL.md round 11): the face's work.* messages, and what goes back to every face.
 import { randomUUID } from "node:crypto";
+import { PANE_KEY } from "./page.js";
 import { homedir } from "node:os";
 import { renameSession, deleteSession, forkSession } from "@anthropic-ai/claude-agent-sdk";
 import { workSessions, withRuns, sessionItems, sessionInfo, invalidate, watchSessions, topicsFor, relocated, workFolderIn } from "./sessions.js";
@@ -244,7 +245,7 @@ export async function handleWork(w: Wire, m: any) {
         if (m.type === "work.diff") return reply(await changes(cwd, String(m.scope ?? "all")));
         if (m.type === "work.pr") return reply(await pullRequest(cwd));
         const abs = pathIn(cwd, m.path);
-        if (m.type === "work.read") return reply({ path: abs, ...readText(abs) });
+        if (m.type === "work.read") return reply({ path: abs, assetKey: PANE_KEY, ...readText(abs) });
         return reply({ path: abs, ...writeText(abs, String(m.text ?? ""), typeof m.hash === "string" ? m.hash : undefined) });
       } catch (err) { return reply({ error: err instanceof Error ? err.message.split("\n")[0] : String(err) }); }
     }

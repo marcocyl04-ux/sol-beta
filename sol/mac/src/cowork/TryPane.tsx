@@ -13,7 +13,7 @@ import { CellCheck, Runner } from "../creature/indicators";
 import { PaneFrame, PaneBody, Empty } from "../work/Panes";
 import type { MenuItem } from "../work/Menu";
 import type { Card, PR, Team } from "./useTeam";
-import { Sig, since } from "./bits";
+import { Sig, StateMark, since } from "./bits";
 import "./try.css";
 
 export const DEV_TRY = import.meta.env.DEV && new URLSearchParams(location.search).getAll("dev").includes("try");
@@ -120,7 +120,7 @@ export function TryingRow({ team, repo }: { team: Team; repo: string }) {
   const who = t.author || pr?.author || "";
   return (
     <div className={`row crow ctrying ${s.open ? "on" : ""}`} data-s onClick={() => set({ open: true, tab: "try" })} title={`a PR I am trying: #${t.pr} ${t.title}`}>
-      {t.up ? <span className="cdot here"><i /></span> : <span className="cdot run"><Runner /></span>}
+      {t.up ? <StateMark kind="done" seed={`try${t.pr}`} /> : <StateMark kind="running" seed={`try${t.pr}`} />}
       <span className="t"><span className="cnum">#{t.pr}</span> trying {who ? `${who}'s branch` : t.head}</span>
       {who && <Sig s={{ login: who, agent: !!pr?.agent }} />}
     </div>
@@ -129,7 +129,7 @@ export function TryingRow({ team, repo }: { team: Team; repo: string }) {
 
 // ---- the pane at the right, and the said capsule ----
 const NAMES: Record<string, string> = { copy: "the copy", "engine npm ci": "its packages", "engine build": "its build", "face npm ci": "its face's packages", "face build": "its face's build", engine: "its Sol, on 7778", face: "its face, on 1421" };
-const State = ({ st }: { st: Step }) => !st.done ? <span className="wst run"><Runner /></span> : st.ok === false ? <span className="wst failed"><i /></span> : <span className="wst done"><CellCheck /></span>;
+const State = ({ st }: { st: Step }) => !st.done ? <span className="wst run"><Runner /></span> : st.ok === false ? <span className="wst failed"><StateMark kind="failed" /></span> : <span className="wst done"><CellCheck /></span>;
 
 export function TryFrame({ team }: { team: Team }) {
   const v = useTry();
@@ -155,7 +155,7 @@ export function TryFrame({ team }: { team: Team }) {
               {(t?.author || pr?.author) && <Sig s={{ login: t?.author || pr!.author, agent: !!pr?.agent }} />}
             </> : <b>nothing tried yet</b>}
             <span className="cgrow1" />
-            {t && <button className="cbtn" onClick={() => void stopIt(team)} title="ends both programs and keeps the copy">stop trying</button>}
+            {t && <button className="wbtn" onClick={() => void stopIt(team)} title="ends both programs and keeps the copy">stop trying</button>}
             <button className="tclose" onClick={() => set({ open: false })} aria-label="close the pane" title="close (the try keeps running)">×</button>
           </div>
           {/* the test note (#100): what to try and what to notice, as its PR says it, plain text */}
@@ -192,7 +192,7 @@ export function TryFrame({ team }: { team: Team }) {
 function Face({ url, t }: { url: string; t: Trying }) {
   return (
     <div className="tface">
-      <div className="taddr"><span className="cdot here"><i /></span><span className="mono">{t.branch || t.head}</span><span className="cdim">· up {since(t.since)} · its own state, an empty home</span></div>
+      <div className="taddr"><StateMark kind="done" seed={`try${t.pr}`} /><span className="mono">{t.branch || t.head}</span><span className="cdim">· up {since(t.since)} · its own state, an empty home</span></div>
       <iframe src={url} title={`#${t.pr} running as a second Sol`} />
     </div>
   );
@@ -219,7 +219,7 @@ function Steps({ steps, t, onAgain }: { steps: Step[]; t: Trying | null; onAgain
           </li>
         ))}
       </ol>
-      {!t && failed && onAgain && <button className="cbtn" onClick={onAgain}>try again</button>}
+      {!t && failed && onAgain && <button className="wbtn" onClick={onAgain}>try again</button>}
     </div>
   );
 }
@@ -235,12 +235,12 @@ function Review({ team, r }: { team: Team; r: NonNullable<S["review"]> }) {
     <div className="trev">
       <div className="trhead">
         {!head ? (r.asked ? <><span className="wst run"><Runner /></span><span>asking Codex…</span></>
-          : <><span>no review of #{r.pr} yet</span><span className="cdim">· Codex reads the branch against main, read-only</span><span className="cgrow1" /><button className="cbtn" onClick={() => void reviewIt(team, r.repo, r.pr)}>ask for a review</button></>)
+          : <><span>no review of #{r.pr} yet</span><span className="cdim">· Codex reads the branch against main, read-only</span><span className="cgrow1" /><button className="wbtn" onClick={() => void reviewIt(team, r.repo, r.pr)}>ask for a review</button></>)
           : head.busy ? <><span className="wst run"><Runner /></span><span>{head.text}</span><span className="cdim">· {head.files} file{head.files === 1 ? "" : "s"}, the branch against main</span></>
-          : head.error ? <><span className="wst failed"><i /></span><span className="tbad">{head.error}</span></>
+          : head.error ? <><span className="wst failed"><StateMark kind="failed" /></span><span className="tbad">{head.error}</span></>
           : <><span className="wst done"><CellCheck /></span><span>{remarks.length ? `${remarks.length} remark${remarks.length === 1 ? "" : "s"} on #${r.pr}` : `nothing to say on #${r.pr}`}</span><span className="cdim">· read-only, {head.files} file{head.files === 1 ? "" : "s"}</span></>}
         <span className="cgrow1" />
-        {head && !head.busy && <button className="cbtn ghost" onClick={() => void reviewIt(team, r.repo, r.pr)}>ask again</button>}
+        {head && !head.busy && <button className="wbtn ghost" onClick={() => void reviewIt(team, r.repo, r.pr)}>ask again</button>}
       </div>
       <ul ref={ref} className="trems">
         {remarks.map((it) => (
@@ -249,7 +249,7 @@ function Review({ team, r }: { team: Team; r: NonNullable<S["review"]> }) {
             <p>{it.text}</p>
             <div className="tact">
               {it.state === "sent" ? <><span className="tsent"><CellCheck /> on GitHub</span><Sig s={{ login: me, agent: true }} /></>
-                : <><button className="cbtn ghost" onClick={() => void comment(team, r.repo, r.pr, it.text, it)}>put in a comment</button><span className="cdim">signed {me}'s agent</span></>}
+                : <><button className="wbtn ghost" onClick={() => void comment(team, r.repo, r.pr, it.text, it)}>put in a comment</button><span className="cdim">signed {me}'s agent</span></>}
             </div>
           </li>
         ))}
@@ -264,7 +264,7 @@ function SaidCap({ said }: { said: Said | null }) {
   if (!said) return null;
   return (
     <div ref={ref} className={`tsaid ${said.ok ? "" : "bad"}`} role="status">
-      {said.ok ? <span className="wst done"><CellCheck /></span> : <span className="wst failed"><i /></span>}
+      {said.ok ? <span className="wst done"><CellCheck /></span> : <span className="wst failed"><StateMark kind="failed" /></span>}
       <span>{said.line}</span>
       {said.by && <span className="csig">{said.by}</span>}
     </div>

@@ -8,20 +8,18 @@
 // A share code (#157): "join a room" under "new room" takes the six symbols a friend gave; the room in use has "share",
 // which asks the engine for its code, and a room's code shows in its row, a click copies it.
 import { useEffect, useRef, useState } from "react";
-import { VibeMark } from "../Mark";
+import { SeatScene } from "../SeatScene";
 import type { AppMode } from "../ModeSwitch";
 import { ModeWheel } from "../ModeWheel";
 import { useSideFloat } from "../sideFloat";
 import { useCover } from "./thingView";
 import { Fold, Pill, Turn } from "../MotionKit";
-import { Runner } from "../creature/indicators";
 import { working, type Work, type WorkSession } from "../work/useWork";
 import type { Team } from "./useTeam";
-import { DEV_TEAM } from "./useTeam";
 import { codeTyped } from "./rooms";
 import { GithubJoin } from "./GithubJoin";
 import { DriveConnect, DriveRow } from "./DriveRoom";   // a Drive room (#152)
-import { PersonDot, STATE_WORD, Sig } from "./bits";
+import { PersonDot, STATE_WORD, StateMark, Who } from "./bits";
 // --- Hand (#34)
 import { Menu, type MenuItem } from "../work/Menu";
 import { HandedRows, sessionItems, useHandedCount } from "./Hands";
@@ -104,7 +102,7 @@ export function CoworkSidebar({ team, w, pinned, stage, onMode, onStage, onFresh
     <aside ref={f.ref} className={`side wside cside ${f.open ? "open" : ""} ${pinned ? "pinned" : ""}`} onMouseEnter={f.onMouseEnter} onMouseLeave={f.onMouseLeave}
       aria-hidden={!f.open} inert={!f.open}>
       <div className="side-head" data-s>
-        <div className="brand"><VibeMark size={22} /><span className="word">sol</span></div>
+        <SeatScene mode="cowork" />
         <ModeWheel mode="cowork" onPick={onMode} />
       </div>
       {making === "new" ? <RoomForm team={team} onPane={setJoining} onDone={(made) => { setMaking(""); if (made?.warn) setShared((x) => ({ ...x, [made.id]: { error: made.warn } })); }} />
@@ -164,14 +162,14 @@ export function CoworkSidebar({ team, w, pinned, stage, onMode, onStage, onFresh
           const now = (b?.cards ?? []).filter((c) => c.repo === repo && c.labels.includes("now"));
           const mine = w.sessions.filter((x) => x.mode === "cowork" && !x.archived && (inFolder(x, dir) || (!dir && x.project.endsWith("/" + name))))
             .sort((a, z) => z.updatedAt - a.updatedAt);
-          const extra = DEV_TEAM ? DEV_SHARED : [];
           const handed = handedIn(repo);   // Hand (#34)
           return (
-            <Sec key={repo} k={`repo:${repo}`} label={name} n={now.length + mine.length + extra.length + handed} here={dir ? () => onFresh(repo) : undefined}>
+            <Sec key={repo} k={`repo:${repo}`} label={name} n={now.length + mine.length + handed} here={dir ? () => onFresh(repo) : undefined}>
               {now.map((c) => (
                 <div key={c.number} className="row crow" data-s onClick={() => onStage({ k: "actions" })} title={`the issue wearing now: #${c.number} ${c.title}`}>
                   <span className="cnow">now</span><span className="t"><span className="cnum">#{c.number}</span> {c.title}</span>
-                  <Sig s={c.sign ?? (c.assignees[0] ? { login: c.assignees[0], agent: false } : undefined)} />
+                  {(() => { const s = c.sign ?? (c.assignees[0] ? { login: c.assignees[0], agent: false } : undefined);
+                    return s ? <span className="chold" title={s.agent ? `moved last by ${s.login}'s agent` : `moved last by ${s.login}`}><Who login={s.login} size={14} /></span> : null; })()}
                 </div>
               ))}
               {mine.map((x) => {
@@ -179,9 +177,9 @@ export function CoworkSidebar({ team, w, pinned, stage, onMode, onStage, onFresh
                 return (
                   <div key={x.id} className={`row crow ${w.live === x.id && stage.k === "session" ? "on" : ""}`} data-s onClick={() => { w.open(x.id); onStage({ k: "session", repo }); }} title={x.title}
                     onContextMenu={(ev) => handSession(ev, repo, x)}>
-                    {working(run) ? <span className="cdot run"><Runner /></span> : <span className={`cdot ${run?.waiting ? "yourcall" : "here"}`}><i /></span>}
+                    {working(run) ? <StateMark kind="running" seed={x.id} /> : run?.waiting ? <StateMark kind="needs" seed={x.id} /> : <span className="cslot" aria-hidden="true" />}
                     <span className="t">{x.title || "untitled"}</span>
-                    <Sig s={{ login: me, agent: true }} />
+                    <span className="chold" title={`${me}'s agent`}><Who login={me} size={14} /></span>
                   </div>
                 );
               })}
@@ -191,12 +189,7 @@ export function CoworkSidebar({ team, w, pinned, stage, onMode, onStage, onFresh
               {/* --- Try (#35): the PR I am trying, under its repo */}
               <TryingRow team={team} repo={repo} />
               {/* --- end Try */}
-              {extra.map((x) => (
-                <div key={x.title} className="row crow later" data-s title={x.what}>
-                  <span className="cdot here"><i /></span><span className="t">{x.title}</span><Sig s={x.sign} />
-                </div>
-              ))}
-              {!now.length && !mine.length && !extra.length && !handed && <p className="none">nothing shared here yet</p>}
+              {!now.length && !mine.length && !handed && <p className="none">nothing shared here yet</p>}
             </Sec>
           );
         })}
@@ -329,8 +322,3 @@ function JoinForm({ team, onDone }: { team: Team; onDone: () => void }) {
   );
 }
 
-// ?dev=team: what Hand and Try will put under a repo, so the shot shows the shape
-const DEV_SHARED = [
-  { title: "#34 the hands record", what: "a session handed to me (Hand)", sign: { login: "frank", agent: false } },
-  { title: "#41 trying frank's branch", what: "a PR I am trying (Try)", sign: { login: "frank", agent: true } },
-];

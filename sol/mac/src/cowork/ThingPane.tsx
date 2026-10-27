@@ -8,18 +8,18 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Team } from "./useTeam";
 import type { Thing } from "./useRoom";
-import { Glyph, Hand } from "./Room";
+import { Glyph } from "./Room";
+import { Who } from "./bits";
+import { openUrl, rectOf } from "./util";
 import { FOCUS_AGAIN_MS, focusMsg, inShell, nextTab, onShell, originOf, shell, tabOf, useCovered, type Box } from "./thingView";
 
 type Tab = { tab: string; url: string };
-export type InIt = { who: string; colour: string; working: boolean };
+export type InIt = { who: string; working: boolean };
 
-const openUrl = (url: string) => { import("@tauri-apps/plugin-opener").then((o) => o.openUrl(url)).catch(() => window.open(url, "_blank")); };
-const rectOf = (el: HTMLElement): Box => { const r = el.getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; };
 const same = (a: Box | null, b: Box) => !!a && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 
 export function ThingPane({ team, thing, mode, me, others, onBack, onShrink, onWork, onPutAway }: {
-  team: Team; thing: Thing; mode: "s2" | "s4"; me: { colour: string; working: boolean }; others: InIt[];
+  team: Team; thing: Thing; mode: "s2" | "s4"; me: { working: boolean }; others: InIt[];
   onBack?: () => void; onShrink?: () => void; onWork?: () => void; onPutAway?: () => void;
 }) {
   const body = useRef<HTMLDivElement>(null);
@@ -130,10 +130,10 @@ export function ThingPane({ team, thing, mode, me, others, onBack, onShrink, onW
       <div className="rm-th-head">
         {mode === "s2" && <button className="rm-th-link" onClick={back} title="close the page and go back to the room's things">‹ back to the room</button>}
         <span className="rm-th-name"><Glyph kind={thing.kind} size={20} /><b>{thing.name}</b></span>
-        {who && <span className="rm-th-in">{front ? <Hand colour={me.colour} size={22} bob={me.working} /> : <Hand colour={others[0].colour} size={22} bob={others[0].working} />}{who}</span>}
+        {who && <span className="rm-th-in">{front ? <Who login={team.me} size={20} working={me.working} /> : <Who login={others[0].who} size={20} working={others[0].working} />}{who}</span>}
         <span className="rm-th-sp" />
         {mode === "s2" && <button className="rm-th-link" onClick={onShrink} title="back to the room's things; the page stays as it is, a click on its tile brings it back">⤡ shrink</button>}
-        {mode === "s2" && <button className="cbtn" onClick={onWork} title="start a session with this thing beside it">work on this</button>}
+        {mode === "s2" && <button className="wbtn" onClick={onWork} title="start a session with this thing beside it">work on this</button>}
         {mode === "s4" && <button className="rm-th-link" onClick={() => { closeAll(); onPutAway?.(); }} title="take the thing away from beside the session">put it away</button>}
         <button className="rm-th-link" onClick={() => (inShell() && opened ? void shell.outside({ tab: active }).catch(() => openUrl(thing.url)) : openUrl(thing.url))} title="open this page in your own browser">open in browser ↗</button>
       </div>

@@ -3,7 +3,7 @@
 // lands it on main at once (CODEOWNERS, no PR) and the team is pinged. Anyone else sees the same rows, read-only.
 // A setting is the owner's word; a change to how Sol works still goes through Work, and the panel says so.
 import { useEffect, useRef, useState } from "react";
-import { PersonDot } from "./bits";
+import { PersonDot, StateMark } from "./bits";
 import { LABELS, leadsOf, type Team } from "./useTeam";
 import "./leads.css";
 
@@ -71,7 +71,7 @@ export function Leads({ team }: { team: Team }) {
                     <span className="lwho">{now.length ? now.map((p) => <span key={p} className="clead">{dot(p)}<b>{p}</b></span>) : <span className="cdim">nobody</span>}</span>
                     {owner && !editing && <button className="lchange" disabled={busy} onClick={() => setEdit({ label: l, pick: [...now] })}>change</button>}
                   </div>
-                  {said?.label === l && !editing && <p className={`lsaid ${said.ok ? "ok" : "no"}`}><i />{said.text}</p>}
+                  {said?.label === l && !editing && <p className={`lsaid ${said.ok ? "ok" : "no"}`}><StateMark kind={said.ok ? "done" : "failed"} />{said.text}</p>}
                   {editing && (
                     <div className="ledit">
                       <div className="lpeople">
@@ -85,10 +85,10 @@ export function Leads({ team }: { team: Team }) {
                           ? <>{edit.pick.join(" and ")} {edit.pick.length > 1 ? "lead" : "leads"} <b>{l}</b>; it lands on main at once and the team hears it</>
                           : <>pick one or two people</>}
                       </p>
-                      {said?.label === l && !said.ok && <p className="lsaid no"><i />{said.text}</p>}
+                      {said?.label === l && !said.ok && <p className="lsaid no"><StateMark kind="failed" />{said.text}</p>}
                       <div className="lmoves">
-                        <button className="first" disabled={busy || !edit.pick.length || same(edit.pick, now)} onClick={() => void press()}>{busy ? "setting…" : "set"}</button>
-                        <button disabled={busy} onClick={() => setEdit(null)}>keep</button>
+                        <button className="wbtn" disabled={busy || !edit.pick.length || same(edit.pick, now)} onClick={() => void press()}>{busy ? "setting…" : "set"}</button>
+                        <button className="wbtn ghost" disabled={busy} onClick={() => setEdit(null)}>keep</button>
                       </div>
                     </div>
                   )}

@@ -31,17 +31,8 @@
 .lpanel .lq { margin: 8px 0 0; font-size: 12px; color: var(--dim); }
 .lpanel .lq b { color: var(--ink); font-weight: 500; }
 .lpanel .lmoves { display: flex; gap: 6px; margin-top: 8px; }
-.lpanel .lmoves button { padding: 3px 11px; background: var(--page); border: 1px solid var(--line); border-radius: var(--pill); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
-.lpanel .lmoves button:hover:not(:disabled) { border-color: var(--mute); }
-.lpanel .lmoves button:disabled { color: var(--mute); cursor: default; }
-.lpanel .lmoves button.first { background: var(--ink); border-color: var(--ink); color: var(--page); }
-.lpanel .lmoves button.first:hover:not(:disabled) { background: var(--on); border-color: var(--on); }
-.lpanel .lmoves button.first:disabled { background: var(--page); border-color: var(--line); color: var(--mute); }
 
 .lpanel .lsaid { display: flex; align-items: center; gap: 7px; margin: 6px 0 0 66px; font-size: 11.5px; color: var(--dim); }
 .lpanel .ledit .lsaid { margin-left: 0; }
-.lpanel .lsaid i { flex: none; width: 6px; height: 6px; border-radius: 50%; }
-.lpanel .lsaid.ok i { background: var(--green-strong); }
-.lpanel .lsaid.no { color: var(--red-soft); }
-.lpanel .lsaid.no i { background: var(--red-strong); }
+.lpanel .lsaid.no { color: var(--ember); }
 .lpanel footer { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 11px; color: var(--mute); }

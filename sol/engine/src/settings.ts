@@ -18,8 +18,9 @@ export type Settings = {
   mic?: string;
   defaults: { seat: Seat; model: Record<Seat, string>; effort: Record<Seat, string>; mode: WorkMode };
   // the look (mine/look/SPEC.md): the window's base colour (#rrggbb), its opacity over the desktop (0.5–1), the blur
-  // behind it (0–64 px) and the style of the person's own bubble; the face and, later, the notch read the same recipe
-  look: { color: string; alpha: number; blur: number; bubble: Bubble };
+  // behind it (0–64 px), the style of the person's own bubble and the size of the chat's words (12–24 px, #268: the talk's
+  // bubbles and a room's lines, nothing around them); the face and, later, the notch read the same recipe
+  look: { color: string; alpha: number; blur: number; bubble: Bubble; text: number };
 };
 export type Bubble = "slab" | "glass" | "edge" | "classic" | "outline" | "bare";
 export const BUBBLES: Bubble[] = ["slab", "glass", "edge", "classic", "outline", "bare"];
@@ -45,7 +46,7 @@ export const DEFAULTS: Settings = {
     effort: { codex: "medium", claude: "medium" },
     mode: "default",
   },
-  look: { color: "#000000", alpha: 0.78, blur: 48, bubble: "edge" },
+  look: { color: "#000000", alpha: 0.78, blur: 48, bubble: "edge", text: 15 },
 };
 const num = (v: unknown, lo: number, hi: number, d: number) => (typeof v === "number" && isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
 
@@ -75,6 +76,7 @@ function clean(raw: unknown): Settings {
       alpha: Math.round(num(lk.alpha, 0.5, 1, DEFAULTS.look.alpha) * 100) / 100,
       blur: Math.round(num(lk.blur, 0, 64, DEFAULTS.look.blur)),
       bubble: BUBBLES.includes(lk.bubble as Bubble) ? (lk.bubble as Bubble) : DEFAULTS.look.bubble,
+      text: Math.round(num(lk.text, 12, 24, DEFAULTS.look.text)),
     },
   };
   if (typeof r.mic === "string" && r.mic) out.mic = r.mic;

@@ -475,11 +475,15 @@ function host(u: string): string {
 export const TOOLS: Tool[] = [
   {
     name: "browser_open",
-    description: "Open a web page in this conversation's browser tab (Marco sees it inside Sol; his logins are kept). Returns the title and address.",
+    description: "Open a web page in this conversation's browser tab (Marco sees it inside Sol; his logins are kept). Returns the title and address. " +
+      "Not for a page you made for Marco to look at (a mockup, review page, board, stills): those go in the page pane: write or edit the HTML file with the Write or Edit tool.",
     shape: { url: z.string().describe("Address, e.g. https://learn.bu.edu") },
     line: (a) => `opening ${host(a.url)}`,
     run: async (p, a) => {
       const url = /^[a-z]+:\/\//i.test(a.url) ? a.url : "https://" + a.url;
+      // a page made for Marco goes to the page pane, where he annotates it (2026-10-26): a local HTML file is refused here
+      if (/^file:\/\/.*\.html?([?#].*)?$/i.test(url))
+        return { ...text("A page made for Marco shows in the page pane, not the browser tab. Write or edit the HTML file with the Write or Edit tool (an Edit, even one word, shows it again), and he annotates it there."), isError: true };
       await p.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
       await settle(p);
       return text(`Opened ${p.url()}\nTitle: ${await p.title()}`);

@@ -23,7 +23,7 @@ export function CardLine({ c, team, sign, children, onMenu, here }: {
   return (
     <div className={`ccard ${here ? "here" : ""}`} {...lift} onContextMenu={onMenu} title={`#${c.number} ${c.title}${c.assignees.length ? `\n${c.assignees.join(", ")}` : ""}`}>
       <div className="cl1">
-        {c.assignees[0] ? <PersonDot login={c.assignees[0]} roster={s?.roster ?? []} up={!!s?.relay.up} me={team.me} /> : <span className="cdot none"><i /></span>}
+        {c.assignees[0] ? <PersonDot login={c.assignees[0]} roster={s?.roster ?? []} up={!!s?.relay.up} me={team.me} /> : <span className="cnobody" title="nobody on it" />}
         <span className="cnum">#{c.number}</span>
         <span className="ct">{c.title}</span>
         {pr?.mark && <span className={`cmark ${pr.mark}`} title={`${pr.mark === "felt" ? "a person runs it before it is ready" : "ready without a run"}${pr.flippedBy ? `, flipped by ${pr.flippedBy}` : ""}`}>{pr.mark}</span>}

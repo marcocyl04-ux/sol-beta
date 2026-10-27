@@ -95,7 +95,7 @@ import { asDoor, continueDoor, doorOf, touchDoor, type Door } from "./doors.js";
 import { runBlock, stopBlock, type Finder } from "./run.js";
 import { sessionItems, sessionInfo, setWorkHome, workFolderIn, relocated } from "./work/sessions.js";
 import { reviewThreads } from "./work/review.js";
-import { servePaneAsset } from "./work/page.js";
+import { servePaneAsset, keyedAsset } from "./work/page.js";
 import { getRun, allRuns } from "./work/runs.js";
 import { renewOnBuild } from "./renew.js";
 import { addWorkFace, removeWorkFace, handleWork, setWorkChanging, broadcastSessions } from "./work/wire.js";
@@ -789,6 +789,8 @@ const rooms = relayRoutes(PORT, hostKey, registry, { org: hostOrg, open: hubOpen
 
 const http = createServer(async (req, res) => {
   if (/^\/relay\/(rooms|names|proof)(\/|$|\?)/.test(req.url ?? "") && await rooms(req, res)) return;
+  // a page pane's asset under the key the socket handed out (work/page.ts): no Referer needed
+  if (req.method === "GET" && keyedAsset((req.url ?? "").split("?")[0]) && tailnetOk(req.headers)) return servePaneAsset(req, res);
   if (!tailnetOk(req.headers) || !solPage(req)) { res.writeHead(403); res.end(); return; }
   const path = (req.url ?? "").split("?")[0];
   if ((path === "/away" || path === "/away/") && req.method === "GET") return serveDist("away.html", res);

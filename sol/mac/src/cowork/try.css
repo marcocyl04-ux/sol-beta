@@ -1,5 +1,5 @@
 /* Try and review (#35): the pane at the right with a teammate's PR running as a second Sol, its steps, Codex's
-   remarks; the row under a repo; the said capsule. Ink at rest; green done, red wrong, signatures amber. */
+   remarks; the row under a repo; the said capsule. Ink at rest; a state is the droplet, the one red ember. */
 .wpane:has(.tpane) > .wtabs { display: none; }
 .tpane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .thead { flex: none; border-bottom: 1px solid var(--line); }
@@ -7,7 +7,7 @@
 .tline b { font-weight: 600; white-space: nowrap; }
 .tline .thd { color: var(--dim); font-family: var(--mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tline .cdim, .tline .csig { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tline .cbtn { white-space: nowrap; }
+.tline .wbtn { white-space: nowrap; }
 /* a pane at its narrowest (280): the head keeps what it tries, who, stop and close; the branch and the port step aside */
 .tpane { container-type: inline-size; }
 @container (max-width: 420px) { .tline .thd, .tline .cdim { display: none; } }
@@ -36,31 +36,31 @@
 .tsteps li.now { border-color: var(--line); }
 .tsteps .tn { color: var(--ink); white-space: nowrap; }
 .tsteps .tl { color: var(--mute); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tsteps li.bad .tl { color: var(--red-strong); }
+.tsteps li.bad .tl { color: var(--ember); }
 .tpane .wst.done svg, .tsaid .wst.done svg, .tsent svg { color: var(--green-strong); }
 
 /* the review */
 .trev { padding: 14px 18px 20px; display: flex; flex-direction: column; gap: 12px; }
 .trhead { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink); }
-.trhead .tbad { color: var(--red-strong); }
+.trhead .tbad { color: var(--ember); }
 .trems { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .trems li { padding: 11px 14px 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
 .trems .tat { display: block; font-size: 11px; color: var(--dim); }
 .trems p { margin: 5px 0 9px; font-size: 12.5px; line-height: 1.55; color: var(--ink); }
 .tact { display: flex; align-items: center; gap: 10px; font-size: 11.5px; }
-.tact .cbtn { padding: 3px 10px; font-size: 11.5px; }
+.tact .wbtn { height: 24px; padding: 0 10px; font-size: 11.5px; }
 .tact .cdim { font-size: 11px; color: var(--mute); }
 .tsent { display: inline-flex; align-items: center; gap: 5px; color: var(--ink); }
 .tsent svg { width: 11px; height: 11px; }
 .trems li.sent { background: none; }
 
-/* the row under a repo; the dev placeholder for it steps aside */
-.cside .crow.ctrying ~ .crow.later[title*="(Try)"], .cside .crow.ctrying ~ .none { display: none; }
+/* the row under a repo: "nothing shared here yet" steps aside for it */
+.cside .crow.ctrying ~ .none { display: none; }
 
 /* what was said on GitHub, for a moment */
 .tsaid { position: fixed; right: 22px; bottom: 22px; z-index: 30; display: flex; align-items: center; gap: 9px; max-width: 460px; padding: 8px 14px 8px 11px;
   background: var(--pop); border: 1px solid var(--edge); border-radius: var(--pill); font-size: 12.5px; color: var(--ink); box-shadow: var(--pop-shadow); }
-.tsaid.bad { border-color: var(--red-soft); }
+.tsaid.bad { border-color: var(--ember); }
 /* the test note (#100): what to try and what to notice, under the pane's head line */
 .tnote { display: flex; align-items: baseline; gap: 8px; padding: 2px 12px 6px 18px; font-size: 12.5px; color: var(--dim); }
 .tnote p { margin: 0; white-space: pre-wrap; max-height: 6.5em; overflow: auto; }
