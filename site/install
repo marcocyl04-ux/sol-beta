@@ -1,5 +1,5 @@
 #!/bin/sh
-# Sol's install (#169): one line in Terminal,  curl -fsSL https://marcocyl04-ux.github.io/sol-beta/install | sh  (sol.js.org once js.org approves it, #308),  or the same file run by
+# Sol's install (#169): one line in Terminal,  curl -fsSL https://sol.matterfold.tech/install | sh  (#308),  or the same file run by
 # Sol.app's welcome page (bundled as a resource, with SOL_SKIP_APP=1). Plain sh, readable top to bottom; the whole
 # script is one function called on its last line, so a download cut short runs nothing.
 #

@@ -517,7 +517,7 @@ function Keep({ e, name, inst, word, onDone, onRetry }: { e: Engine; name: strin
         <button className="fr-go" onClick={stopped ? onRetry : onDone} disabled={running}><span>{running ? `${inst?.phrase}…` : stopped ? "try again" : "open Sol"}</span></button>
       </div>
       {running && <p className="fr-hint">I'm still setting up behind this. the button lights up when I'm done.</p>}
-      {stopped && <p className="fr-hint">the install stopped: {inst?.failed}. try again here, or from Terminal: curl -fsSL https://marcocyl04-ux.github.io/sol-beta/install | sh</p>}
+      {stopped && <p className="fr-hint">the install stopped: {inst?.failed}. try again here, or from Terminal: curl -fsSL https://sol.matterfold.tech/install | sh</p>}
       {word && <p className="fr-hint">{word}</p>}
     </Scene>
   );

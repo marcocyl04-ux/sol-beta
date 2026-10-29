@@ -18,7 +18,7 @@ import type { Guesses, RoomRegistry } from "./registry.js";
 /** the site's download line (site/index.html, "Download Sol for Mac") */
 export const DOWNLOAD = "https://github.com/marcocyl04-ux/sol-beta/releases/latest/download/Sol-mac.zip";
 /** the site, which shows the one step macOS asks the first time an unsigned app opens */
-export const SITE = "https://marcocyl04-ux.github.io/sol-beta/#get";   // the github.io address until js.org approves sol.js.org (#308)
+export const SITE = "https://sol.matterfold.tech/#get";   // the site, on sol-beta's Pages with our own domain (#308)
 /** the paths this file answers */
 export const JOIN_PATHS = /^\/relay\/(j|peek)\/[^/]*$/;
 
