@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Frame } from "./useEngine";
 
 // One browser tab as the face shows it: the engine's screencast frames (browser.frame) on a stage whose size the tab
@@ -39,7 +39,7 @@ export function Screencast({ tab, send, subscribe, live = true, hold, marking, o
   const seen = size.w > 0 && size.h > 0;
 
   // the tab on show is watched once the stage is seen; a new tab (or none, or the pane going) lets the old one go
-  useEffect(() => { setFrame(null); return () => send({ type: "browser.watch", tab: null }); }, [tab, send]);
+  useLayoutEffect(() => { setFrame(null); return () => send({ type: "browser.watch", tab: null }); }, [tab, send]);
   useEffect(() => { if (tab && seen) send({ type: "browser.watch", tab }); }, [tab, seen, send]);
 
   useEffect(() => subscribe((f) => {

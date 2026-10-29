@@ -4,7 +4,7 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import type { Kind, Msg } from "./useEngine";
 import { CellCheck, Runner } from "./creature/indicators";
-import { CFG, enter, growTo, reducedMotion } from "./motion";
+import { CFG, enter, growTo, growing, reducedMotion } from "./motion";
 import { Fold, Swap } from "./MotionKit";
 import { onRan, ranOf, request, runnable, stopRun } from "./run";
 
@@ -46,25 +46,60 @@ const Files = ({ files }: { files?: Msg["files"] }) =>
 // still arriving keeps its place and its animation: a block that exists is patched in place, a new block slides up
 // from 12 px low while it opens from nothing, and a block that grows a line opens under it on a spring. The caret
 // (the eye, in CSS) rides the last block, so it travels with the text. Old messages (loaded, not arriving) are set whole.
+// A block remembers the html it was written from: one whose source is the same is left alone (its run cell, a
+// selection in it), and one that changed is patched node by node, so the words already there stay the very nodes they
+// were and a selection across them survives the next word (it was lost on every delta, the block's innerHTML re-set).
+// A block that turns into another kind (a line that becomes a list) opens from where the old one stood, never arrives again.
+const wrote = new WeakMap<Element, string>();
+const isCell = (x: Node) => x instanceof HTMLElement && x.tagName === "BUTTON" && x.classList.contains("run");   // decorate()'s, not the answer's
+function morph(c: Node, n: Node) {
+  if (c.nodeType !== Node.ELEMENT_NODE) {
+    const was = c.nodeValue ?? "", now = n.nodeValue ?? "";
+    if (was !== now) { if (c.nodeType === Node.TEXT_NODE && now.startsWith(was)) (c as Text).appendData(now.slice(was.length)); else c.nodeValue = now; }
+    return;
+  }
+  const ce = c as Element, ne = n as Element;
+  for (const a of Array.from(ce.attributes)) if (!ne.hasAttribute(a.name)) ce.removeAttribute(a.name);
+  for (const a of Array.from(ne.attributes)) if (ce.getAttribute(a.name) !== a.value) ce.setAttribute(a.name, a.value);
+  kids(ce, ne);
+}
+function kids(ce: Element, ne: Element) {
+  const all = Array.from(ce.childNodes), cc = all.filter((x) => !isCell(x)), nc = Array.from(ne.childNodes);
+  const tail = all.find(isCell) ?? null;
+  for (let i = 0; i < nc.length; i++) {
+    const a = cc[i], b = nc[i];
+    if (a && a.nodeType === b.nodeType && a.nodeName === b.nodeName) morph(a, b);
+    else if (a) ce.replaceChild(b, a);
+    else ce.insertBefore(b, tail);
+  }
+  for (let i = cc.length - 1; i >= nc.length; i--) cc[i].remove();
+}
 function write(el: HTMLElement, h: string, animate: boolean) {
   const tpl = document.createElement("template");
   tpl.innerHTML = h;
   const next = Array.from(tpl.content.children) as HTMLElement[];
   const cur = (Array.from(el.children) as HTMLElement[]).filter((c) => !c.classList.contains("ran"));
+  const moving = animate && !reducedMotion();
   let fresh = 0;
   for (let i = 0; i < next.length; i++) {
-    const c = cur[i], n = next[i];
+    const c = cur[i], n = next[i], src = n.outerHTML;
     if (c && c.tagName === n.tagName) {
-      if (!c.isEqualNode(n)) {
-        c.innerHTML = n.innerHTML;
+      if (wrote.get(c) !== src) {
+        // its height before the words land, read before anything is written (one layout, the frame's own)
+        const was = moving && !growing(c) ? c.offsetHeight : undefined;
         for (const a of Array.from(n.attributes)) if (c.getAttribute(a.name) !== a.value) c.setAttribute(a.name, a.value);
-        if (animate) growTo(c);
+        kids(c, n);
+        wrote.set(c, src);
+        if (moving) growTo(c, was);
       }
     } else {
+      const was = c && moving ? c.offsetHeight : undefined;
       if (c) c.remove();
       const after = (Array.from(el.children) as HTMLElement[]).filter((x) => !x.classList.contains("ran"))[i] ?? null;
       el.insertBefore(n, after);
-      if (animate && !reducedMotion()) {
+      wrote.set(n, src);
+      if (was !== undefined) growTo(n, was);   // the same place, another kind: it opens from the old one's height
+      else if (moving) {
         // when several blocks arrive together (a whole answer at once) they follow one another down the page
         enter(n, { y: 12, delay: fresh * 70, cfg: CFG.arrive });
         growTo(n, 0);
@@ -157,11 +192,14 @@ function CallLine({ m }: { m: Msg }) {
   return <div ref={ref} className={`msg you call ${m.done ? "" : "live"}`}>{m.text}</div>;
 }
 
+// A finished message never draws again while the next one streams: it is compared by what it says, not by the object
+// (Work builds a fresh one each render), so only the live reply renders per frame.
+const sameMsg = (a: Msg, b: Msg) => a === b || (a.who === b.who && a.text === b.text && a.old === b.old && a.call === b.call && a.done === b.done && a.id === b.id && a.files === b.files);
 export const Message = memo(function Message({ m, live }: { m: Msg; live: boolean }) {
   if (m.who === "me") return <Mine m={m} />;
   if (m.call) return <CallLine m={m} />;
   return <Reply m={m} live={live} />;
-});
+}, (a, b) => a.live === b.live && sameMsg(a.m, b.m));
 
 // ---- steps: a run of the seat's work between two messages ----
 
@@ -205,7 +243,8 @@ function StepRow({ s, k, shown, can, arrive, onToggle, ran }: {
   );
 }
 
-export function Steps({ steps, old }: { steps: Msg[]; old?: boolean }) {
+// a card of steps draws again only when one of its steps changed (the talk hands it a new array every render)
+export const Steps = memo(function Steps({ steps, old }: { steps: Msg[]; old?: boolean }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const live = steps.some((s) => s.done === false);
   // steps seen running here: when one finishes, its check lands; checks from history are simply there
@@ -229,4 +268,4 @@ export function Steps({ steps, old }: { steps: Msg[]; old?: boolean }) {
       })}
     </div>
   );
-}
+}, (a, b) => a.old === b.old && a.steps.length === b.steps.length && a.steps.every((s, i) => s === b.steps[i]));

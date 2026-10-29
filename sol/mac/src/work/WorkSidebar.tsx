@@ -21,6 +21,8 @@ import { useTalksWaiting } from "../Conversations";
 // can go in a group too (drag its title): it sits inside the group, folded with it. A folder can hold topic groups of
 // its own sessions, and a session can be dropped on another folder to be shown there. The top rows (groups, and folders in
 // no group) go in the order Marco drags them to: a line above or below the row says where one lands (#73).
+// Sessions started from Cowork sit last, under "cowork", one fold per Cowork group by its name (#314): both sides list
+// them. They stay where Cowork files them: no drag moves one into a folder or a group of Home's.
 
 type GroupBy = "project" | "date" | "state" | "none";
 type SortBy = "recent" | "alpha" | "created";
@@ -169,14 +171,19 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onConve
 
   const runs = w.runs;
   const now = useNow(Object.values(runs).some((r) => !!r?.since));   // the running rows' clocks tick
-  // a session started from Cowork stays in Cowork (Together #31): Work lists it once "open in Work" clears its mark
-  const visible = useMemo(() => w.sessions.filter((s) => s.mode !== "cowork" &&
-    (view.status === "all" ? true : view.status === "archived" ? s.archived : !s.archived)), [w.sessions, view.status]);
+  // a session started from Cowork lists in Cowork and here too (#314, the groups PRD §7.1; Together #31 kept it out):
+  // here only under the "cowork" fold, by its group's name, never in a folder, so Home's folders read as before
+  const shows = (s: WorkSession) => (view.status === "all" ? true : view.status === "archived" ? !!s.archived : !s.archived);
+  const visible = useMemo(() => w.sessions.filter((s) => s.mode !== "cowork" && shows(s)), [w.sessions, view.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cowork = useMemo(() => w.sessions.filter((s) => s.mode === "cowork" && shows(s)), [w.sessions, view.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a session at work sorts by when the work began, not by its transcript's last write: that moved with every list the
+  // engine sent during a reply, and the rows changed places about three times per answer. It moves once, as it starts.
+  const sortAt = (s: WorkSession) => { const r = runs[s.id]; return working(r) && r?.since ? r.since : s.updatedAt; };
   const sorter = useMemo(() => {
     if (view.sort === "alpha") return (a: WorkSession, b: WorkSession) => (a.title || "").localeCompare(b.title || "");
     if (view.sort === "created") return (a: WorkSession, b: WorkSession) => (b.createdAt ?? b.updatedAt) - (a.createdAt ?? a.updatedAt);
-    return (a: WorkSession, b: WorkSession) => b.updatedAt - a.updatedAt;
-  }, [view.sort]);
+    return (a: WorkSession, b: WorkSession) => sortAt(b) - sortAt(a);
+  }, [view.sort, runs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // side sessions sit under the one that started them, when that one is in the list too; a side session Marco
   // pinned or put in a group himself goes where he put it
@@ -189,7 +196,7 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onConve
   const sections: Section[] = [];
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length) {
-    const hits = visible.filter((s) => words.every((x) => `${s.title} ${s.cwd} ${s.branch ?? ""}`.toLowerCase().includes(x))).sort(sorter);
+    const hits = [...visible, ...cowork].filter((s) => words.every((x) => `${s.title} ${s.cwd} ${s.branch ?? ""}`.toLowerCase().includes(x))).sort(sorter);
     sections.push({ key: "search", label: hits.length ? `${hits.length} found` : "nothing found", rows: hits });
   } else {
     const pinnedRows = top.filter((s) => s.pinned).sort(sorter);
@@ -199,7 +206,7 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onConve
     // by folder, a group holds its folders too (nested, folded with it); the other views list sessions only
     const byP = new Map<string, WorkSession[]>();
     for (const s of loose) byP.set(s.project, [...(byP.get(s.project) ?? []), s]);
-    const latest = (p: Project) => Math.max(0, ...(byP.get(p.path) ?? []).map((s) => s.updatedAt));
+    const latest = (p: Project) => Math.max(0, ...(byP.get(p.path) ?? []).map(sortAt));
     // a session dropped on a folder (or a topic group in it) is shown under that folder from then on
     const toFolder = (id: string, path: string, group: string | null) => {
       const s = w.sessions.find((x) => x.id === id);
@@ -226,7 +233,7 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onConve
     if (view.by === "date") {
       const order: string[] = [];
       const by = new Map<string, WorkSession[]>();
-      for (const s of [...loose].sort((a, b) => b.updatedAt - a.updatedAt)) {
+      for (const s of [...loose].sort((a, b) => sortAt(b) - sortAt(a))) {
         const k = dayBucket(s.updatedAt);
         if (!by.has(k)) { by.set(k, []); order.push(k); }
         by.get(k)!.push(s);
@@ -238,6 +245,13 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onConve
         sections.push({ key: "s:" + st, label, rows });
       }
     } else if (view.by === "none") sections.push({ key: "all", label: "sessions", rows: [...loose].sort(sorter) });
+    // the cowork fold (#314): one fold inside it per Cowork group, by name ("groups" here are Home's own); a session of
+    // a group I left says so
+    const byRoom = new Map<string, WorkSession[]>();
+    for (const s of cowork) byRoom.set(s.roomId ?? "", [...(byRoom.get(s.roomId ?? "") ?? []), s]);
+    const roomName = (id: string) => (id ? w.roomNames[id] ?? "a group you left" : "no group");
+    const rooms = [...byRoom.keys()].sort((a, b) => Math.max(...byRoom.get(b)!.map((s) => s.updatedAt)) - Math.max(...byRoom.get(a)!.map((s) => s.updatedAt)));
+    if (rooms.length) sections.push({ key: "rooms", label: "cowork", rows: [], topics: rooms.map((id) => ({ key: "room:" + id, label: roomName(id), rows: byRoom.get(id)!.sort(sorter) })) });
   }
 
   const chatRows = (chats?.threads ?? []).filter((t) => !(t.moved && t.seat === "claude") && words.every((x) => (t.title || "").toLowerCase().includes(x)))
@@ -321,7 +335,7 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onConve
 
   // a new row slides in from the left
   const known = useRef<Set<string> | null>(null);
-  useEffect(() => { known.current = new Set(visible.map((s) => s.id)); });
+  useEffect(() => { known.current = new Set([...visible, ...cowork].map((s) => s.id)); });
   const fresh = (id: string) => !!known.current && known.current.size > 0 && !known.current.has(id);
 
   // live: Claude is working on it, or it waits on Marco. A folded section still shows these (#111)
@@ -351,7 +365,7 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onConve
           </div>
         ) : (
           <div data-sid={s.id} className={`row wrow ${bare ? "peek" : ""} ${on ? "on" : ""} ${st} ${s.archived ? "archived" : ""} ${s.gone && !away(s) ? "gone" : ""} ${dragging === s.id ? "dragged" : ""}`} style={{ paddingLeft: 10 + depth * 14 }}
-            draggable onDragStart={(ev) => { ev.dataTransfer.setData("sol/session", s.id); ev.dataTransfer.effectAllowed = "move"; setDragging(s.id); }}
+            draggable={s.mode !== "cowork"} onDragStart={(ev) => { if (s.mode === "cowork") return; ev.dataTransfer.setData("sol/session", s.id); ev.dataTransfer.effectAllowed = "move"; setDragging(s.id); }}
             onDragEnd={() => { setDragging(null); setOver(null); }}
             onClick={(ev) => (s.seat === "codex" ? chats?.onOpen(asChat(s)) : ev.metaKey ? onBeside(s.id) : w.open(s.id))} onDoubleClick={() => begin(s)} onContextMenu={(ev) => rowMenu(ev, s)}
             title={`${s.title}\n${s.cwd}${away(s) ? ` (on ${MACHINE[s.machine!]})` : s.gone ? " (folder gone)" : ""}${s.branch ? `\n${s.branch}` : ""}`}>
@@ -425,7 +439,7 @@ export function WorkSidebar({ w, pinned, view: page, onMode, onSettings, onConve
   // whether a section draws at all: an empty pinned only while a row is dragged, an empty folder only if it was added
   const drawn = (sec: Section) => {
     const count = sec.rows.length + [...(sec.folders ?? []), ...(sec.topics ?? [])].reduce((n, x) => n + x.rows.length, 0);
-    if (!sec.rows.length && !sec.drop && !sec.dropFolder) return false;
+    if (!count && !sec.drop && !sec.dropFolder) return false;   // the groups fold has no rows of its own, only its groups
     if (!sec.rows.length && sec.key === "pinned" && !dragging) return false;
     return !(!count && sec.group === undefined && sec.project && !sec.project.added);
   };

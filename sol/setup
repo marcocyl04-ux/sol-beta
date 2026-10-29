@@ -345,6 +345,7 @@ if ! command -v claude >/dev/null; then
   if [ -n "$mac" ]; then miss "Claude Code is not installed: https://claude.com/claude-code, then claude (it asks you to sign in)"
   else miss "Claude Code is not installed: curl -fsSL https://claude.ai/install.sh | bash, then claude (it asks you to sign in)"; fi
 elif claude auth status </dev/null 2>/dev/null | grep -q '"loggedIn": *true'; then ok "Claude Code, signed in"
+elif [ -z "$tty" ]; then skip "Claude Code is not signed in yet: Sign in to Claude in the first run, or in Terminal: claude auth login"   # no terminal here (the app's install): the first run's card does it, not a MISS (#300)
 else miss "Claude Code is not signed in: run claude once and sign in"; fi
 if ! command -v codex >/dev/null; then opt "Codex" "a second agent for later" "Codex is not installed: npm install -g @openai/codex, then codex login"
 elif codex login status </dev/null >/dev/null 2>&1; then ok "Codex, signed in"
@@ -358,6 +359,8 @@ elif [ -n "$mac" ]; then opt "Tailscale" "only a team's relay needs it" "Tailsca
 else opt "Tailscale" "only a team's relay needs it" "Tailscale is installed but not up $team_only: sudo tailscale up, signed in with the account Marco invited"; fi
 if command -v ffmpeg >/dev/null; then ok "ffmpeg"
 else opt "ffmpeg" "dictation converts clips with it" "ffmpeg (dictation converts clips with it): $(pkghint ffmpeg)"; fi
+if command -v whisper-cli >/dev/null || command -v whisper-cpp >/dev/null; then ok "whisper.cpp (dictation)"
+else opt "whisper.cpp" "dictation (the mic) needs it; typing works without" "whisper.cpp (dictation, the mic button): $([ -n "$mac" ] && pkghint whisper-cpp || echo "build whisper-cli from https://github.com/ggml-org/whisper.cpp and put it on PATH")"; fi
 if [ -n "$linux" ]; then
   # chromium's shared libraries, which playwright installs only with sudo (install-deps); three stand for the set
   gone=""; for l in libnss3.so libgbm.so.1 libasound.so.2; do ldconfig -p 2>/dev/null | grep -q "$l" || gone="$gone $l"; done
@@ -391,6 +394,9 @@ else
   }
   packages "$ENG" engine || exit 1
   packages "$MAC" face
+  # the browser before the tests: the engine's browser tests launch it (browser-pins), and a fresh Mac has none (#300)
+  if ls -d "$PWC"/chromium-* >/dev/null 2>&1; then ok "browser (playwright chromium) already installed"
+  else say "installing the browser Sol drives (playwright chromium)"; (cd "$ENG" && npx --yes playwright install chromium </dev/null) && ok "browser installed" || miss "npx playwright install chromium failed"; fi
   # built already, nothing changed since and the last tests passed: no build, no tests
   if [ -f "$ENG/dist/index.js" ] && [ ! -f "$ENG/.setup-test.log" ] && [ -z "$(find "$ENG/src" "$ENG/package-lock.json" "$ENG/tsconfig.json" -newer "$ENG/dist/index.js" 2>/dev/null | head -1)" ]; then
     ok "engine already built, nothing changed since (tests skipped too)"
@@ -402,8 +408,6 @@ else
     if (cd "$ENG" && env -u SOL_PORT -u SOL_STATE -u SOL_NO_KEEP -u SOL_NO_RENEW npm test --silent </dev/null >"$ENG/.setup-test.log" 2>&1); then ok "engine tests pass"; rm -f "$ENG/.setup-test.log"
     else miss "some engine tests failed; the output is in sol/engine/.setup-test.log (setup goes on: Sol may still run)"; fi
   fi
-  if ls -d "$PWC"/chromium-* >/dev/null 2>&1; then ok "browser (playwright chromium) already installed"
-  else say "installing the browser Sol drives (playwright chromium)"; (cd "$ENG" && npx --yes playwright install chromium </dev/null) && ok "browser installed" || miss "npx playwright install chromium failed"; fi
 fi
 skill_step
 
@@ -419,24 +423,38 @@ setenv() {
 }
 # a key handed in the environment (the install, the welcome page: no terminal there) is written when .env has none
 if [ -z "$check" ]; then
-  for k in GEMINI_API_KEY SOL_OWNER; do
+  for k in GEMINI_API_KEY ELEVENLABS_API_KEY SOL_OWNER; do
     [ -n "${!k:-}" ] && ! has "$k" && setenv "$k" "${!k}" && ok "$k saved (from the environment)"
   done
 fi
-if has GEMINI_API_KEY && has SOL_OWNER; then ok "GEMINI_API_KEY is set"; ok "SOL_OWNER is set"
+# the voice keys (#24): either one is enough for calls (ElevenLabs carries them when its key is set, else Gemini Live);
+# conversation names need Gemini's. Both optional; never echoed.
+voicekey() { has GEMINI_API_KEY || has ELEVENLABS_API_KEY; }
+VOICE_WHY="GEMINI_API_KEY or ELEVENLABS_API_KEY (either one gives Sol calls; sol/engine/.env.example says what each is)"
+voiceset() { for k in GEMINI_API_KEY ELEVENLABS_API_KEY; do has $k && ok "$k is set"; done; true; }
+if voicekey && has SOL_OWNER; then voiceset; ok "SOL_OWNER is set"
 elif [ -n "$check" ]; then
-  for k in GEMINI_API_KEY SOL_OWNER; do has $k && ok "$k is set" || miss "$k is not set yet (run sol/setup in Terminal; sol/engine/.env.example says what it is)"; done
+  voicekey && voiceset || miss "no voice key yet: $VOICE_WHY (run sol/setup in Terminal)"
+  has SOL_OWNER && ok "SOL_OWNER is set" || miss "SOL_OWNER is not set yet (run sol/setup in Terminal; sol/engine/.env.example says what it is)"
 elif [ -z "$tty" ]; then
-  for k in GEMINI_API_KEY SOL_OWNER; do has $k && ok "$k is set" || { needed+=("$k"); skip "$k: asked only in your own Terminal"; }; done
+  voicekey && voiceset || { needed+=("a voice key"); skip "a voice key, $VOICE_WHY: asked only in your own Terminal"; }
+  has SOL_OWNER && ok "SOL_OWNER is set" || { needed+=("SOL_OWNER"); skip "SOL_OWNER: asked only in your own Terminal"; }
 else
   echo "  Typed here, kept only in sol/engine/.env on this $machine (never shown, never committed). Return skips one;"
-  echo "  the next run of sol/setup asks again."
+  echo "  the next run of sol/setup asks again. For calls either voice key is enough."
   if has GEMINI_API_KEY; then ok "GEMINI_API_KEY is set"
   else
-    ask "  Your Gemini API key (https://aistudio.google.com/apikey; calls and conversation names need it):" gem secret
+    ask "  Your Gemini API key (optional; https://aistudio.google.com/apikey; calls, and conversation names):" gem secret
     if [ -n "$gem" ]; then setenv GEMINI_API_KEY "$gem" && ok "GEMINI_API_KEY saved"
-    else skip "GEMINI_API_KEY skipped: calls and conversation names will not work until it is set"; fi
+    else skip "GEMINI_API_KEY skipped: conversation names wait for it"; fi
   fi
+  if has ELEVENLABS_API_KEY; then ok "ELEVENLABS_API_KEY is set"
+  else
+    ask "  Your ElevenLabs API key (optional; https://elevenlabs.io/app/settings/api-keys; calls in its voices, Sol answering):" el secret
+    if [ -n "$el" ]; then setenv ELEVENLABS_API_KEY "$el" && ok "ELEVENLABS_API_KEY saved"
+    else skip "ELEVENLABS_API_KEY skipped"; fi
+  fi
+  voicekey || skip "no voice key: calls wait for one ($VOICE_WHY)"
   if has SOL_OWNER; then ok "SOL_OWNER is set"
   else
     tsl=""

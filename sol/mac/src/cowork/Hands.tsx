@@ -5,7 +5,7 @@
 //   HandLine      over Cowork's stage: "frank hands you #34 · <title>", Take · Pass · Later (Pass asks one line)
 //   HandedRows    under a repo in the side: what is handed to me there, put off with Later or not yet answered
 // The store is handed.ts; the words on GitHub and the relay are the engine's (team/hand.ts).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { MenuItem } from "../work/Menu";
 import { Fold } from "../MotionKit";
 import { CFG, enter } from "../motion";
@@ -87,7 +87,7 @@ export function HandLine({ onTaken }: { onTaken: (sessionId: string, repo: strin
   }, []);
   // the notch's Pass: the field opens here
   useEffect(() => { if (h && passingId === h.id && !h.review) { setAsking(true); requestAnimationFrame(() => field.current?.focus()); } }, [h?.id, passingId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setWhy(""); if (!(h && passingId === h.id)) setAsking(false); }, [h?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { setWhy(""); if (!(h && passingId === h.id)) setAsking(false); }, [h?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (ref.current && h) enter(ref.current, { y: -8, cfg: CFG.arrive }); }, [h?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!h) return null;
   const d = h.doing;

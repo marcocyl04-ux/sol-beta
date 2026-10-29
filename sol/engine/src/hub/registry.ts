@@ -17,6 +17,8 @@ import { CODE, REPO, LOGIN } from "./hub-types.js";   // the hub's own rules, ne
 export { CODE };
 export type Entry = { code: string; name: string; provider: "github" | "drive" | "cloud"; org: string; repos: string[]; by: string; at: number; people: string[]; seen: number };
 export type RoomIn = { name?: unknown; provider?: unknown; org?: unknown; repos?: unknown };
+/** what a peek says of a room (#327): its code and its name, never its people, its maker or its repositories */
+export type Peek = { code: string; name: string };
 
 export const REGISTRY_MAX = 300;   // the engine's own hub's cap (index.ts); a Registry has none unless given one
 export const PEOPLE_MAX = 200;
@@ -47,6 +49,9 @@ export type RoomRegistry = {
   forget(code: string, by: string): boolean;
   taken(name: string): boolean;
   lookup(code: string, by?: string): Entry | null;
+  /** the name a code's cloud room goes by, for the join page (#327): read-only, never makes anyone a member, takes no
+   *  `by`; any other room is null (its name may be its org or repository) */
+  peek(code: string): Peek | null;
   saw(code: string, login: string, at: number): void;
   all(): Entry[];
 };
@@ -178,6 +183,14 @@ export class Registry implements RoomRegistry {
     return e ? structuredClone(e) : null;
   }
 
+  /** a cloud room's code and name, or null; nothing is read but those, nothing is written (#327). A GitHub or Drive
+ *  room's name is often its org or repository, never said to a stranger: null, as for no room */
+  peek(code: string): Peek | null {
+    const c = normalCode(code);
+    const e = c ? this.read().find((x) => x.code === c) : undefined;
+    return e && e.provider === "cloud" ? { code: e.code, name: e.name } : null;
+  }
+
   /** someone said hello in that room: they are one of its people (200 at most, the first to come dropped first), and
    *  the room was seen now. The file is written only when someone new came in or the last write is a minute old */
   saw(code: string, login: string, at: number) {
@@ -203,22 +216,45 @@ export const IP_GUESS_MAX = 50;     // one address, every account on it (#208, A
 const maxOf = (who: string) => (who === "key" ? KEY_GUESS_MAX : who.startsWith("ip ") ? IP_GUESS_MAX : GUESS_MAX);
 const GUESS_WINDOW = 10 * 60_000;
 
+/** callers the guess count keeps at most (#327's review): past it the one whose last miss is oldest is dropped, so a
+ *  flood of new addresses costs a bounded map, never the hub's memory */
+export const GUESSERS_MAX = 10_000;
+/** how often the counts that are all older than the window are swept away, timer or not */
+export const SWEEP_EVERY = GUESS_WINDOW;
+
 /** codes tried that no room has, per caller (a GitHub login, or "key" for a key holder), over the last ten minutes.
  *  After 20, the caller is over: the routes answer 429 without asking the registry. One line is logged per limit hit,
- *  never the code. In memory only: a restart forgets, which costs a guesser the restart */
+ *  never the code. In memory only: a restart forgets, which costs a guesser the restart. Callers with no miss in the
+ *  window are swept every ten minutes (an unref'd timer, and on a miss once that long has passed), and at most
+ *  GUESSERS_MAX are kept, the least recently missing dropped first */
 export class Guesses {
   private tries = new Map<string, number[]>();
-  constructor(private now: () => number = Date.now) {}
+  private swept: number;
+  constructor(private now: () => number = Date.now, sweepEvery = SWEEP_EVERY) {
+    this.swept = now();
+    if (sweepEvery > 0) setInterval(() => this.sweep(), sweepEvery).unref?.();
+  }
   private recent(who: string) {
     const t = this.now(), list = (this.tries.get(who.toLowerCase()) ?? []).filter((x) => t - x < GUESS_WINDOW);
     if (list.length) this.tries.set(who.toLowerCase(), list); else this.tries.delete(who.toLowerCase());
     return list;
   }
+  /** drop every caller whose misses are all older than the window */
+  sweep() {
+    const t = this.now();
+    this.swept = t;
+    for (const [k, list] of this.tries) if (!list.some((x) => t - x < GUESS_WINDOW)) this.tries.delete(k);
+  }
+  /** how many callers are counted now (the tests) */
+  get size() { return this.tries.size; }
   /** one more miss for this caller */
   miss(who: string) {
+    if (this.now() - this.swept >= SWEEP_EVERY) this.sweep();
     const list = this.recent(who);
     list.push(this.now());
+    this.tries.delete(who.toLowerCase());   // set again, it is the most recent
     this.tries.set(who.toLowerCase(), list);
+    while (this.tries.size > GUESSERS_MAX) this.tries.delete(this.tries.keys().next().value!);
     if (list.length === maxOf(who)) console.log(`relay: ${who.startsWith("ip ") ? "an address" : who} tried ${maxOf(who)} codes no room has in ten minutes; slowed`);   // never the address itself
   }
   /** has this caller missed 20 times in ten minutes (every key holder together, `key`, 200; an address, 50): the next is

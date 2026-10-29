@@ -24,7 +24,7 @@ export function Fold({ open, children, className, lazy, from = { y: 12 }, gap = 
     if (s.resting && v === 1 && s.target === 1) { o.style.height = ""; o.style.overflow = ""; i.style.translate = ""; return; }
     if (s.resting && v === 0 && s.target === 0) { o.style.height = "0px"; o.style.overflow = "hidden"; i.style.translate = ""; return; }
     o.style.overflow = "hidden";
-    o.style.height = `${Math.max(0, v * H.current)}px`;
+    o.style.height = `${Math.max(0, Math.round(v * H.current))}px`;   // whole pixels: the slow end of the spring lays nothing out
     i.style.translate = `0 ${(v - 1) * 10}px`;
   }, () => { if (!open && lazy) setRender(false); onRest?.(); });
 
@@ -81,7 +81,7 @@ export function Swap({ k, children, className, style, dir = 1, dist = 22, cfg = 
     const done = s.resting && v === 1;
     if (inEl.current) inEl.current.style.translate = done ? "" : `0 ${(1 - v) * dist * dir}px`;
     if (outEl.current) outEl.current.style.translate = `0 ${-v * (dist + 6) * dir}px`;
-    b.style.height = done ? "" : `${dims.current.from + (dims.current.to - dims.current.from) * Math.min(v, 1.04)}px`;
+    b.style.height = done ? "" : `${Math.round(dims.current.from + (dims.current.to - dims.current.from) * Math.min(v, 1.04))}px`;
   }, () => setOut(null));
 
   useLayoutEffect(() => {

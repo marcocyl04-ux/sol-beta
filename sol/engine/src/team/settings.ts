@@ -39,7 +39,10 @@ import { DRIVE_ID } from "./record/drive.js";
 export type Room = { id: string; name: string; provider: "github" | "drive" | "cloud"; org: string; repos: string[]; hub: string; key: string; code: string; gate: "key" | "github"; folder: string; mine: boolean; joined: boolean; was?: Was;
   /** "show my room sessions" off for this room (#238, the studio PRD §5): my room sessions do not stream to it, and my
    *  roster entry there says so. Absent: on, the default (#189, option 2) */
-  quiet?: true };
+  quiet?: true;
+  /** a cloud group's repos of mine my own gh checked as their admin (#320's check, kept with `repos`): its connectors
+   *  row says `admin`. Always a part of `repos` */
+  admins?: string[] };
 /** a room that moved hubs (A10, S6b): how team.json says it, the hub, key and gate before the move. The move is made on
  *  every read and never written: team.json keeps the old words, so a Sol from before the move (one stable back) still
  *  meets where it did, and SOL_HUB_MOVED=off undoes it. Only the engine has it; never a face's (forFace) */
@@ -168,10 +171,17 @@ export const ROOMS_DIR = resolve(process.env.SOL_ROOMS || join(homedir(), "sol-r
 // a room's folder as written: an absolute path of at most 500 characters, else none
 const folderOf = (v: unknown) => (typeof v === "string" && v.length <= 500 && isAbsolute(v) ? v : "");
 
+/** a repository's owner/name as GitHub writes one (#320): REPO's shape, and no part that is only dots, which a path or a
+ *  gh api route would read as a step up ("../x", "o/..") */
+export const isRepo = (x: unknown): x is string => typeof x === "string" && REPO.test(x) && !x.split("/").some((p) => /^\.+$/.test(p));
+/** how many repositories one cloud room may connect (#320): a group's few, never a list that makes the board a crawl */
+export const CONNECTED_MAX = 10;
+
 // One room (#154), made valid, or null when it points at nothing (no org and none of its own repos or folders). A
 // GitHub room with an org and no repos reads the default repo, as the team did before rooms; a Drive room's "repos"
-// are folder ids, kept as written. A cloud room (#216, S5) keeps its record on the cloud it meets on: no org, no repos,
-// and it points at its code on its hub, so one with no code or no hub points at nothing.
+// are folder ids, kept as written. A cloud room (#216, S5) keeps its record on the cloud it meets on: no org, and it
+// points at its code on its hub, so one with no code or no hub points at nothing. Its repos (#320, the Cowork PRD §9.4)
+// are the repositories connected to it, read for the board; never its record, which stays `cloud:<code>`.
 export function cleanRoom(v: unknown): Room | null {
   if (!isObj(v)) return null;
   const provider = v.provider === "drive" ? "drive" : v.provider === "cloud" ? "cloud" : "github";
@@ -181,7 +191,10 @@ export function cleanRoom(v: unknown): Room | null {
     const name = str(v.name, "", 60) || "room";
     const given = typeof v.id === "string" ? v.id.trim() : "";
     const id = SLUG.test(given) ? given : slug(given) || slug(name) || "room";
-    return { id, name, provider, org: "", repos: [], hub, key: "", code, gate: "github", folder: "", mine: v.mine === true, joined: v.joined === true, ...(v.quiet === true ? { quiet: true as const } : {}) };
+    // connected repositories (#320): GitHub's shape only, each once, at most CONNECTED_MAX
+    const repos = Array.isArray(v.repos) ? [...new Set(v.repos.filter((x): x is string => typeof x === "string").map((x) => x.trim()).filter(isRepo))].slice(0, CONNECTED_MAX) : [];
+    const admins = Array.isArray(v.admins) ? repos.filter((x) => (v.admins as unknown[]).some((y) => typeof y === "string" && y.trim().toLowerCase() === x.toLowerCase())) : [];
+    return { id, name, provider, org: "", repos, hub, key: "", code, gate: "github", folder: "", mine: v.mine === true, joined: v.joined === true, ...(v.quiet === true ? { quiet: true as const } : {}), ...(admins.length ? { admins } : {}) };
   }
   const o = str(v.org), org = LOGIN.test(o) ? o : "";
   const all = Array.isArray(v.repos) ? v.repos.filter((x): x is string => typeof x === "string").map((x) => x.trim()) : [];
@@ -203,6 +216,11 @@ export function cleanRoom(v: unknown): Room | null {
   const moving = hub !== before.hub, bare = isCloud(hub);
   return { id, name, provider, org, repos, hub, key: bare ? "" : before.key, code, gate: bare ? "github" : before.gate, folder: folderOf(v.folder), mine: v.mine === true, joined: v.joined === true, ...(v.quiet === true ? { quiet: true as const } : {}), ...(moving || (bare && before.key) ? { was: before } : {}) };
 }
+
+/** the repositories a room's board reads (#320, pure): a GitHub room's own repos, a cloud room's connected ones, none for
+ *  a Drive room (its "repos" are folders) */
+export const connectedRepos = (r: Pick<Room, "provider" | "repos">): string[] =>
+  r.provider === "drive" ? [] : r.repos.filter(isRepo);
 
 /** the active room (pure): the one `room` names, else the first; a TeamSettings made by hand with no rooms reads as its own */
 export function activeRoom(s: TeamSettings): Room {
@@ -418,6 +436,12 @@ function intoRoom(before: TeamSettings, p: Record<string, unknown>): Record<stri
   const url = isObj(p.relay) && "url" in p.relay;
   if ("rooms" in p || !("org" in p || "repos" in p || url)) return p;
   const to = typeof p.room === "string" && before.rooms.some((r) => r.id === p.room) ? p.room : activeRoom(before).id;
+  // a cloud group has no org, and its repos are connected by team.connect.repo alone (#320): never by these words
+  if (before.rooms.find((r) => r.id === to)?.provider === "cloud") {
+    const { org: _o, repos: _r, ...rest } = p;
+    if (!url) return rest;
+    p = rest;
+  }
   const rooms = before.rooms.map((r) => {
     if (r.id !== to) return r;
     const { was, ...plain } = r;
@@ -435,7 +459,8 @@ function intoRoom(before: TeamSettings, p: Record<string, unknown>): Record<stri
 // engine sets codes (share, join); a room with no gate keeps its stored gate, so an older face never turns a room met
 // as GitHub back into one met by a key. A room's folder and `mine` (#162) too: only the engine clones and only the engine
 // knows whose words a room's repos are, so a room sent with none keeps the stored ones (wire.ts drops a face's); `joined`
-// the same way.
+// the same way. A cloud room's repos (#320) too: only team.connect.repo connects one, so a cloud room sent with no repos
+// keeps the stored ones (wire.ts drops a face's).
 function keepKeys(before: TeamSettings, p: Record<string, unknown>): Record<string, unknown> {
   if (!Array.isArray(p.rooms)) return p;
   return { ...p, rooms: p.rooms.map((r) => {
@@ -447,18 +472,20 @@ function keepKeys(before: TeamSettings, p: Record<string, unknown>): Record<stri
     const folder = typeof r.folder === "string" && r.folder ? r.folder : had?.folder ?? "";
     const mine = typeof r.mine === "boolean" ? r.mine : had?.mine ?? false;
     const joined = typeof r.joined === "boolean" ? r.joined : had?.joined ?? false;
+    const repos = had?.provider === "cloud" && (r.provider ?? "cloud") === "cloud" && !Array.isArray(r.repos) ? { repos: had.repos } : {};
     // a moved room's words from before the move stay while it is still where it moved to (S6b)
     const was = had?.was && (r.hub === undefined || r.hub === had.hub) ? { was: had.was } : {};
-    return { ...r, key, code, gate, folder, mine, joined, ...was };
+    return { ...r, key, code, gate, folder, mine, joined, ...was, ...repos };
   }) };
 }
 
 // `mine` (#162) is the hub's word on the repos a room had when it was registered. A patch that changes a room's repos
 // (a face's edit, Control's repos field) makes them words the hub never said: the room is no longer mine, so my Sol lets
 // nobody into the repository it now names. Registering it again (rooms.ts shareAgain) makes it mine only if the hub
-// gives back the same code, which it does only for the same repos and maker. A room new in the patch is as it came
+// gives back the same code, which it does only for the same repos and maker. A room new in the patch is as it came.
+// A cloud room's repos are the ones connected to it (#320), never what its hub registered: connecting one keeps it mine
 function unmine(before: TeamSettings, s: TeamSettings): TeamSettings {
-  const changed = (r: Room) => { const had = before.rooms.find((x) => x.id === r.id); return !!had && had.repos.join("\n") !== r.repos.join("\n"); };
+  const changed = (r: Room) => { const had = before.rooms.find((x) => x.id === r.id); return r.provider !== "cloud" && !!had && had.repos.join("\n") !== r.repos.join("\n"); };
   if (!s.rooms.some((r) => r.mine && changed(r))) return s;
   return { ...s, rooms: s.rooms.map((r) => (r.mine && changed(r) ? { ...r, mine: false } : r)) };
 }

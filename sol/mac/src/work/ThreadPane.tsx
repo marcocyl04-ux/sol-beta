@@ -3,7 +3,7 @@
 // its turns and when. With more than one open end the moves are here: keep one, and fold the other in (a note on the
 // kept end saying what happened there) or fork it out (its own session). Nothing is deleted from the transcript.
 // Ink only, the show's square cells; lanes slide in on a spring.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CFG, useSpring } from "../motion";
 import type { Work } from "./useWork";
 
@@ -59,7 +59,7 @@ export function useThreadMap(w: Work, id: string | null): { map: ThreadMap | nul
 export function ThreadPane({ w, id, map, err }: { w: Work; id: string; map: ThreadMap | null; err: string }) {
   const [keep, setKeep] = useState<string | null>(null);
   const [doing, setDoing] = useState("");
-  useEffect(() => { setKeep(null); setDoing(""); }, [id]);
+  useLayoutEffect(() => { setKeep(null); setDoing(""); }, [id]);
   useEffect(() => { setDoing(""); }, [w.error, map]);
 
   const { laid, lanes, cells } = useMemo(() => lay(map?.segments ?? []), [map]);

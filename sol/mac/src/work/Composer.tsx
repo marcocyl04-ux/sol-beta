@@ -16,6 +16,8 @@ import type { Mode, Work } from "./useWork";
 import { HELD } from "./WorkSidebar";
 import { StableLine } from "../cowork/StableLine";   // Ship (#33): a new stable is out, over the composer
 import { FileLine } from "../FileLine";               // File it (#119): the field and the receipt, over the composer
+import { Plus } from "./Plus";
+import { CallKey } from "../buttons/call";
 
 // Work's box: the words, and around them what Claude Code's composer has. + opens attach / mention / command; @
 // lists the folder's files as you type, / the session's commands and skills; under the box the model, effort, the
@@ -86,7 +88,6 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
   const [sel, setSel] = useState(0);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [drop, setDrop] = useState(false);
-  const fileInput = useRef<HTMLInputElement>(null);
 
   // the box grows on a spring; sending presses it down and lets it come back past rest
   const boxH = useSpring(0, CFG.grow, (v) => { if (box.current) box.current.style.height = `${v}px`; });
@@ -283,17 +284,15 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
   }, []);
 
   const at = (ev: React.MouseEvent, items: MenuItem[]) => { const r = (ev.currentTarget as HTMLElement).getBoundingClientRect(); setMenu({ x: r.left, y: r.top - 6, items }); };
-  const plus = (ev: React.MouseEvent) => {
-    const skills = w.run?.skills ?? [];
-    at(ev, [
-      { label: "attach files", run: () => fileInput.current?.click() },
+  // the +'s rows after "attach files" (Plus.tsx): what Claude Code's box has and a chat's has not
+  const skills = w.run?.skills ?? [];
+  const plusMore: MenuItem[] = [
       { label: "mention a file", key: "@", run: () => insert("@") },
       { label: "a command", key: "/", run: () => { setDraft((d) => (d.startsWith("/") ? d : "/" + d)); requestAnimationFrame(() => { const t = box.current; if (t) { t.focus(); t.setSelectionRange(1, 1); scan(t); } }); } },
       ...(skills.length ? [{ label: "a skill", sub: skills.slice(0, 14).map((s) => ({ label: s, run: () => { setDraft((d) => `/${s} ${d}`); requestAnimationFrame(() => box.current?.focus()); } })) }] : []),
       { sep: true },
       { label: "ask on the side", key: "⌘;", disabled: !w.live, run: () => { setAsideOn(true); box.current?.focus(); } },
-    ]);
-  };
+  ];
   // the mode chip: a click opens the wheel and it stays; a hold (350 ms) or a right-click opens it for a release-pick (LeashWheel.tsx)
   const leashBtn = useRef<HTMLButtonElement>(null);
   const [wheel, setWheel] = useState<null | { kind: "hold" | "stick"; r: DOMRect }>(null);
@@ -366,7 +365,7 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
             </div>
           )}
           <div className="ask-line">
-          <button className="wplus" onClick={plus} title="attach, mention, a command">+</button>
+          <Plus more={plusMore} onFiles={(fs) => void attach(fs)} />
           {rec !== "off" && (
             <p className="live" aria-live="polite">
               {draft.trim() || heard.kept || heard.open ? <>{[draft.trim(), heard.kept].filter(Boolean).join(" ")}{heard.open && <span className="said">{(draft.trim() || heard.kept) ? " " : ""}{heard.open}</span>}{rec === "ending" && <span className="said">…</span>}</>
@@ -390,13 +389,14 @@ export function Composer({ w, e, busy, working, cwd, asideOn, setAsideOn, box, o
               if (ev.key === "Enter" && !ev.shiftKey && !composing(ev)) { ev.preventDefault(); send(); }
             }} />
           {(busy || working) && !held && <button className="stop" onClick={() => w.stop()}>stop</button>}
-          <input ref={fileInput} type="file" multiple hidden onChange={(ev) => { const fs = Array.from(ev.target.files ?? []); ev.target.value = ""; if (fs.length) void attach(fs); }} />
           </div>
-        <Picker noSeat={!toChat} seat="claude" info={info} seats={e.models.seats} model={w.model} effort={w.effort as never} efforts={info?.efforts ?? e.efforts}
+        {/* the same bar as a chat's (#24): the seat switch is always there; in Cowork it stays on Claude, a group's
+            sessions being Claude Code ones, and says so */}
+        <Picker locked={!toChat} lockedWhy={toChat ? undefined : "a group's session runs on Claude Code; Codex talks live in Home"} seat="claude" info={info} seats={e.models.seats} model={w.model} effort={w.effort as never} efforts={info?.efforts ?? e.efforts}
           up={e.up} health={e.health} context={w.run?.context ?? 0} win={w.run?.window || 200000} rec={rec !== "off"} notice={w.error}
           onSeat={(s) => { if (s !== "claude") (w.live ? switchTo : toChat)?.(s); }} onModel={(m) => w.adjust({ model: m })} onEffort={(v) => w.adjust({ effort: v })}
           onSeatModel={toChat ? (w.live ? switchTo : toChat) : undefined}
-          onMicDown={micDown} onMicUp={micUp}>
+          onMicDown={micDown} onMicUp={micUp} call={<CallKey e={e} at={w.live ? { work: true, session: w.live } : null} />}>
           <button ref={leashBtn} className={`wchip leash ${w.mode}${wheel ? " lifted" : ""}`} onClick={leash} onPointerDown={leashDown} onPointerUp={leashStop} onPointerLeave={leashStop}
             onContextMenu={(ev) => { ev.preventDefault(); leashStop(); leashOpen("stick"); }} title="mode: what Claude may do without asking (hold it for the wheel; cmd+shift+M steps)">
             {w.mode === "bypassPermissions" && <Aurora />}<span className="leash-w">{mode.label}</span>

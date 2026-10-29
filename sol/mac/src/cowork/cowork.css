@@ -94,6 +94,11 @@
   mask: radial-gradient(10px 12px at 0 0, transparent 98%, #000) top left / 51% 100% no-repeat, radial-gradient(10px 12px at 100% 0, transparent 98%, #000) top right / 51% 100% no-repeat; }
 .gcard { display: flex; align-items: center; gap: 10px; min-width: min(100%, calc(var(--neck, 120px) + 46px)); max-width: 100%; margin-top: -1px; padding: 7px 8px 7px 14px; background: #000; border-radius: 18px; color: #e9e6df; font-size: 12.5px; box-shadow: 0 10px 30px -10px rgba(0, 0, 0, .7); }
 .gcard[hidden], .gface[hidden] { display: none; }
+/* the join card (#327, JoinAsk.tsx): a group's link opened in the app, over either mode, under the bar at the right */
+.joinask { position: fixed; top: 52px; right: 16px; z-index: 40; max-width: min(520px, calc(100% - 32px)); animation: joinask-in 220ms ease-out both; }
+.joinask .gcard { min-width: 0; }
+@keyframes joinask-in { from { opacity: 0; transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .joinask { animation: none; } }
 .gface { flex: 1; min-width: 0; }
 .gline { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .gline .from { flex: none; color: rgba(233, 230, 223, .55); font-size: 11px; }
@@ -186,3 +191,13 @@
 
 /* Show to team (#101): the line under a person who is showing */
 .cside .crow .cwhat.cshowing { color: var(--ink); }
+
+/* Home's group card sent the person here to pick a group (#321): one line over the list, gone on the first click */
+.cpickhint { margin: 4px 10px 8px; font-size: 12.5px; color: var(--ink); animation: cpickhint-in 280ms cubic-bezier(.2, .8, .3, 1) both; }
+@keyframes cpickhint-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .cpickhint { animation: none; } }
+
+/* a narrow window: the bar's title clips instead of bleeding under the for-you pill (its flex item shrinks to nothing but its
+   words kept painting), and the where-word ends in an ellipsis (#287) */
+.cface .wtitle { overflow: hidden; }
+.cface .wtitle .where { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

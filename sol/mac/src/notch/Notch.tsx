@@ -290,16 +290,11 @@ export default function Notch() {
       press: spring(0, CFG.pop, put),
     };
   }
-  const expand = useCallback((on: boolean) => {
-    window.clearTimeout(shut.current);
+  // the springs on their way to the open card (or the moon) or to the closed rest, for the geometry known now. Also called
+  // where a motion was lost: the geometry arriving while open (the page opened before it knew it was the moon), and a
+  // remount (StrictMode's mount-unmount-mount in the hot face, a hot edit) whose cleanup stopped the springs in flight
+  const aim = (on: boolean) => {
     const s = sp.current!;
-    if (on === openRef.current) return;
-    openRef.current = on;
-    log(`expand ${on} W1=${geo.current.W1} H1=${geo.current.H1}`);
-    // open: the window takes the mouse; closed: it lets it through. `wide`: the drawer's width while a talk is on (lib.rs
-    // forgets it on every close, so every open while a talk is on asks again)
-    // the half moon asks for its window itself (an effect below: the window stays grown while a card is out)
-    if (!geo.current.moon) void invoke("notch_expand", { expanded: on, keys: on && keysOn.current, room: on ? roomRef.current : 0, wide: on ? wideRef.current : 0 }).catch(() => {});
     const island = geo.current.form === "island";
     moonTo.current = on && geo.current.moon;
     if (on && geo.current.moon) {
@@ -315,6 +310,17 @@ export default function Notch() {
       s.w.to(r.w, { cfg: { k: 300, z: 0.95, eps: 0.1 } });
       s.h.to(r.h, { delay: 20, cfg: { k: 300, z: 0.95, eps: 0.1 } });
     }
+  };
+  const expand = useCallback((on: boolean) => {
+    window.clearTimeout(shut.current);
+    if (on === openRef.current) return;
+    openRef.current = on;
+    log(`expand ${on} W1=${geo.current.W1} H1=${geo.current.H1}`);
+    // open: the window takes the mouse; closed: it lets it through. `wide`: the drawer's width while a talk is on (lib.rs
+    // forgets it on every close, so every open while a talk is on asks again)
+    // the half moon asks for its window itself (an effect below: the window stays grown while a card is out)
+    if (!geo.current.moon) void invoke("notch_expand", { expanded: on, keys: on && keysOn.current, room: on ? roomRef.current : 0, wide: on ? wideRef.current : 0 }).catch(() => {});
+    aim(on);
     // opening is a state change (Companion step 2, gap 5): the creature hops and wakes at once, even from Away (the
     // card open means Marco is at the Mac); closing lets the engine's word back and the creature settles into it
     setHeld(on);
@@ -332,6 +338,7 @@ export default function Notch() {
     geo.current = d;
     setG(d);
     if (!openRef.current) { const r = rest(); sp.current!.w.set(r.w); sp.current!.h.set(r.h); }
+    else aim(true);   // opened before the geometry came (a ping's bell at load): head for this geometry's open size
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useLayoutEffect(() => { const r = rest(); sp.current!.w.set(r.w); sp.current!.h.set(r.h); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // the half moon: the tree changed (the geometry arrived): the springs draw on the new elements
@@ -342,7 +349,12 @@ export default function Notch() {
     const off = listen<Spot>("notch-geometry", (e) => take(e.payload));
     return () => { void off.then((f) => f()); };
   }, [take, expand]);
-  useEffect(() => () => { const s = sp.current; if (s) { s.w.stop(); s.h.stop(); s.press.stop(); } }, []);
+  useEffect(() => {
+    // a remount finds the page open with its springs stopped by the cleanup below: send them on again (2026-10-27: the
+    // hot face's StrictMode remount at load left the notch "open" at the pre-geometry 200 x 30, the creature behind the camera)
+    if (openRef.current) aim(true);
+    return () => { const s = sp.current; if (s) { s.w.stop(); s.h.stop(); s.press.stop(); } };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     // the springs' fallback clock stepped them (motion.ts): WebKit's frame clock had stopped with a motion in flight
@@ -350,6 +362,7 @@ export default function Notch() {
     setOnStall((ms) => { if (++n0 <= 20 || n0 % 50 === 0) log(`springs: the frame clock was silent ${Math.round(ms)} ms with a motion in flight; stepped by the guard (${n0})`); });
     setOnRun((r) => { if (r.longGaps || r.workMax > 6) log(`springs: run ${r.ms} ms, ${r.frames} frames, longest gap ${r.maxGap} ms, ${r.longGaps} over 20 ms, work p95 ${r.workP95} max ${r.workMax} ms`); });
     const vis = () => log(`page ${document.visibilityState} (WebKit's frame clock ${document.hidden ? "stops" : "runs"})`);
+    log(`page ${document.visibilityState} at load`);   // the start state: a page that loads hidden fires no change
     document.addEventListener("visibilitychange", vis);
     return () => { setOnStall(null); setOnRun(null); document.removeEventListener("visibilitychange", vis); };
   }, []);
@@ -496,7 +509,9 @@ export default function Notch() {
     window.clearTimeout(bellT.current);
     bellT.current = window.setTimeout(() => { bellOn.current = false; if (!hovering.current && !talkHold.current && cs.current.mode === "up") expand(false); }, 8000);
   }, [pings, crew, expand]);
-  useEffect(() => () => window.clearTimeout(bellT.current), []);
+  // an unmount drops the bell's 8 s timer: the bell ends with it and its pings ring again on a remount, or bellOn stayed
+  // true for good and every close (the pointer leaving, the peek) kept the notch open (2026-10-27)
+  useEffect(() => () => { window.clearTimeout(bellT.current); if (bellOn.current) { bellOn.current = false; rung.current.clear(); } }, []);
   const pingShows = !!newest && open && crew === "up";
   {
     const s = cs.current;

@@ -4,6 +4,7 @@ import { link, type Link } from "./socket";
 import { ENGINE, ENGINE_HTTP } from "./engine";
 import { homeChat } from "./migrate";
 import { sendUsage } from "./buttons/usage";
+import { heard, turnOf, type Offers } from "./homeSuggest";
 
 // The wire to the engine, as written in sol/PROTOCOL.md.
 
@@ -49,6 +50,9 @@ export type Settings = {
   voice: string; patienceMs: number; language: Language; mic?: string;
   defaults: { seat: Seat; model: Record<Seat, string>; effort: Record<Seat, Effort>; mode: WorkMode };
   look: Look;
+  // how Sol is used, as counts (engine/src/track.ts, #356): usage, on unless turned off by hand in the engine's file;
+  // told, the one card on the first window was pressed (CountsCard.tsx); absent on an older engine
+  track?: { usage: boolean; told: boolean };
 };
 // the person's arrangement (engine/src/arrange.ts, PROTOCOL.md round 31): their rails, presets and layout
 export type Arrangement = {
@@ -149,6 +153,7 @@ export function useEngine() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [desks, setDesks] = useState<Record<string, Card[]>>({}); // every conversation's desk, by sessionId (the draft id until named)
   const [pin, setPin] = useState<Card | null>(null);
+  const [offers, setOffers] = useState<Offers>({});   // Home's group card (#321), one per conversation, by sessionId
   const [notice, setNotice] = useState("");
   const noticeTimer = useRef<number | undefined>(undefined);
   const frameSubs = useRef(new Set<(f: Frame) => void>());
@@ -203,6 +208,27 @@ export function useEngine() {
     window.addEventListener("pagehide", go);
     return () => { window.clearInterval(t); window.removeEventListener("pagehide", go); };
   }, [send]);
+  // Streamed words land once a frame, in one update: a setMsgs per delta drew the whole talk for every word (jitter while
+  // Sol writes, a selection lost mid-reply). Anything else that changes the talk lets the words before it land first, so
+  // the order is the engine's. A window out of sight gets no frames: a short timer stands in.
+  const words = useRef("");
+  const wordsAt = useRef<{ raf: number; t: number }>({ raf: 0, t: 0 });
+  const landWords = useCallback(() => {
+    const w = wordsAt.current;
+    if (w.raf) cancelAnimationFrame(w.raf);
+    if (w.t) window.clearTimeout(w.t);
+    w.raf = 0; w.t = 0;
+    const text = words.current;
+    if (!text) return;
+    words.current = "";
+    setMsgs((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.who === "you") return [...prev.slice(0, -1), { ...last, text: last.text + text }];
+      return [...prev, { who: "you", text }];
+    });
+  }, []);
+  const dropWords = () => { words.current = ""; landWords(); };
+  useEffect(() => () => dropWords(), []); // eslint-disable-line react-hooks/exhaustive-deps
   const setSession = (id?: string) => { sessionRef.current = id; setSessionId(id); };
   // a GPT talk's project folder (#182): where a new talk on this box works, and where an opened one works; none is
   // Sol's home. `parent`: the talk a new one carries on from (the switch), marked when it starts
@@ -304,6 +330,14 @@ export function useEngine() {
       reopened.current = true;
     });
     const offMsg = L.on((m) => {
+      if (m.type === "delta") {
+        words.current += String(m.text ?? "");
+        const w = wordsAt.current;
+        if (!w.raf) w.raf = requestAnimationFrame(landWords);
+        if (!w.t) w.t = window.setTimeout(landWords, 100);
+        return;
+      }
+      landWords();   // whatever comes next comes after the words before it
       // browser.inspected / browser.located: the page pane's questions about a tab, answered by rid (work/PagePane.tsx)
       if (typeof m.type === "string" && (m.type.startsWith("work.") || m.type.startsWith("browser.") || m.type.startsWith("sticky") || m.type === "ran")) { rawSubs.current.forEach((f) => f(m)); return; }
       if (m.type === "engine.renewing") { setNotice("engine renewing"); return; }   // a new build going live; back in a few seconds
@@ -312,14 +346,10 @@ export function useEngine() {
       if (m.type === "health") { setHealth(m.health as Health); return; }
       if (m.type === "goback.plan") { setGoBackPlan({ engine: m.engine ?? null, face: m.face ?? null, line: String(m.line ?? "") }); return; }
       if (m.type === "goback.done") { setNotice(m.ok ? "going back to the last good Sol" : "could not go back: " + String((m.lines ?? []).slice(-1)[0] ?? "")); window.clearTimeout(noticeTimer.current); noticeTimer.current = window.setTimeout(() => setNotice(""), 60_000); return; }   // Marco pressed go back (#18)
+      // suggest_group (#321): the card goes under the open talk's current answer; another talk's, at its end when opened
+      if (m.type === "home.suggest") { setOffers((o) => heard(o, m, m.sessionId === sessionRef.current ? turnOf(msgsRef.current) : -1)); return; }
       if (m.type === "start") { if (m.sessionId) setSession(m.sessionId); if (m.cwd) setCwd(m.cwd); parentRef.current = undefined; }
-      else if (m.type === "delta") {
-        setMsgs((prev) => {
-          const last = prev[prev.length - 1];
-          if (last && last.who === "you") return [...prev.slice(0, -1), { ...last, text: last.text + m.text }];
-          return [...prev, { who: "you", text: m.text }];
-        });
-      } else if (m.type === "tool") setMsgs((prev) => withStep(prev, m));
+      else if (m.type === "tool") setMsgs((prev) => withStep(prev, m));
       else if (m.type === "usage") { setContext(m.context ?? 0); if (m.window) setWin(m.window); setParts(m.parts); }
       else if (m.type === "tabs") setTabs(m.tabs ?? []);
       else if (m.type === "desk") setDesks((d) => ({ ...d, [String(m.sessionId ?? "")]: (m.cards ?? []) as Card[] }));
@@ -382,7 +412,7 @@ export function useEngine() {
       }
     });
     return () => { offLink(); offMsg(); linkRef.current = null; };
-  }, [send, flash, hangUpLocal, callLive, sampleOver, seed]);
+  }, [send, flash, hangUpLocal, callLive, sampleOver, seed, landWords]);
 
   const info = models.seats.find((x) => x.seat === seat);
   const list = info?.models ?? [];
@@ -392,6 +422,7 @@ export function useEngine() {
   const BUSY = "a turn is running: stop it first (Esc)", ON_CALL = "a call is on: hang up first";
   const fresh = useCallback((to?: Seat, at?: { cwd?: string; parent?: string }) => {
     if (busy || callState !== "off") { flash(busy ? BUSY : ON_CALL); return false; }
+    dropWords();   // a stopped turn's last words do not spill into the new talk
     setSession(undefined); setMsgs([]); setContext(0); setDraft(crypto.randomUUID());
     setCwd(at?.cwd); parentRef.current = at?.parent;
     const st = settingsRef.current;
@@ -424,6 +455,7 @@ export function useEngine() {
   // still ends with a stopped "done"; that one must not read as the new turn being over.
   const say = (text: string, files: (FileOut & { thumb?: string })[], lead = "") => {
     if ((!text && !files.length) || !up) return false;
+    landWords();
     if (busy) { interrupting.current++; setMsgs(settle); }
     setMsgs((prev) => [...prev, { who: "me", text, files: files.map((f) => ({ name: f.name, url: f.thumb })) }]);
     setBusy(true);
@@ -482,7 +514,7 @@ export function useEngine() {
   const desk = desks[sessionId ?? draft] ?? NO_CARDS;
   const arrange = useCallback((patch: object) => { setRefused(null); send({ type: "arrange.set", patch }); }, [send]);
   const undo = useCallback(() => { setUndoNote(null); send({ type: "arrange.undo" }); }, [send]);
-  return { msgs, busy, up, context, win, parts, threads, models, info, efforts, seat, model, effort, sessionId, draft, cwd, freshIn, tabs, desk, pin, deskAct, notice, callState,
+  return { msgs, busy, up, context, win, parts, threads, models, info, efforts, seat, model, effort, sessionId, draft, cwd, freshIn, tabs, desk, pin, deskAct, offers, notice, callState,
     settings, engineInfo, health, arrangement, arrange, refused, undoNote, undo, goBackPlan, sampling, setSettings, hearVoice, rename,
     say, stop, open, fresh, pickSeat, pickModel, pickSeatModel, pickEffort, hear, call, flash, send, subscribe, subscribeFrames, heardCb, partialCb };
 }

@@ -772,7 +772,7 @@ button.stop.sure { color: var(--ink); border-color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { .orb .orb-dot { transition: none; } }
 .trail { position: absolute; top: 14px; bottom: 14px; right: 3px; width: 18px; cursor: pointer; touch-action: none; user-select: none; opacity: 0.5; transition: opacity 0.15s; }
 .trail:hover, .trail.down { opacity: 1; }
-.trail .win { position: absolute; left: 8px; width: 2px; background: var(--line); border-radius: 1px; }
+.trail .win { position: absolute; left: 8px; top: 0; height: 100%; width: 2px; background: var(--line); border-radius: 1px; transform-origin: 0 0; will-change: transform; }
 .trail .cell { position: absolute; left: 7px; width: 4px; height: 4px; margin-top: -2px; background: var(--mute); transition: background 0.12s, scale 0.12s; }
 .trail .cell.near { background: var(--ink); scale: 1.6; }
 .trail .name { position: absolute; right: 22px; transform: translateY(-50%); max-width: 280px; padding: 3px 10px; border: 1px solid var(--line); border-radius: var(--pill); background: var(--raised); color: var(--ink); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
@@ -808,7 +808,7 @@ canvas.scenes { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-
 
 
 /* ---- vibe mode (vibe.ts): the chat box wears a turning ring of Sol's colours, ticks and tickets take colour.
-   Everything arrives in order of distance from the sidebar's mark (--vd, set by vibe.ts). The text never moves.
+   Everything arrives in order of distance from Sol in the sidebar's seat (--vd, set by vibe.ts). The text never moves.
    --vibe-env (0..1, ten steps) is how loud the music is; without music it is 0 and the ring just turns. ---- */
 @property --vibe-a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
 @keyframes vibe-in { from { transform: scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -833,9 +833,8 @@ body.vibe-ring .ask-inner::after {
 }
 body.vibe .verdict .ok, body.vibe .recap li.ok span, body.vibe .wst.done svg { animation: vibe-hue 2.4s linear infinite, vibe-pulse 1.2s ease-in-out infinite, vibe-in .4s var(--vd, 0s) both; color: var(--green-strong); }
 body.vibe .wticket i, body.vibe .mitem.on .tick { animation: vibe-hue 2.4s linear infinite, vibe-in .4s var(--vd, 0s) both; }
-body.vibe .brand .word { animation: vibe-hue 6s linear infinite, vibe-pulse 2.2s ease-in-out infinite; color: #fd69b9; }
 @media (prefers-reduced-motion: reduce) {
-  body.vibe-ring .ask-inner::before, body.vibe-ring .ask-inner::after, body.vibe .verdict .ok, body.vibe .recap li.ok span, body.vibe .wst.done svg, body.vibe .wticket i, body.vibe .mitem.on .tick, body.vibe .brand .word { animation: none; }
+  body.vibe-ring .ask-inner::before, body.vibe-ring .ask-inner::after, body.vibe .verdict .ok, body.vibe .recap li.ok span, body.vibe .wst.done svg, body.vibe .wticket i, body.vibe .mitem.on .tick { animation: none; }
 }
 
 /* the colour swatches in the music drawer (Settings.tsx): each a colour input under a round of its colour */
@@ -858,9 +857,7 @@ body.vibe .brand .word { animation: vibe-hue 6s linear infinite, vibe-pulse 2.2s
   animation: vibe-in .6s both;
 }
 
-/* the sidebar's mark as the vibe switch (Mark.tsx VibeMark) */
-.vibe-mark { display: inline-flex; cursor: pointer; user-select: none; -webkit-user-select: none; }
-/* the seat scene above the mode pill (SeatScene.tsx): Sol, and in cowork two buds that bob and blink */
+/* the seat scene above the mode pill (SeatScene.tsx): Sol (the vibe switch), and in cowork two buds that bob and blink */
 .side-head .seat-scene { display: block; overflow: visible; margin: -4px 0 -6px; }
 .seat-scene .seat-sol { cursor: pointer; user-select: none; -webkit-user-select: none; }
 .seat-scene .bob { animation: seat-bob 3.4s ease-in-out infinite; }

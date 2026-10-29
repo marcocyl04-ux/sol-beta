@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 
@@ -37,11 +37,19 @@ test("a group holds folders, and move puts a folder in one group at most (or non
 });
 
 test("a folder wears its own name on the disk (#181): no label of Sol's, parent/name when two share one", () => {
-  folderOp("name", SRC);   // the old label op does nothing now
-  assert.equal(fileSessions([s(SRC)]).projects[0].name, "lib");
+  // two folders of one name made here, not the machine's: /usr/local/lib is not on every Mac (none without Homebrew
+  // there), and a folder that is not there drops out, which left one "lib". The temp folder is scratch to the sidebar,
+  // so they are added by hand (what Marco does with a folder of his own), and taken out again after
+  const UL = join(top, "usr", "lib"), LL = join(top, "local", "lib");
+  mkdirSync(UL, { recursive: true }); mkdirSync(LL, { recursive: true });
+  folderOp("add", UL);
+  folderOp("name", UL);   // the old label op does nothing now
+  assert.equal(fileSessions([s(UL)]).projects[0].name, "lib");
   assert.equal("names" in workState(), false);
-  const two = fileSessions([s("/usr/lib"), s("/usr/local/lib")]).projects.map((p) => p.name).sort();
+  folderOp("add", LL);
+  const two = fileSessions([s(UL), s(LL)]).projects.map((p) => p.name).sort();
   assert.deepEqual(two, ["local/lib", "usr/lib"]);
+  for (const f of [UL, LL]) { folderOp("hide", f); folderOp("show", f); }
 });
 
 test("the Claude app's scratch workspaces and gone folders stay out unless stale is on", () => {

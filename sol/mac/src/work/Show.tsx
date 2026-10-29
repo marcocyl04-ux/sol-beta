@@ -254,7 +254,7 @@ export function ShowPane({ items, busy, streaming, w, cwd, stat }: {
 
   // the map's files, asked when the folder changes
   const [files, setFiles] = useState<string[]>([]);
-  useEffect(() => { setFiles([]); }, [cwd]);
+  useLayoutEffect(() => { setFiles([]); }, [cwd]);
   const writes = items.reduce((n, i) => n + (i.kind === "tool" && i.done && (i.name === "Write" || i.name === "Bash") ? 1 : 0), 0);
   const asked = useRef(0);
   useEffect(() => {   // asked again when a file may have come or gone (a Write, a shell command) and when a turn ends

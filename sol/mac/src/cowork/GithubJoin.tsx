@@ -1,6 +1,7 @@
 // No GitHub yet (ADDITIONS §4c, #252): the card in a new GitHub room's form, and the pane its sign-up opens in. The
 // flow and its rules are ghJoin.ts (tested there with a fake web view); this draws it. The card is only for a GitHub
-// room on a machine whose gh is not signed in (cardFor): a cloud or Drive room's form never draws it.
+// room on a machine whose gh is not signed in (cardFor): a cloud or Drive room's form never draws it. The group page's
+// connectors tab (#314) draws the same card under "on this Mac", for any group, while GitHub is not connected here.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Team } from "./useTeam";
@@ -27,7 +28,9 @@ function useGithub(team: Team, on: boolean): [{ in: boolean; who?: string } | nu
   return [gh, () => setN((x) => x + 1)];
 }
 
-export function GithubJoin({ team, keeps, onPane }: { team: Team; keeps: string; onPane?: (up: boolean) => void }) {
+export function GithubJoin({ team, keeps, onPane, connectors }: { team: Team; keeps: string; onPane?: (up: boolean) => void;
+  /** the connectors tab's card (#314, wF's S4): at rest until "get a code" is pressed; "no account?" is the Google way */
+  connectors?: boolean }) {
   const [gh, again] = useGithub(team, keeps === "github");
   const [step, setStep] = useState<Step>({ k: "ask" });
   const [said, setSaid] = useState("");
@@ -82,23 +85,39 @@ export function GithubJoin({ team, keeps, onPane }: { team: Team; keeps: string;
 
   const inPane = step.k === "signup" || (step.k === "device" && step.inside);
   useEffect(() => { onPane?.(inPane); return () => onPane?.(false); }, [inPane]); // eslint-disable-line react-hooks/exhaustive-deps
+  // on the connectors tab the card waits at rest: only the press on "get a code" asks GitHub for one (an open tab never does)
+  const shown = cardFor(keeps, gh);
   if (step.k === "in") return <p className="cgh-in">GitHub: <b>{step.login || "signed in"}</b></p>;
-  if (!cardFor(keeps, gh)) return null;
+  if (!shown) return null;
   const copy = (code: string) => void navigator.clipboard?.writeText(code).then(() => setCopied("copied"), () => setCopied("select it and copy"));
 
+  const google = () => { if (f.s.k !== "ask") f.stop(); void f.signup(); };
   return (
-    <div className="cgh" role="group" aria-label="GitHub for this room">
-      {step.k === "ask" && <>
-        <p className="cgh-lead">Cowork keeps your things in GitHub.</p>
+    <div className={`cgh ${connectors ? "cgh-conn" : ""}`} role="group" aria-label="GitHub on this Mac">
+      {connectors && (step.k === "ask" || step.k === "have" || (step.k === "device" && !step.inside)) && <>
+        <p className="cgh-lead">connect GitHub, about 20 seconds</p>
+        {step.k === "device" ? <>
+          <span className="cgh-big" title="paste it on GitHub's page">{step.code}</span>
+          <span className="cgh-codeline">
+            <button className="wbtn" onClick={() => openUrl(step.url)}>open github.com</button>
+            <button className="wlink" onClick={() => copy(step.code)}>{copied || "copy"}</button>
+          </span>
+          <p className="cgh-note">waiting for GitHub…</p>
+        </> : step.k === "have" ? <p className="cgh-note">asking GitHub for a code…</p>
+          : <span className="cgh-codeline"><button className="wbtn" onClick={() => void f.have()}>get a code</button></span>}
+        <button className="wlink cgh-no" onClick={google}>no account? make one with Google</button>
+      </>}
+      {!connectors && step.k === "ask" && <>
+        <p className="cgh-lead">this group keeps its things in GitHub.</p>
         <div className="cgh-picks">
           <button className="wbtn" onClick={() => void f.have()}>I have GitHub</button>
-          <button className="wbtn cgh-make" onClick={() => void f.signup()}>No, make one with Google <small>(about 1 minute)</small></button>
+          <button className="wbtn cgh-make" onClick={() => void f.signup()}>no, make one with Google <small>(about 1 minute)</small></button>
         </div>
-        <p className="cgh-note">Your GitHub name is the name your teammates see.</p>
+        <p className="cgh-note">your GitHub name is the name your teammates see.</p>
       </>}
-      {step.k === "have" && <p className="cgh-note">asking GitHub for a code…</p>}
+      {!connectors && step.k === "have" && <p className="cgh-note">asking GitHub for a code…</p>}
       {step.k === "signup" && <>
-        <p className="cgh-lead">Make your account in the page beside →</p>
+        <p className="cgh-lead">make your account in the page beside →</p>
         <p className="cgh-note">Sol signs you in by itself once GitHub shows your account.</p>
         <div className="cgh-acts">
           <button className="wlink" onClick={() => void f.device(true)}>made it, sign me in</button>
@@ -113,7 +132,7 @@ export function GithubJoin({ team, keeps, onPane }: { team: Team; keeps: string;
           <button className="wlink" onClick={() => f.stop()}>not now</button>
         </div>
       </>}
-      {step.k === "device" && <>
+      {step.k === "device" && (!connectors || step.inside) && <>
         <div className="cgh-row"><span className="cgh-n">1</span><div className="cgh-step"><span>copy this code</span>
           <span className="cgh-codeline"><span className="cgh-code">{step.code}</span>
           <button className="wlink" onClick={() => copy(step.code)}>{copied || "copy"}</button></span></div></div>
@@ -141,7 +160,8 @@ function JoinPane({ paneRef, address, note, onNote, device, code, onOut, onClose
   const [left, setLeft] = useState(0);
   const anchor = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
-    const side = anchor.current?.closest("aside");
+    // the card in the side's form: right of the side; on the group's connectors tab (#314): right of the side all the same
+    const side = anchor.current?.closest("aside") ?? document.querySelector("aside.cside");
     const place = () => setLeft(Math.round(side?.getBoundingClientRect().right ?? 0));
     place();
     window.addEventListener("resize", place);
@@ -170,7 +190,7 @@ function JoinPane({ paneRef, address, note, onNote, device, code, onOut, onClose
           <button className="wlink" onClick={onClose}>close</button>
         </div>
         <div className="cgh-pane-b" ref={paneRef}>
-          {!inShell() && <p className="cgh-stand">GitHub's sign-up opens here, in Sol's own browser on this Mac. Outside the app there is no page to show.</p>}
+          {!inShell() && <p className="cgh-stand">GitHub's sign-up opens here, in Sol's own browser on this Mac; outside the app there is no page to show.</p>}
         </div>
       </section>, document.body)}
   </>);

@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { devOnly } from "./dev-copy.ts";
 
 const L = await import("../src/team/leads.ts");
 const C = await import("../src/team/claims.ts");
@@ -19,7 +20,7 @@ test("leads: the owners in each label's section, a `# leads:` line, two at most,
   assert.deepEqual(l, { life: ["d"], work: [], cowork: [], social: ["e", "f"], base: ["a", "b"], product: [] });
 });
 
-test("leads: the repo's own CODEOWNERS names Marco on all six, social by its leads line", () => {
+test("leads: the repo's own CODEOWNERS names Marco on all six, social by its leads line", { skip: devOnly(".github/CODEOWNERS") }, () => {
   const l = L.leads(readFileSync(new URL("../../../.github/CODEOWNERS", import.meta.url), "utf8"));
   for (const label of C.LABELS) assert.deepEqual(l[label], ["marcocyl04-ux"], label);
 });

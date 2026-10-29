@@ -13,6 +13,7 @@ import { sign, runGit } from "./note.js";
 import { makeGithubRecord, runGh } from "./record.js";
 import { sendRelay } from "./relay.js";
 import { getTeam, myLogin, mayAgentSpeak } from "./settings.js";
+import { ROOM_BRIEF } from "./start.js";
 
 export type Role = "person" | "agent" | "tool";
 export type ShownLine = { role: Role; text: string; at: number };
@@ -45,8 +46,12 @@ export function scrub(s: string, home = homedir()): string {
 
 const toolName = (n: string) => (n.startsWith("mcp__") ? n.split("__").slice(2).join("__") || n : n);
 
-/** a person's words without the room's fenced content the box put before them (start.ts fence): the room already has it */
-export const unfence = (s: string) => String(s ?? "").replace(/<room-content [0-9a-f]+>[\s\S]*?<\/room-content [0-9a-f]+>\s*/g, "");
+/** a person's words without the room's fenced content the box put before them (start.ts fence) and Sol's room brief
+ *  after it (#316): the room already has the one, and the other is Sol's, not the person's */
+export const unfence = (s: string) => {
+  const t = String(s ?? "").replace(/<room-content [0-9a-f]+>[\s\S]*?<\/room-content [0-9a-f]+>\s*/g, "");
+  return t.startsWith(ROOM_BRIEF) ? t.slice(ROOM_BRIEF.length).replace(/^\s+/, "") : t;
+};
 
 /** what one item of a Work session says to the team, or null: it never leaves */
 export function lineOf(it: Item, home = homedir()): { role: Role; text: string } | null {

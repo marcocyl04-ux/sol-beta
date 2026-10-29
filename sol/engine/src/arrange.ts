@@ -38,6 +38,14 @@ const SHIPPED: Shipped = (() => {
   try { return JSON.parse(readFileSync(join(SOL, "mac", "src", "buttons", "presets.json"), "utf8")) as Shipped; }
   catch { return { presets: {}, rails: { home: [], cowork: [] } }; }
 })();
+// the shelf: every button Sol ships, on a default rail or not (call left the rails, #24); one file each, named by
+// its id and imported by mac/src/buttons/index.ts
+export const SHELF: string[] = (() => {
+  try {
+    const src = readFileSync(join(SOL, "mac", "src", "buttons", "index.ts"), "utf8");
+    return [...src.matchAll(/^import \w+ from "\.\/([a-z0-9-]+)";/gm)].map((m) => m[1]).filter((id) => ID.test(id));
+  } catch { return []; }
+})();
 export const DEFAULTS: Arrangement = {
   v: 1, modes: ["home", "cowork"], rails: SHIPPED.rails, presets: SHIPPED.presets,
   layout: { home: "plain" }, split: { share: 0.5 }, usage: {}, manage: null,

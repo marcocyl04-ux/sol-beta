@@ -13,6 +13,7 @@ export type WorkSession = {
   updatedAt: number; createdAt?: number; size?: number; tag?: string;
   gone?: boolean; failed?: boolean; pinned?: boolean; done?: boolean; unread?: boolean; archived?: boolean; group?: string; parent?: string; seen?: number;
   card?: string; mode?: "life" | "work" | "cowork";
+  roomId?: string;                     // a cowork session's group: the id of the room it was started under (#314)
   held?: Holder;                       // open in another live process: read-only here (PROTOCOL.md round 11, the lock)
   settled?: Record<string, string>; moved?: string;   // thread map ends already reconciled; where its kept end went on
   folder?: string;                     // shown under this folder instead of its own (project is that folder then)
@@ -50,8 +51,8 @@ const keep = (k: string, v: unknown) => { try { localStorage.setItem(k, JSON.str
 // this Work (and Cowork, which rides on it) came back blank until the engine answered again (0.3–1 s). A mount paints
 // the last lists and threads at once; the fresh answers replace them. Of the threads, only the open, beside and
 // streaming sessions keep their items (trim below, #75).
-const seen: { sessions: WorkSession[]; projects: Project[]; groups: Group[]; order: string[]; runs: Record<string, RunInfo>; threads: Record<string, Thread>; terms: TermInfo[]; loaded: boolean } =
-  { sessions: [], projects: [], groups: [], order: [], runs: {}, threads: {}, terms: [], loaded: false };
+const seen: { sessions: WorkSession[]; projects: Project[]; groups: Group[]; order: string[]; roomNames: Record<string, string>; runs: Record<string, RunInfo>; threads: Record<string, Thread>; terms: TermInfo[]; loaded: boolean } =
+  { sessions: [], projects: [], groups: [], order: [], roomNames: {}, runs: {}, threads: {}, terms: [], loaded: false };
 
 // solo: a window of its own showing one session (a pop-out); it keeps nothing in this machine's Work state.
 // store: where Cowork keeps its open session, so the two modes do not open each other's; Home keeps none here, its
@@ -61,6 +62,7 @@ export function useWork(e: { up: boolean; send: (o: object) => boolean; subscrib
   const [projects, setProjects] = useState<Project[]>(seen.projects);
   const [groups, setGroups] = useState<Group[]>(seen.groups);
   const [order, setOrderS] = useState<string[]>(seen.order);   // the side's top rows as Marco dragged them (#73)
+  const [roomNames, setRoomNames] = useState<Record<string, string>>(seen.roomNames);   // my rooms' names by id (#314)
   const [runs, setRuns] = useState<Record<string, RunInfo>>(seen.runs);
   const [threads, setThreads] = useState<Record<string, Thread>>(seen.threads);
   const [current, setCurrent] = useState<string | null>(() => solo ?? (store ? load<string | null>(store, null) : homeSession()));
@@ -118,11 +120,11 @@ export function useWork(e: { up: boolean; send: (o: object) => boolean; subscrib
   }, []);
   const send = e.send;
   // the lists and threads as they stand, for the next mount (not a pop-out's: it holds one session)
-  useEffect(() => { if (!solo) Object.assign(seen, { sessions, projects, groups, order, runs, threads, terms, loaded }); }, [solo, sessions, projects, groups, order, runs, threads, terms, loaded]);
+  useEffect(() => { if (!solo) Object.assign(seen, { sessions, projects, groups, order, roomNames, runs, threads, terms, loaded }); }, [solo, sessions, projects, groups, order, roomNames, runs, threads, terms, loaded]);
 
   useEffect(() => e.subscribe((m) => {
     if (m.type === "work.sessions") {
-      setSessions(m.sessions ?? []); setProjects(m.projects ?? []); setGroups(m.groups ?? []); setOrderS(m.order ?? []); setLoaded(true);
+      setSessions(m.sessions ?? []); setProjects(m.projects ?? []); setGroups(m.groups ?? []); setOrderS(m.order ?? []); setRoomNames(m.roomNames && typeof m.roomNames === "object" ? m.roomNames : {}); setLoaded(true);
       setRuns(Object.fromEntries((m.runs ?? []).map((r: RunInfo) => [r.sessionId, r])));
     } else if (m.type === "work.thread") {
       flush();
@@ -316,7 +318,7 @@ export function useWork(e: { up: boolean; send: (o: object) => boolean; subscrib
   const thread = live ? threads[live] : undefined;
   const run = live ? runs[live] : undefined;
   return {
-    loaded, sessions, projects, groups, order, prefs, runs, threads, current, live, thread, run, freshCwd, setFreshCwd, terms, ask, sayTo, solo, copy, setCopy,
+    loaded, sessions, projects, groups, order, roomNames, prefs, runs, threads, current, live, thread, run, freshCwd, setFreshCwd, terms, ask, sayTo, solo, copy, setCopy,
     model: run?.model ?? model, effort: run?.effort ?? effort, mode: run?.mode ?? mode, fast: run?.fast ?? fast,
     send2adjust, error, unsent, sideAnswer: live ? asides[live] : undefined, open: openId, fresh, say, adjust, ...act,
   };

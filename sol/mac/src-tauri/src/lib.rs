@@ -1,8 +1,10 @@
 mod clean;
 mod dictate;
 mod eye;
+mod feedback;
 mod grab;
 mod hot;
+mod link;
 mod mute;
 mod permit;
 mod root;
@@ -554,6 +556,7 @@ fn is_dictate_key(s: &Shortcut) -> bool {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_deep_link::init())   // sol:// links (#327, link.rs)
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
@@ -591,16 +594,18 @@ pub fn run() {
         .manage(Spots::default())
         .manage(hot::Hot::default())
         .manage(thing::Tabs::default())
+        .manage(link::Waiting::default())
         .invoke_handler(tauri::generate_handler![engine_port, engine_phase, engine_start, idle_seconds, notch_expand, notch_regions, notch_geometry, face_log, face_mode, face_state,
-            welcome::install_run, welcome::claude_login, welcome::welcome_done, dictate::type_text, grab::grab_sheet, grab::page_scroll, eye::eye_set, eye::eye_get,
+            welcome::install_run, welcome::claude_login, welcome::claude_status, welcome::welcome_done, dictate::type_text, grab::grab_sheet, grab::page_scroll, eye::eye_set, eye::eye_get,
             clean::clean_open, clean::clean_set, clean::clean_close, clean::clean_get,
             permit::permit_state, permit::permit_open, permit::permit_back, mute::call_mute,
             vibe::vibe_start, vibe::vibe_stop, vibe::vibe_glow,
-            thing::thing_open, thing::thing_show, thing::thing_bounds, thing::thing_close, thing::thing_nav, thing::thing_outside, thing::sites_sign_out, thing::sites_clear])
+            thing::thing_open, thing::thing_show, thing::thing_bounds, thing::thing_close, thing::thing_nav, thing::thing_outside, thing::sites_sign_out, thing::sites_clear, link::sol_url_take])
         .setup(|app| {
             eye::load(app.handle());        // the eye as it was left, before any window is shown (eye.rs)
             eye::apply_all(app.handle());   // the main window was made before setup
             start_engine_if_needed(app.handle());
+            link::init(app.handle());   // the link that launched Sol, then every sol:// link (#327)
 
             let open = MenuItem::with_id(app, "open", "Open", true, None::<&str>)?;
             let notch_on = !notch_flag(app.handle()).map(|f| f.exists()).unwrap_or(false);
@@ -614,11 +619,13 @@ pub fn run() {
             hot::init(app.handle());
             grab::warm(app.handle());
             // no checkout to run (a downloaded app, before its install): the face on its first run, which installs (#169, #134)
-            if root::root(app.handle()).is_none() { welcome::show_page(app.handle(), "/?firstrun=1"); }
+            if root::root(app.handle()).is_none() { if let Err(e) = welcome::show_page(app.handle(), "/?firstrun=1") { eprintln!("first run: {e}"); } }
             let face_item = MenuItem::with_id(app, "face", hot::tray_text(hot::wanted(app.handle())), true, None::<&str>)?;
             app.state::<hot::Hot>().0.lock().unwrap().tray = Some(face_item.clone());
+            // a beta tester says what broke, no GitHub account needed (#294, feedback.rs)
+            let tell = MenuItem::with_id(app, "tell", "Tell us…", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &notch_item, &face_item, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &notch_item, &face_item, &tell, &quit])?;
 
             let notch_item_handle = notch_item.clone();
             // one menu bar icon, built here (a trayIcon in tauri.conf.json would add a second, menu-less one)
@@ -638,6 +645,7 @@ pub fn run() {
                         hot::set(app, !hot::wanted(app));
                         hot_check(app);
                     }
+                    "tell" => feedback::open(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })

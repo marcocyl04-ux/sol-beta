@@ -16,6 +16,7 @@ import { listCopies, removeCopy, stale } from "./copies.js";
 import { keepAwake, about, banner, styles } from "./machine.js";
 import { setWorkHooks, type Start } from "./tools.js";
 import { aside } from "./aside.js";
+import { askWork } from "../call/work.js";
 import { watchHolders, holders } from "./holders.js";
 import { machineOf } from "../home.js";
 import { busyIn, busyList } from "../busy.js";
@@ -40,6 +41,10 @@ import { CLOUD_RECORD, DRIVE_RECORD } from "../team/settings.js";
 import { takePings, pingsText } from "../team/pings.js";
 import { onCall, onCallText } from "../team/oncall.js";   // on-call (#225)
 import { shows, issueAt, repoOf } from "../team/show.js";   // Show to team (#101)
+import { withRoomIds, roomMark } from "../team/here.js";   // a cowork session's group (#314), its room's mark (#316)
+import { noteFrom, roomMemory, type NoteRoom } from "../team/memory.js";   // a group's memory (#316)
+import { accountOn } from "../team/cloud.js";
+import { hubHttp, CLOUD_FILE } from "../team/relay.js";
 
 type Wire = { send: (m: object) => void };
 const faces = new Map<Wire, { viewing?: string }>();
@@ -51,9 +56,13 @@ async function sessionsMsg() {
   const filed = withRuns(await workSessions(), runs);   // a run the list does not know yet shows at once (#111)
   // a GPT talk with a turn going says so on its row (#182): the busy counter has it under the thread's id
   const talking = new Set(busyList().filter((j) => j.kind === "life").map((j) => j.id));
-  const sessions = filed.sessions.map((s) => (s.seat === "codex" && talking.has(s.id) ? { ...s, running: true } : s)), projects = filed.projects;
+  // a cowork session says its group's id (#314): marked so since, or matched by its room hash among my rooms now
+  const rooms = getTeam().rooms.map((r) => ({ ...r, record: recordOf(r) }));
+  const sessions = withRoomIds(filed.sessions.map((s) => (s.seat === "codex" && talking.has(s.id) ? { ...s, running: true } : s)), rooms), projects = filed.projects;
   const st = workState();
-  return { type: "work.sessions", sessions, projects: await withMine(projects), groups: st.groups, order: st.order, runs };
+  // each of my rooms' names by id (#314): Home lists a cowork session under its group's name, with no team link of its own
+  const roomNames = Object.fromEntries(rooms.map((r) => [r.id, r.name]));
+  return { type: "work.sessions", sessions, projects: await withMine(projects), groups: st.groups, order: st.order, runs, roomNames };
 }
 // the list goes out at most every 300 ms, however many things changed
 export function broadcastSessions() {
@@ -62,8 +71,10 @@ export function broadcastSessions() {
 }
 
 // a run's events go to every face; a turn that ends while nobody looks at it leaves the row unread
+const ears = new Set<(m: any) => void>();   // the engine's own listeners: a call in a session (call/work.ts)
 const bus = (m: any) => {
   everyone(m);
+  for (const f of ears) f(m);
   if (m.type === "work.item") shows.item(m.sessionId, m.item);   // a shown session's new line (#101); the rest ignore it
   else if (m.type === "work.closed" && shows.showing(m.sessionId)) void shows.stop(m.sessionId).catch(() => {});
   if (m.type === "work.run") {
@@ -140,6 +151,15 @@ async function renameNow(path: string, name: string) {
 async function copiesNow() {
   const { sessions, projects } = await workSessions();
   return listCopies(projects.map((x) => x.path), sessions, allRuns().map((r) => r.cwd));
+}
+
+// a call's turn in a project session (#24): said as if typed in its box, the answer's words streamed to the voice
+export function askInSession(sessionId: string, text: string, abort: AbortSignal, onDelta?: (t: string) => void) {
+  return askWork({
+    say: (s) => workSay({ sessionId: sid(s.sessionId), text: s.text }, bus).then(() => broadcastSessions()),
+    stop: (id) => void getRun(id)?.stop(),
+    listen: (f) => { ears.add(f); return () => { ears.delete(f); }; },
+  }, { sessionId, text }, abort, onDelta);
 }
 
 export function addWorkFace(w: Wire) {
@@ -573,6 +593,20 @@ setWorkHooks({
     const r = await feed.lines(roomKeyNow());
     return (r.error ? `(${r.error}; these are from before)\n` : "") + feedText(r.lines);
   },
+  // a group's memory (#316): wrap_up's note kept in the group the session was started under (its mark), written after the
+  // answer so the turn ends at once; room_memory reads that group's notes (the room in use for a session of no group)
+  async memoryNote(from, note) {
+    const r = await noteFrom({ ...memoryDeps(), marks: (id) => workState().marks[id], room: noteRoom,
+      title: async (id) => { const i = await sessionInfo(id) as { customTitle?: string; summary?: string } | undefined; return String(i?.customTitle || i?.summary || ""); },
+      thing: async (repo, id) => (await getThings(thingsDeps(), repo)).things.find((t) => t.id === id)?.name ?? "" }, from, note);
+    void r.written?.catch(() => {});
+    return r.answer;
+  },
+  async memory(from, q) {
+    const mark = workState().marks[from]?.room;
+    const room = (mark && roomOfMark(mark)) || activeRoom(getTeam());
+    return roomMemory(memoryDeps(), recordOf(room), q);
+  },
   // the room's goal (#216): read as the room's words; set or a file added only when the human asks (the tools say so),
   // signed as the agent, and only where my agent may speak (Cowork for a cloud room, GitHub for a GitHub room)
   async goal() {
@@ -604,6 +638,19 @@ setWorkHooks({
   },
 });
 const thingsDeps = () => ({ record, changed: (repo: string) => { sendRelay("changed", { repo }); } });
+const memoryDeps = () => ({ ...thingsDeps(), log: (l: string) => console.log(`memory: ${l}`) });
+/** the room of mine a session's mark names (here.ts roomMark), or none: the room was left, or the mark is another Sol's */
+const roomOfMark = (mark: string) => getTeam().rooms.find((r) => roomMark(r, recordOf(r)) === mark);
+/** the group a session was started under, for its note: its record, my name there as the record writes it (the cloud's
+ *  `by` is my Sol account's name on that cloud; a GitHub room's commit author is my GitHub login), and whether my agent
+ *  may write there (Cowork for a cloud or Drive room, GitHub for a GitHub room) */
+async function noteRoom(mark: string): Promise<NoteRoom | null> {
+  const r = roomOfMark(mark);
+  if (!r) return null;
+  const repo = recordOf(r), onCloud = repo.startsWith(CLOUD_RECORD) || repo.startsWith(DRIVE_RECORD);
+  const login = repo.startsWith(CLOUD_RECORD) ? accountOn(hubHttp(r.hub || "ws://127.0.0.1/relay"), CLOUD_FILE)?.login ?? "" : await myLogin().catch(() => "");
+  return { repo, login, may: mayAgentSpeak(getTeam(), onCloud ? "cowork" : "github") };
+}
 // the room in use's record, whether my agent may write there, and who it writes as (the things' rule, #194, #216)
 const agentWho = async () => {
   const repo = recordOf(activeRoom(getTeam())), onCloud = repo.startsWith(CLOUD_RECORD) || repo.startsWith(DRIVE_RECORD);

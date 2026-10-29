@@ -5,11 +5,14 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readlinkS
 import { mkdtempSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { devOnly } from "./dev-copy.ts";
 
 // sol/mine/live and unlive (#116), run for real in a scratch home: a SOL checkout and its MY SOL worktree, two launchd
 // links, a Sol.app, and stand-ins for launchctl, npm (the window's build), osascript, open, lsof, pgrep and curl (no
 // engine answers), so nothing here touches the Mac's own jobs, its window or the network.
 const SOL = resolve(import.meta.dirname, "../..");
+// the two scripts are the dev's door: a tester's copy has neither, and every test here skips there (#300)
+const DEV_FILES = devOnly("sol/mine/live", "sol/mine/unlive");
 const top = realpathSync(mkdtempSync(join(tmpdir(), "sol-live-")));
 const home = join(top, "home"), bin = join(top, "bin"), eco = join(top, "ecosystem"), mine = join(top, "my-sol");
 const app = join(top, "Applications", "Sol.app"), la = join(home, "Library", "LaunchAgents"), calls = join(top, "launchctl.log");
@@ -40,7 +43,7 @@ esac
 // SOL: the tracked plists with this folder's path, the two scripts, a stand-in tsc; the engine's own files beside it
 for (const j of JOBS) put(join(eco, "sol/engine/launchd", `${j}.plist`),
   readFileSync(join(SOL, "engine/launchd", `${j}.plist`), "utf8").replace(/<string>[^<]*\/sol\/engine<\/string>/, `<string>${eco}/sol/engine</string>`));
-for (const f of ["live", "unlive"]) { put(join(eco, "sol/mine", f), ""); copyFileSync(join(SOL, "mine", f), join(eco, "sol/mine", f)); chmodSync(join(eco, "sol/mine", f), 0o755); }
+for (const f of ["live", "unlive"]) { put(join(eco, "sol/mine", f), ""); if (!DEV_FILES) { copyFileSync(join(SOL, "mine", f), join(eco, "sol/mine", f)); chmodSync(join(eco, "sol/mine", f), 0o755); } }
 put(join(eco, "sol/home/CLAUDE.md"), "home\n");
 git(top, "init", "-q", "-b", "main", eco); git(eco, "add", "-A"); git(eco, "commit", "-qm", "start"); git(eco, "branch", "stable");
 git(eco, "worktree", "add", "-q", "-b", "marco/mine", mine, "stable");
@@ -61,7 +64,7 @@ put(join(app, "Contents/MacOS/face"), face(eco), 0o755);
 const sh = (script: string, ...a: string[]) => execFileSync("bash", [join(eco, "sol/mine", script), ...a], { cwd: eco, env, encoding: "utf8", timeout: 60_000 });
 const log = () => existsSync(calls) ? readFileSync(calls, "utf8") : "";
 
-test("live: the jobs, the engine's own files and the window move to MY SOL; the home stays; each step says so", () => {
+test("live: the jobs, the engine's own files and the window move to MY SOL; the home stays; each step says so", { skip: DEV_FILES }, () => {
   const out = sh("live");
   for (const j of JOBS) {
     assert.equal(readlinkSync(join(la, `${j}.plist`)), join(mine, "sol/engine/.live", `${j}.plist`));
@@ -82,7 +85,7 @@ test("live: the jobs, the engine's own files and the window move to MY SOL; the 
   assert.match(out, /done: Sol lives in .*my-sol/);
 });
 
-test("live again: nothing moves, each part says it already is", () => {
+test("live again: nothing moves, each part says it already is", { skip: DEV_FILES }, () => {
   const before = log();
   const out = sh("live");
   assert.equal(log().slice(before.length).match(/bootout|bootstrap/g), null, "no job stopped or started");
@@ -90,7 +93,7 @@ test("live again: nothing moves, each part says it already is", () => {
   assert.match(out, /the window is already built from .*my-sol/);
 });
 
-test("unlive: the links point at SOL's tracked plists again, the files go back, the window from before comes back", () => {
+test("unlive: the links point at SOL's tracked plists again, the files go back, the window from before comes back", { skip: DEV_FILES }, () => {
   const out = sh("unlive");
   for (const j of JOBS) assert.equal(readlinkSync(join(la, `${j}.plist`)), join(eco, "sol/engine/launchd", `${j}.plist`));
   assert.equal(readFileSync(join(eco, "sol/engine/.env"), "utf8"), "KEY=his\n");
@@ -101,7 +104,7 @@ test("unlive: the links point at SOL's tracked plists again, the files go back, 
   assert.match(sh("unlive"), /already run from .*ecosystem/);
 });
 
-test("--plan says what would move and changes nothing", () => {
+test("--plan says what would move and changes nothing", { skip: DEV_FILES }, () => {
   const before = log();
   const out = sh("live", "--plan");
   assert.match(out, /plan: com\.marco\.sol-engine moves from .*ecosystem to .*my-sol/);
@@ -110,7 +113,7 @@ test("--plan says what would move and changes nothing", () => {
   assert.equal(readlinkSync(join(la, "com.marco.sol-engine.plist")), join(eco, "sol/engine/launchd/com.marco.sol-engine.plist"));
 });
 
-test("SOL renamed in the same line (ecosystem to sol): --rename moves the folder and all that is keyed by its path; unlive writes SOL's own plists", () => {
+test("SOL renamed in the same line (ecosystem to sol): --rename moves the folder and all that is keyed by its path; unlive writes SOL's own plists", { skip: DEV_FILES }, () => {
   const sol = join(top, "sol");
   // what Claude and the engine key by the folder's path: its project folders (sessions, memory, the Life talks under
   // *-sol-home, a side copy's), ~/.claude.json, the work state's sessions; and a side copy under .claude/worktrees

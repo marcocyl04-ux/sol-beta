@@ -83,6 +83,25 @@ export function roomSessions(open: { id: string; room?: string; title?: string; 
 export const roomMark = (r: { id: string; provider: string; hub: string; code: string }, record: string) =>
   createHash("sha256").update(JSON.stringify([r.provider, r.hub.toLowerCase(), r.code, record.toLowerCase(), r.id])).digest("hex").slice(0, 16);
 
+/** the room id each cowork session is filed under in the face (#314, pure), among the rooms I have now: its own
+ *  `roomId` mark while that room's roomMark is still its `room` hash (a room I left and a stranger's room of the same
+ *  name, which would take the same id, do not keep it); else the room whose roomMark its hash is (a session marked
+ *  before #314); else the room whose clone folder it ran in (a session from before #230, with no hash at all). A
+ *  session of none of my rooms keeps no id and lists under no group */
+export function withRoomIds<S extends { mode?: string; room?: string; roomId?: string; cwd?: string }>(sessions: S[], rooms: { id: string; provider: string; hub: string; code: string; record: string; folder?: string }[]): S[] {
+  let byMark: Map<string, string> | undefined;
+  const under = (p: string, d: string) => !!d && (p === d || p.startsWith(d.replace(/\/+$/, "") + "/"));
+  return sessions.map((s) => {
+    if (s.mode !== "cowork") return s;
+    byMark ??= new Map(rooms.map((r) => [roomMark(r, r.record), r.id]));
+    const own = s.roomId && (!s.room || byMark.get(s.room) === s.roomId) && rooms.some((r) => r.id === s.roomId) ? s.roomId : undefined;
+    const id = own ?? (s.room ? byMark.get(s.room) : undefined) ?? (s.cwd ? rooms.find((r) => r.folder && under(s.cwd!, r.folder))?.id : undefined);
+    if (id === s.roomId) return s;
+    const { roomId: _, ...rest } = s;
+    return (id ? { ...rest, roomId: id } : rest) as S;
+  });
+}
+
 /** does a Work turn's session belong to the room in use (#189's condition)? Only one started under it, by its mark */
 export const belongs = (marks: { room?: string } | undefined, mark: string) => !!mark && marks?.room === mark;
 

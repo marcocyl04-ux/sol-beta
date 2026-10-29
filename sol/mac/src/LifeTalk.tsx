@@ -1,6 +1,6 @@
 import { setRunner } from "./run";
 import { useLanding } from "./land";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { composing } from "./ime";
 import type { useEngine, FileOut } from "./useEngine";
 import { EngineBack } from "./EngineBack";
@@ -8,6 +8,8 @@ import { startRecording, type Recorder } from "./voice";
 import { Trail } from "./Trail";
 import { Orb } from "./Orb";
 import { Picker } from "./Picker";
+import { Plus } from "./work/Plus";           // the box's +, the same as a session's (#24)
+import { CallKey } from "./buttons/call";     // the call in the bar, the same as a session's (#24)
 import { Message, Steps } from "./Message";
 import { Mark } from "./Mark";
 import { useCreature } from "./creature/state";
@@ -18,6 +20,9 @@ import { Site } from "./Site";
 import { seenSession } from "./renovation";
 import { FileLine } from "./FileLine";   // File it (#119)
 import type { Mark as Marked } from "./buttons";
+import { GroupOffer } from "./GroupOffer";   // Home offers a group once (#321)
+import { cardFor, placeAt, skip } from "./homeSuggest";
+import type { AppMode } from "./ModeSwitch";
 
 // A chat in Home's stage (#132): a Life conversation (useEngine, Codex or Claude) as it always drew. The talk, its box,
 // the picker under it (the seat switch while the chat is new), the trail and the orb; the desk's and the browser's
@@ -50,7 +55,8 @@ const base = (p: string) => p.replace(/\/+$/, "").split("/").pop() || p;
 
 // onSwitch: a GPT talk in a project folder (e.cwd, #182) flips seats through Home: the other seat's talk is in the same
 // folder (a new one, or one carrying this one on)
-export function LifeTalk({ e, mark, onSwitch }: { e: ReturnType<typeof useEngine>; mark: React.MutableRefObject<Marked>; onSwitch?: (s: "codex" | "claude", m?: string) => void }) {
+// onMode: the group card's presses switch to Cowork (#321)
+export function LifeTalk({ e, mark, onSwitch, onMode }: { e: ReturnType<typeof useEngine>; mark: React.MutableRefObject<Marked>; onSwitch?: (s: "codex" | "claude", m?: string) => void; onMode?: (m: AppMode) => void }) {
   // a code block's run cell sends for the conversation showing (run.ts); the output comes back on the socket (Home subscribes)
   useEffect(() => { setRunner({ send: e.send, seat: e.seat === "claude" ? "claude" : "codex", sessionId: e.sessionId ?? null }); }, [e.send, e.seat, e.sessionId]);
   const [draft, setDraft] = useState(homeKept.draft);
@@ -185,15 +191,16 @@ export function LifeTalk({ e, mark, onSwitch }: { e: ReturnType<typeof useEngine
   const attachRef = useRef(attach);
   attachRef.current = attach;
 
-  // the talk follows its own end on a spring while the answer grows; it jumps when a conversation is opened
+  // the talk follows its own end on a spring while the answer grows; it jumps when a conversation is opened. Before the
+  // paint, the place he left it too (after it, the talk showed its top for a frame, then glided down)
   const hasMsgs = e.msgs.length > 0;
-  useEffect(() => {
+  useLayoutEffect(() => {
     const t = talk.current, inner = t?.querySelector(".talk-inner") as HTMLElement | null;
     if (!t || !inner) { stick.current = null; setFlw(null); return; }
     const f = (stick.current = follow(t, inner));
     setFlw(f);
     const back = kept<{ id?: string; y: number } | null>("sol.home.scroll", null);
-    if (back && back.id === e.sessionId && back.y >= 0) { requestAnimationFrame(() => f.goTo(back.y)); } else f.jump();
+    if (back && back.id === e.sessionId && back.y >= 0) f.place(back.y); else f.jump();
     const onScroll = () => keepS("sol.home.scroll", { id: e.sessionId, y: t.scrollTop });
     t.addEventListener("scroll", onScroll, { passive: true });
     return () => { t.removeEventListener("scroll", onScroll); f.destroy(); stick.current = null; setFlw(null); };
@@ -227,9 +234,15 @@ export function LifeTalk({ e, mark, onSwitch }: { e: ReturnType<typeof useEngine
   useEffect(() => { if (cstate === "unplugged") playScene("unplugged"); else endScene("unplugged"); }, [cstate]);
   // the scene lives on this talk's canvas: leaving the chat takes it away at once
   useEffect(() => () => stopScene("unplugged"), []);
+  // the group card (#321): this conversation's one offer, under the answer it came with, until skipped
+  const [, setSkipped] = useState(0);
+  const offer = onMode ? cardFor(e.offers, e.sessionId, localStorage) : null;
+  const offerAt = offer ? placeAt(e.msgs, offer.turn) : -1;
+  const card = offer && onMode ? <GroupOffer key="gsug" offer={offer} onMode={onMode} onSkip={() => { skip(localStorage, offer.sessionId); setSkipped((n) => n + 1); }} /> : null;
   // consecutive steps become one card; everything else is a message
   const blocks: React.ReactNode[] = [];
   for (let i = 0; i <= last; i++) {
+    if (i === offerAt) blocks.push(card);
     const m = e.msgs[i];
     if (m.who === "tool") {
       const run: typeof e.msgs = [];
@@ -243,6 +256,7 @@ export function LifeTalk({ e, mark, onSwitch }: { e: ReturnType<typeof useEngine
       if (run.length) blocks.push(<Steps key={`s${start}`} steps={run} />);
     } else blocks.push(<Message key={i} m={m} live={e.busy && i === last} />);
   }
+  if (offerAt === e.msgs.length) blocks.push(card);
 
   return (<>
     <SceneLayer />
@@ -278,6 +292,7 @@ export function LifeTalk({ e, mark, onSwitch }: { e: ReturnType<typeof useEngine
             </div>
           )}
           <div className="ask-line">
+          <Plus onFiles={(fs) => void attach(fs)} />
           {rec !== "off" && (
             <p className="live" aria-live="polite">
               {draft.trim() || live.kept || live.open ? <>{[draft.trim(), live.kept].filter(Boolean).join(" ")}{live.open && <span className="said">{(draft.trim() || live.kept) ? " " : ""}{live.open}</span>}{rec === "ending" && <span className="said">…</span>}</>
@@ -305,7 +320,7 @@ export function LifeTalk({ e, mark, onSwitch }: { e: ReturnType<typeof useEngine
           up={e.up} health={e.health} context={e.context} win={e.win} parts={e.parts} rec={rec !== "off"} notice={e.notice}
           onSeat={inFolder ? (s) => { if (s !== e.seat) onSwitch!(s); } : e.pickSeat} onModel={e.pickModel}
           onSeatModel={inFolder ? (s, m) => (s === e.seat ? e.pickModel(m) : onSwitch!(s, m)) : e.pickSeatModel} onEffort={e.pickEffort}
-          onMicDown={micDown} onMicUp={micUp}>
+          onMicDown={micDown} onMicUp={micUp} call={<CallKey e={e} at={{ work: false }} />}>
           {inFolder && <span className="wchip quiet" title={e.cwd}>in {base(e.cwd!)}</span>}
         </Picker>
         </div>

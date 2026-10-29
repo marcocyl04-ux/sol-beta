@@ -3,7 +3,12 @@
 // else's sit in a surface bubble beside their mark (an agent wears its person's). Lines brought in from a Discord or
 // WhatsApp export carry a small tag of where they came from. The box sends on Enter; `/discord ` at the
 // start also posts it to the team's Discord when this person's settings allow it, and the answer says so when not.
-// The engine keeps the last 200 lines a thread and sends them to a face that opens late (PROTOCOL.md round 24).
+// The engine keeps the last 200 lines a thread and sends them to a face that opens late (PROTOCOL.md round 24); a group
+// on the cloud keeps its talk there too, so "earlier lines" pages back past them (#315, round 54).
+// Attachments (#315): two quiet icons inside the box (an image, a paperclip) open a file picker, and a file dropped on the
+// box is taken too; the chosen file waits as a chip above the box with × until it is sent. A sent image draws as a
+// 160×100 thumbnail, read by its path once and kept in memory; a file draws as its name · size · open. Pressing either
+// opens a copy with the system (a document, never something that runs: that one is shown in Finder).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { composing } from "../ime";
 import { link } from "../socket";
@@ -14,11 +19,14 @@ import { CFG, enter, follow, type Follow } from "../motion";
 import { Menu, type MenuItem } from "../work/Menu";
 import type { Team } from "./useTeam";
 import { StateMark, Who, personIn, since } from "./bits";
+import { Cursors, IMAGE_TYPES, Lru, kindOfDrop, labelOf, readChip, sizeLine, type Chip, type TalkFile } from "./attach";
 import "./talk.css";
 
-export type TalkLine = { id: string; thread: string; from: string; at: number; text: string; source: "relay" | "discord" | "whatsapp"; agent?: boolean; to?: "discord" };
-type History = { thread?: string; lines?: TalkLine[]; threads?: string[]; discord?: boolean; error?: string };
+export type TalkLine = { id: string; thread: string; from: string; at: number; text: string; source: "relay" | "discord" | "whatsapp"; agent?: boolean; to?: "discord"; file?: TalkFile; heard?: true };
+type Cursor = { at: number; id: string };
+type History = { thread?: string; lines?: TalkLine[]; threads?: string[]; discord?: boolean; older?: boolean; more?: boolean; next?: Cursor; error?: string };
 type Answer = { ok?: boolean; id?: string; sent?: boolean; error?: string };
+type Read = { path?: string; mime?: string; size?: number; bytes?: string; local?: string; open?: "open" | "reveal"; error?: string };
 
 const Q = new URLSearchParams(location.search);
 export const DEV_TALK = import.meta.env.DEV && Q.get("dev") === "talk";
@@ -48,17 +56,27 @@ export function Talk({ team, flash }: { team: Team; flash: (s: string) => void }
   };
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [busy, setBusy] = useState(false);
+  // #315: the file waiting to go with the line, a file dragged over the box, threads with earlier lines on the cloud
+  const [chip, setChip] = useState<Chip | null>(null);
+  const [drop, setDrop] = useState(false);
+  const [older, setOlder] = useState<Record<string, boolean>>({});
+  const [paging, setPaging] = useState(false);
+  const cursors = useRef(new Cursors());   // where each thread's next earlier page starts (the cloud's word)
+  // another group: every cursor and every line of the one before goes, and its threads are read anew below
+  const room = team.state?.settings?.room ?? "";
+  useEffect(() => { cursors.current.inRoom(room); setLines({}); setOlder({}); }, [room]);
+  const pickImage = useRef<HTMLInputElement>(null), pickFile = useRef<HTMLInputElement>(null);
   const fresh = useRef(new Set<string>());     // ids that just arrived: they slide in
   const talk = useRef<HTMLDivElement>(null), inner = useRef<HTMLDivElement>(null), box = useRef<HTMLTextAreaElement>(null);
   const [flw, setFlw] = useState<Follow | null>(null);
 
-  const ask = <T,>(type: string, body: object) => (DEV_TALK ? Promise.resolve(fake(type, body) as T) : team.ask<T>(type, body));
+  const ask = <T,>(type: string, body: object, wait?: number) => (DEV_TALK ? Promise.resolve(fake(type, body) as T) : team.ask<T>(type, body, wait));
   const add = (l: TalkLine) => {
     setLines((all) => {
       const had = all[l.thread] ?? [];
       if (had.some((x) => x.id === l.id)) return all;
       fresh.current.add(l.id);
-      return { ...all, [l.thread]: [...had, l].sort((a, b) => a.at - b.at).slice(-200) };
+      return { ...all, [l.thread]: [...had, l].sort((a, b) => a.at - b.at) };   // never cut: earlier lines paged in stay
     });
     setThreads((t) => (t.includes(l.thread) ? t : [...t, l.thread]));
   };
@@ -69,12 +87,14 @@ export function Talk({ team, flash }: { team: Team; flash: (s: string) => void }
     void ask<History>("team.talk.history", { thread }).then((h) => {
       if (!on) return;
       if (h.error) { setSaid({ t: plain(h.error), bad: true }); return; }
+      cursors.current.drop(thread);   // read anew: a cursor from before would start in the wrong place
       setLines((all) => ({ ...all, [thread]: h.lines ?? [] }));
       if (h.threads) setThreads(["general", ...h.threads.filter((t) => t !== "general")]);
       setDiscord(!!h.discord);
+      setOlder((o) => ({ ...o, [thread]: !!h.older }));
     });
     return () => { on = false; };
-  }, [thread, team.up]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [thread, team.up, room]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the hub's word (#223): a line it asked to wait, my place in its queue, a Sol too old for it; said under the box
   useEffect(() => team.onHub((w) => {
@@ -108,14 +128,35 @@ export function Talk({ team, flash }: { team: Team; flash: (s: string) => void }
   const pick = (t: string) => { setThread(t); keep(t); setSaid(null); box.current?.focus(); };
   const send = async () => {
     const t = text.trim();
-    if (!t || busy) return;
+    if ((!t && !chip) || busy) return;
     setBusy(true);
-    const r = await ask<Answer>("team.talk", { thread, text: t });
+    // a file goes into the group's record first, which can take a while on GitHub: two minutes before "no answer"
+    const r = await ask<Answer>("team.talk", { thread, text: t, ...(chip ? { file: { name: chip.name, bytes: chip.bytes, kind: chip.kind } } : {}) }, chip ? 120_000 : undefined);
     setBusy(false);
     if (r.ok) {
-      setText("");
+      setText(""); setChip(null);
       setSaid(/^\/discord\s/i.test(t) ? { t: "posted to Discord too", bad: false } : !r.sent && team.state?.relay.url ? { t: "kept here; the team gets it when they are back on line", bad: false } : null);
     } else setSaid({ t: plain(r.error ?? "that did not go out"), bad: true });
+  };
+  // a file picked or dropped: read here, then it waits as the chip until the line is sent
+  const take = async (f: File | undefined, kind: "image" | "file") => {
+    if (!f) return;
+    const c = await readChip(f, kind);
+    if ("error" in c) { setSaid({ t: c.error, bad: true }); return; }
+    setChip(c); setSaid(null); box.current?.focus();
+  };
+  // the cloud's earlier lines of this thread, before the oldest one here; put in front, once each
+  const earlier = async () => {
+    // the cursor: the cloud's own after a page, else the oldest line here the hub stamped (a line said here has this Mac's clock)
+    const c = cursors.current.of(thread, lines[thread] ?? []);
+    if (!c || paging) return;
+    setPaging(true);
+    const h = await ask<History>("team.talk.history", { thread, before: c.at, id: c.id });
+    setPaging(false);
+    if (h.error) { setSaid({ t: plain(h.error), bad: true }); return; }
+    setLines((all) => { const had = all[thread] ?? [], ids = new Set(had.map((l) => l.id)); return { ...all, [thread]: [...(h.lines ?? []).filter((l) => !ids.has(l.id)), ...had] }; });
+    cursors.current.set(thread, h.next);
+    setOlder((o) => ({ ...o, [thread]: !!h.more && !!h.next }));
   };
   const issues = (ev: React.MouseEvent) => {
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
@@ -144,12 +185,14 @@ export function Talk({ team, flash }: { team: Team; flash: (s: string) => void }
       <div className="talk-wrap">
         <div className="talk tk-talk" ref={talk}>
           <div className="talk-inner" ref={inner}>
+            {here.length > 0 && older[thread] && <p className="tk-earlier"><button className="wlink" disabled={paging} onClick={() => void earlier()}>{paging ? "reading…" : "earlier lines"}</button></p>}
             {here.length === 0 ? <Empty thread={thread} /> : groups.map((g) => mineOf(g[0], team.me) ? (
               <section key={g[0].id} className="tk-group mine">
                 {g.map((l) => (
                   <div key={l.id} data-id={l.id} className="me-row tk-me">
                     {l.to === "discord" && <span className="ctag tk-src">to Discord</span>}
-                    <p className="msg me">{l.text}</p>
+                    {l.file && <Attached file={l.file} ask={ask} flash={flash} />}
+                    {l.text && <p className="msg me">{l.text}</p>}
                   </div>
                 ))}
                 <time className="tk-at" title={new Date(g[g.length - 1].at).toLocaleString()}>{since(g[g.length - 1].at)}</time>
@@ -165,7 +208,8 @@ export function Talk({ team, flash }: { team: Team; flash: (s: string) => void }
                   </div>
                   {g.map((l) => (
                     <div key={l.id} data-id={l.id} className="tk-line">
-                      <p>{l.text}</p>
+                      {l.text && <p>{l.text}</p>}
+                      {l.file && <Attached file={l.file} ask={ask} flash={flash} />}
                       {l.to === "discord" && <span className="ctag tk-src">to Discord</span>}
                     </div>
                   ))}
@@ -181,16 +225,84 @@ export function Talk({ team, flash }: { team: Team; flash: (s: string) => void }
         {team.state?.cloud?.need && <p className="tk-said tk-no" role="status"><StateMark kind="needs" />this room meets on the cloud: sign in to Sol to talk here{" "}
           <button className="wlink" disabled={signing} onClick={() => void signInSol()}>{signing ? "finish in the browser…" : "sign in with Google"}</button></p>}
         {team.state?.cloud?.gone && <p className="tk-said tk-no" role="status"><StateMark kind="failed" />the cloud does not know this room's code yet: its maker can move it there (bash sol/cloud/move), or ask Frank or Marco to bring the NucBox's rooms over</p>}
-        <div className="tk-box">
+        {chip && (
+          <div className="tk-chip" role="status">
+            <span className="tk-chip-name" title={chip.name}>{chip.name}</span>
+            <span className="tk-chip-size">{sizeLine(chip.size)}</span>
+            <button className="tk-chip-x" aria-label="take the file off" title="take the file off" onClick={() => setChip(null)}>×</button>
+          </div>
+        )}
+        <div className={`tk-box ${drop ? "drop" : ""}`}
+          onDragOver={(ev) => { if (ev.dataTransfer.types.includes("Files")) { ev.preventDefault(); ev.dataTransfer.dropEffect = "copy"; if (!drop) setDrop(true); } }}
+          onDragLeave={(ev) => { if (!ev.currentTarget.contains(ev.relatedTarget as Node | null)) setDrop(false); }}
+          onDrop={(ev) => { ev.preventDefault(); setDrop(false); const f = ev.dataTransfer.files[0]; if (f) void take(f, kindOfDrop(f.type)); }}>
+          <button className="tk-att" aria-label="attach an image" title="attach an image" onClick={() => pickImage.current?.click()}><ImageGlyph /></button>
+          <button className="tk-att" aria-label="attach a file" title="attach a file" onClick={() => pickFile.current?.click()}><ClipGlyph /></button>
+          <input ref={pickImage} type="file" accept={IMAGE_TYPES} hidden onChange={(ev) => { void take(ev.target.files?.[0], "image"); ev.target.value = ""; }} />
+          <input ref={pickFile} type="file" hidden onChange={(ev) => { void take(ev.target.files?.[0], "file"); ev.target.value = ""; }} />
           <textarea ref={box} rows={1} value={text} placeholder={`say something in ${title(thread)}`} spellCheck
             onChange={(ev) => { setText(ev.target.value); if (said) setSaid(null); }}
             onKeyDown={(ev) => { if (ev.key === "Enter" && !ev.shiftKey && !composing(ev)) { ev.preventDefault(); void send(); } }} />
-          <button className="wbtn" disabled={!text.trim() || busy} onClick={() => void send()}>send</button>
+          <button className="wbtn" disabled={(!text.trim() && !chip) || busy} onClick={() => void send()}>{busy && chip ? "sending…" : "send"}</button>
         </div>
         {thread === "general" && discord && <p className="tk-hint">start with <code>/discord</code> to post it to the team's Discord as your agent</p>}
       </div>
       {menu && <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
     </div>
+  );
+}
+
+// ---- attachments (#315) ----
+const G = { width: 16, height: 16, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true } as const;
+function ImageGlyph() { return <svg {...G}><rect x="2" y="3" width="12" height="10" rx="2" /><circle cx="6" cy="6.5" r="1.2" /><path d="M2.5 12l3.8-3.6 2.7 2.4 1.9-1.6 2.6 2.3" /></svg>; }
+function ClipGlyph() { return <svg {...G}><path d="M13.2 7.6l-5 5a3.2 3.2 0 0 1-4.5-4.5l5.4-5.4a2.1 2.1 0 0 1 3 3L6.8 11a1 1 0 0 1-1.5-1.5l4.8-4.8" /></svg>; }
+
+// a thumbnail's picture, by its path: asked once, kept in memory only (never on disk), the last 20 used; one let go
+// gives its blob back
+const thumbs = new Lru<Promise<string>>(20, (p) => { void p.then((u) => URL.revokeObjectURL(u), () => {}); });
+type Ask = <T>(type: string, body: object, wait?: number) => Promise<T>;
+const thumbOf = (path: string, ask: Ask) => {
+  let p = thumbs.get(path);
+  if (!p) {
+    p = ask<Read>("team.talk.file", { path }, 60_000).then((r) => {
+      if (!r.bytes || !r.mime?.startsWith("image/")) throw new Error(r.error ?? "not a picture");
+      return URL.createObjectURL(new Blob([Uint8Array.from(atob(r.bytes), (c) => c.charCodeAt(0))], { type: r.mime }));
+    });
+    p.catch(() => thumbs.delete(path));   // a failed read is asked again next time
+    thumbs.set(path, p);
+  }
+  return p;
+};
+/** an attachment opened with the system: the engine keeps a copy, the Mac opens a document and shows anything else in Finder */
+async function openAttached(file: TalkFile, ask: Ask, flash: (s: string) => void) {
+  const r = await ask<Read>("team.talk.file", { path: file.path, name: file.name, open: true }, 60_000);
+  if (!r.local) { flash(plain(r.error ?? "Sol could not open it")); return; }
+  try {
+    const o = await import("@tauri-apps/plugin-opener");
+    if (r.open === "open") await o.openPath(r.local); else { await o.revealItemInDir(r.local); flash("shown in Finder: Sol does not open a file that could run"); }
+  } catch { flash("Sol could not open it"); }
+}
+/** an attachment in a line: an image as a 160×100 thumbnail, a file as its name · size · open */
+function Attached({ file, ask, flash }: { file: TalkFile; ask: Ask; flash: (s: string) => void }) {
+  const [src, setSrc] = useState("");
+  const [bad, setBad] = useState(false);
+  useEffect(() => {
+    if (file.kind !== "image") return;
+    let on = true;
+    thumbOf(file.path, ask).then((u) => { if (on) setSrc(u); }, () => { if (on) setBad(true); });
+    return () => { on = false; };
+  }, [file.path, file.kind]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (file.kind === "image" && !bad) return (
+    <button className="tk-thumb" title={labelOf(file)} aria-label={`open ${labelOf(file)}`} onClick={() => void openAttached(file, ask, flash)}>
+      {src ? <img src={src} alt={labelOf(file)} /> : <span className="tk-thumb-wait" aria-hidden />}
+    </button>
+  );
+  return (
+    <p className="tk-file">
+      <span className="tk-file-name" title={labelOf(file)}>{labelOf(file)}</span>
+      <span className="tk-file-size">{sizeLine(file.size)}</span>
+      <button className="wlink" onClick={() => void openAttached(file, ask, flash)}>open</button>
+    </p>
   );
 }
 
@@ -226,6 +338,7 @@ function Empty({ thread }: { thread: string }) {
 
 // ---- ?dev=talk: the pane with a made-up team, no engine (the shots). &empty=1 has no lines ----
 let devAdd: ((l: TalkLine) => void) | null = null;
+const devFiles = new Map<string, string>();   // ?dev=talk: what was attached here, by its made-up path
 const T0 = Date.now();
 const L = (id: string, thread: string, from: string, min: number, text: string, source: TalkLine["source"] = "relay", agent = false): TalkLine => ({ id, thread, from, at: T0 - min * 60_000, text, source, agent });
 const DEV: TalkLine[] = Q.get("empty") ? [] : [
@@ -248,8 +361,15 @@ function fake(type: string, body: any): History | Answer {
     const text = String(body.text);
     if (/^\/discord\s/i.test(text) && Q.get("discord") === "off") return { ok: false, error: "Discord is off in my agent's settings" };
     const id = `n${Date.now()}`;
-    setTimeout(() => devAdd?.({ id, thread: body.thread, from: "marco", at: Date.now(), text: text.replace(/^\/discord\s+/i, ""), source: "relay", ...(/^\/discord\s/i.test(text) ? { to: "discord" as const } : {}) }), 0);
+    const f = body.file as { name: string; bytes: string; kind: "image" | "file" } | undefined;
+    const file = f ? { path: `.sol/talk/${id}.${f.kind === "image" ? "png" : "bin"}`, name: f.name, size: Math.floor(f.bytes.length * 3 / 4), kind: f.kind } : undefined;
+    if (f && file) devFiles.set(file.path, f.bytes);
+    setTimeout(() => devAdd?.({ id, thread: body.thread, from: "marco", at: Date.now(), text: text.replace(/^\/discord\s+/i, ""), source: "relay", ...(/^\/discord\s/i.test(text) ? { to: "discord" as const } : {}), ...(file ? { file } : {}) }), 0);
     return { ok: true, id, sent: true };
+  }
+  if (type === "team.talk.file") {
+    const bytes = devFiles.get(String(body.path));
+    return (bytes ? { path: body.path, mime: "image/png", size: bytes.length, bytes } : { error: "not here" }) as Answer;
   }
   return { error: "not here" };
 }

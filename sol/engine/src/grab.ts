@@ -38,10 +38,19 @@ export function tuckedIn(all: CGWindow[]): (w: CGWindow) => boolean {
   return (w) => cells.some((c) => near(c.x, w.bounds.x) && near(c.y, w.bounds.y) && near(c.w, w.bounds.w) && near(c.h, w.bounds.h));
 }
 
+/** Sol's own owner name as CoreGraphics reports it (#282): "Sol" for the packaged app, but the dev build's binary is
+ *  `target/debug/face`, so there every window of Sol's is owned by "face". The app's own windows wear its titles
+ *  (the sheet, the notch, the island), so whoever owns one of them is Sol; "Sol" when none is in the list (pure) */
+const OWN_TITLES = new Set([SHEET_TITLE, "Sol notch", "Sol island"]);
+export function solOwner(all: CGWindow[]): string {
+  const own = (Array.isArray(all) ? all : []).find((w) => w && w.owner && OWN_TITLES.has(w.title));
+  return own?.owner ?? "Sol";
+}
+
 /** Sol's windows a person can pick: owner Sol, on screen, any layer, not the sheet itself, not empty (pure) */
 // The notch and the island are left out (2026-10-25): their windows are far larger than the slab Marco sees, so the
 // frame the dark room drew round them never fitted; Shot covers them.
-export function solWindows(all: CGWindow[], owner = "Sol"): SolWindow[] {
+export function solWindows(all: CGWindow[], owner = solOwner(all)): SolWindow[] {
   const tucked = tuckedIn(all);
   return (Array.isArray(all) ? all : [])
     .filter((w) => w && w.owner === owner && w.onScreen && w.title !== SHEET_TITLE && w.title !== "Sol notch" && w.title !== "Sol island" && w.bounds && w.bounds.w > 0 && w.bounds.h > 0)
@@ -58,7 +67,7 @@ export function solWindows(all: CGWindow[], owner = "Sol"): SolWindow[] {
 // macOS's own furniture sits at layer 0 too and is never a page: Stage Manager's strip (WindowManager: "App Icon
 // Window", "Gesture Blocking Overlay"), the Dock, the desktop's wallpaper, Control and Notification Center, Spotlight.
 export const SYSTEM_OWNERS = new Set(["WindowManager", "Dock", "Window Server", "Wallpaper", "Control Center", "Notification Center", "SystemUIServer", "Spotlight", "Screenshot", "loginwindow", "universalaccessd", "TextInputMenuAgent", "CursorUIViewService"]);
-export function pageWindows(all: CGWindow[], sol = "Sol"): PageWindow[] {
+export function pageWindows(all: CGWindow[], sol = solOwner(all)): PageWindow[] {
   const tucked = tuckedIn(all);
   return (Array.isArray(all) ? all : [])
     .filter((w) => w && w.owner && w.owner !== sol && !SYSTEM_OWNERS.has(w.owner) && w.layer === 0 && w.onScreen && w.title !== SHEET_TITLE && w.bounds && w.bounds.w > 40 && w.bounds.h > 40)
@@ -91,8 +100,9 @@ async function cgWindows(owner: string | null): Promise<CGWindow[]> {
   try { const all = JSON.parse(out || "[]"); return Array.isArray(all) ? all : []; } catch { throw new Error("the window list did not read"); }
 }
 /** Sol's windows on screen now (everyone's list, so Stage Manager's cells are there to tell a tucked one) */
-export async function listSolWindows(owner = "Sol"): Promise<SolWindow[]> {
-  return solWindows(await cgWindows(null), owner);
+export async function listSolWindows(owner?: string): Promise<SolWindow[]> {
+  const all = await cgWindows(null);
+  return solWindows(all, owner ?? solOwner(all));
 }
 /** every other app's normal windows on screen now (Page) */
 export async function listPageWindows(): Promise<PageWindow[]> {

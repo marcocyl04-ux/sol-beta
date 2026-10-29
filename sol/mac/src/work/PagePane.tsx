@@ -97,7 +97,7 @@ export function PagePane({ w, e, cwd, pages, onBox, onFile }: {
   };
   useEffect(() => { void load(); }, [page?.path, page?.n, cwd]); // eslint-disable-line react-hooks/exhaustive-deps
   // the pins belong to the page they were put on
-  useEffect(() => { setPins([]); setWriting(null); setText(""); setBox(null); }, [page?.key]);
+  useLayoutEffect(() => { setPins([]); setWriting(null); setText(""); setBox(null); }, [page?.key]);
 
   const bump = () => requestAnimationFrame(() => setTick((t) => t + 1));
   const onLoad = () => {

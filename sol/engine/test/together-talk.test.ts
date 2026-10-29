@@ -150,6 +150,24 @@ test("bridges: the two folders come into general by time; the watch tells only w
   assert.deepEqual(told.map((l) => l.text), ["one more"]);
 });
 
+// ---- each group's own talk (#267, #395) ----
+test("each group keeps its own talk: a line typed in one is not in another's history, nor in a group made after the first was deleted", async () => {
+  const base = getTeam();
+  const room = (id: string) => ({ id, name: id, provider: "github", org: "", repos: ["o/r"], hub: "", key: "", code: "", gate: "key" });
+  const typedLines = () => history("general").filter((l) => l.source !== "discord" && l.source !== "whatsapp");
+  patchTeam({ rooms: [room("ka"), room("kb")], room: "ka" });
+  assert.equal((await typed("general", "hello from ka")).ok, true);
+  assert.deepEqual(typedLines().map((l) => [l.text, l.room]), [["hello from ka", "ka"]]);
+  patchTeam({ room: "kb" });
+  assert.deepEqual(typedLines(), [], "kb has none of ka's lines");
+  // ka deleted, kc made after it: nothing of ka's shows in kc either
+  patchTeam({ rooms: [room("kb"), room("kc")], room: "kc" });
+  assert.deepEqual(typedLines(), [], "a group made later has none of a deleted group's lines");
+  patchTeam({ room: "kb" });
+  assert.deepEqual(typedLines(), []);
+  patchTeam({ rooms: base.rooms, room: base.room });
+});
+
 // ---- the cap ----
 test("the cap: a thread keeps its last 200 lines, in memory and on disk, and reads them back", async () => {
   assert.equal(CAP, 200);
@@ -160,7 +178,7 @@ test("the cap: a thread keeps its last 200 lines, in memory and on disk, and rea
   assert.equal(l[0].text, "line 5");
   const { dir, home } = fresh();
   for (let i = 0; i < 205; i++) await typed("#31", `line ${i}`);
-  const kept = JSON.parse(readFileSync(join(dir, "31.json"), "utf8"));
+  const kept = JSON.parse(readFileSync(join(dir, "team", "31.json"), "utf8"));   // each room's own folder (#315); "team" is the one room of a team.json with none
   assert.equal(kept.length, 200);
   assert.equal(kept[0].text, "line 5");
   assert.equal(kept.at(-1).text, "line 204");

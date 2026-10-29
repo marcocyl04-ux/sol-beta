@@ -1,32 +1,10 @@
-import { useRef } from "react";
-import { toggleVibe } from "./vibe";
 import { Sol } from "./Sol";
 import type { RGB } from "./creature/ring";
 
 // Sol's mark: the flat splat (Sol.tsx, from sol/design/sol.svg, 2026-10-26). Small (the sidebar, 22 px) it breathes and
 // blinks and follows the creature's state; `live` (the empty state, 56 px) it also watches the pointer and can be poked.
 // The pixel creature's cell map stays below for the places that still draw it (the notch crew, Show, Bead, Person).
-// The mark at the top of the sidebar is the vibe switch (vibe.ts): a click turns vibe mode on or off, everything
-// spreading from it; a hold (half a second) opens its settings, the music drawer. The creature's own poke still plays.
-export function VibeMark({ size = 22 }: { size?: number }) {
-  const timer = useRef(0);
-  const held = useRef(false);
-  const down = () => {
-    held.current = false;
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => { held.current = true; window.dispatchEvent(new CustomEvent("sol-vibe-edit")); }, 450);
-  };
-  const clear = () => window.clearTimeout(timer.current);
-  const up = (e: React.PointerEvent<HTMLSpanElement>) => { clear(); if (!held.current) toggleVibe(e.currentTarget); };
-  return (
-    // no pointerleave here: the creature captures the pointer on its canvas, which makes the wrapper hear a leave at once
-    <span className="vibe-mark" onPointerDown={down} onPointerUp={up} onPointerCancel={clear}
-      title="vibe mode: click to turn it on or off, hold to set it up">
-      <Mark size={size} />
-    </span>
-  );
-}
-
+// The vibe switch is Sol in the seat scene at the top of the sidebar (SeatScene.tsx, vibe.ts), not this mark.
 export function Mark({ size = 22, className, live: alive }: { size?: number; className?: string; live?: boolean }) {
   return <Sol size={size} watch={!!alive} className={`${alive ? "mark-live" : "mark-small"} ${className ?? ""}`} />;
 }

@@ -1,6 +1,6 @@
 {
   "presets": {
-    "everyday": { "name": "Everyday", "buttons": ["call", "browser", "desk", "file-it", "page"] },
+    "everyday": { "name": "Everyday", "buttons": ["browser", "desk", "file-it", "page"] },
     "build": { "name": "Build", "buttons": ["show-to-team", "file-it", "talk-view", "thread", "pr", "overview", "|", "changes", "terminal", "files", "page", "tasks"] },
     "team": { "name": "Team", "buttons": ["dashboard", "action-board", "group-chat", "shared"] }
   },

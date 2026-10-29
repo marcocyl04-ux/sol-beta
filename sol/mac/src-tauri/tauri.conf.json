@@ -34,6 +34,13 @@
       "csp": null
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["sol"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

@@ -24,3 +24,8 @@ dist-ssr
 *.sw?
 
 *.tsbuildinfo
+
+# tsc output of tsconfig.node.json: Vite reads vite.config.js before vite.config.ts, so a stale copy here replaces the real config
+vite.config.js
+vite.config.js.map
+vite.config.d.ts

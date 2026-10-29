@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import type { Frame, Tab } from "./useEngine";
 import { Screencast } from "./Screencast";
 
@@ -46,7 +46,7 @@ export function Browser({ tabs, sessionId, send, subscribe, onMark, frac, onFrac
   const activeId = active?.id;
 
   // a new address means a page on its way: the thin line runs until the next frame
-  useEffect(() => { setAddr(active?.url ?? ""); setLoading(!!activeId); }, [active?.url, activeId]);
+  useLayoutEffect(() => { setAddr(active?.url ?? ""); setLoading(!!activeId); }, [active?.url, activeId]);
 
   const resize = gripResize(frac, onFrac, maxFrac);
 

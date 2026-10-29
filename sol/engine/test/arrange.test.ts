@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { setArrangeHome, getArrangement, setArrangement, undoArrangement, addUsage, arrangeMsg, runArrangeTool, DEFAULTS, TOO_MANY, count } from "../src/arrange.ts";
+import { devOnly } from "./dev-copy.ts";
 
 // the arrangement (#133, PRD section 6): each test in a fresh back room of its own, never the real sol/home
 let home = "";
@@ -20,7 +21,7 @@ const say = async (a: object) => (await runArrangeTool("arrange", a)).content.ma
 
 test("defaults: no file is Sol's own, Everyday, Build and Team from the presets the face ships", () => {
   const a = getArrangement();
-  assert.deepEqual(a.presets.everyday.buttons, ["call", "browser", "desk", "file-it", "page"]);
+  assert.deepEqual(a.presets.everyday.buttons, ["browser", "desk", "file-it", "page"]);
   assert.equal(a.presets.build.name, "Build");
   assert.deepEqual(a.rails.home, [{ presets: ["everyday", "build"] }]);
   assert.deepEqual(a.rails.cowork, [{ presets: ["team"] }]);
@@ -31,17 +32,17 @@ test("defaults: no file is Sol's own, Everyday, Build and Team from the presets 
 
 test("add, remove and reorder a button, through the tool; every face is told", async () => {
   assert.match(await say({ do: "add", button: "terminal", preset: "everyday" }), /Done/);
-  assert.deepEqual(onDisk().presets.everyday.buttons, ["call", "browser", "desk", "file-it", "page", "terminal"]);
+  assert.deepEqual(onDisk().presets.everyday.buttons, ["browser", "desk", "file-it", "page", "terminal"]);
   assert.equal(onDisk().rails.home[0].at, "everyday", "the preset changed is the one showing");
   assert.equal(told.length, 1);
   assert.equal((told[0] as any).type, "arrange.changed");
 
   await say({ do: "move", button: "terminal", preset: "everyday", to: 0 });
-  assert.deepEqual(getArrangement().presets.everyday.buttons, ["terminal", "call", "browser", "desk", "file-it", "page"]);
-
-  await say({ do: "remove", button: "call" });   // no preset named: the one the rail shows
   assert.deepEqual(getArrangement().presets.everyday.buttons, ["terminal", "browser", "desk", "file-it", "page"]);
-  assert.match(await say({ do: "remove", button: "call" }), /not on Everyday/);
+
+  await say({ do: "remove", button: "browser" });   // no preset named: the one the rail shows
+  assert.deepEqual(getArrangement().presets.everyday.buttons, ["terminal", "desk", "file-it", "page"]);
+  assert.match(await say({ do: "remove", button: "browser" }), /not on Everyday/);
 });
 
 test("an 11th button is refused with the line, and nothing is written", async () => {
@@ -167,7 +168,7 @@ test("the undo note: an agent's change tells the rail who and what, and undo put
 
 // Mine stays mine (PRD section 12, check 10): the ignore file holds both, and nothing that moves stable names either
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-test("the arrangement and own buttons are ignored, and no stamp, promote or rebase names them", () => {
+test("the arrangement and own buttons are ignored, and no stamp, promote or rebase names them", { skip: devOnly("sol/promote") }, () => {
   const ignore = readFileSync(join(ROOT, ".gitignore"), "utf8").split("\n");
   assert.ok(ignore.includes("sol/home/arrangement.json"));
   assert.ok(ignore.includes("sol/home/buttons/"));

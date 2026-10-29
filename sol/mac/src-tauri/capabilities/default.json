@@ -33,6 +33,7 @@
     "allow-thing-outside",
     "allow-sites-sign-out",
     "allow-sites-clear",
+    "allow-sol-url-take",
     {
       "identifier": "opener:allow-open-path",
       "allow": [

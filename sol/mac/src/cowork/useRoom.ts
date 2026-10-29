@@ -1,11 +1,14 @@
 // The room's first page (#234, the studio PRD §3–§4): its things (team.things, round 39; who is in each, round 44),
 // its goal (team.goal, round 40), what happened (team.feed, team.feed.line, round 45) and what is for me (team.foryou).
 // Asked once when Cowork opens and on a room switch; every push the engine sends after a change is taken as it comes.
+// The connectors tab's one answer (team.connectors, round 55; #332) is asked once a room and taken on every push; an
+// older engine answers nothing of its shape, `conn` stays null and the tab draws from the answers above as before.
 // `?dev=team` fakes the room of three (frank, supertsai, marco) with six things, a goal and the room's own tools; nothing is sent.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { link } from "../socket";
 import { ENGINE } from "../useEngine";
 import { DEV_TEAM, type Team } from "./useTeam";
+import { connectorsOf, type Connectors } from "./connectors";
 
 export type ThingKind = "doc" | "slides" | "sheet" | "github" | "figma" | "web" | "file";
 export type Thing = { id: string; name: string; url: string; kind: ThingKind; addedBy: string; at: string; agent?: true; parent?: string; lastTouch: { who: string; at: string }; inNow: string[] };
@@ -23,7 +26,9 @@ export type ToolId = "calendar" | "decisions" | "polls";
 // folders: undefined when the engine is older than folders (it sends no field), so the face offers none
 /** the room moved to the cloud (#246): its new room's code and name, and my room of that code when I am in it */
 export type MovedTo = { code: string; hub: string; name: string; at: string; by?: string; have?: string };
-export type RoomNow = { repo?: string; things: Thing[]; folders?: Folder[]; readOnly?: boolean; thingsNote?: string; moved?: MovedTo; goal: Goal | null; feed: FeedLine[]; readAt?: number; feedError?: string; foryou: ForYou[]; tools: Tools };
+/** a cloud group whose maker moved its files to a private repository of theirs (#326): where, when, by whom */
+export type MovedAway = { to: "github"; repo: string; at: string; by: string };
+export type RoomNow = { repo?: string; things: Thing[]; folders?: Folder[]; readOnly?: boolean; thingsNote?: string; moved?: MovedTo; movedAway?: MovedAway; needsDrive?: boolean; goal: Goal | null; feed: FeedLine[]; readAt?: number; feedError?: string; foryou: ForYou[]; tools: Tools };
 
 const NO_TOOLS: Tools = { calendar: null, decisions: null, polls: null };
 const EMPTY: RoomNow = { things: [], goal: null, feed: [], foryou: [], tools: NO_TOOLS };
@@ -38,7 +43,7 @@ export function useRoom(team: Team) {
     if (DEV_TEAM) return;
     const n = ++seq.current;
     const [t, g, f, y, c, d, p] = await Promise.all([
-      team.ask<{ things?: Thing[]; folders?: Folder[]; readOnly?: boolean; repo?: string; note?: string; moved?: MovedTo; error?: string }>("team.things"),
+      team.ask<{ things?: Thing[]; folders?: Folder[]; readOnly?: boolean; repo?: string; note?: string; moved?: MovedTo; movedAway?: MovedAway; error?: string }>("team.things"),
       team.ask<Goal & { error?: string }>("team.goal"),
       team.ask<{ lines?: FeedLine[]; readAt?: number; error?: string }>("team.feed", { limit: 50 }),
       team.ask<{ items?: ForYou[] }>("team.foryou"),
@@ -51,10 +56,14 @@ export function useRoom(team: Team) {
     repoNow.current = typeof t.repo === "string" ? t.repo : t.error ? repoNow.current : undefined;
     setNow((was) => ({
       ...(repoNow.current !== undefined ? { repo: repoNow.current } : {}),
+      // a Drive group this Mac has not connected Google Drive for (#266): the record answers 401 to every read, and the
+      // page shows one state ("connect Google Drive to see this group") instead of an empty group
+      needsDrive: [t.error, g.error, f.error].some((e) => typeof e === "string" && /connect Google Drive first/.test(e)),
       // a read that failed keeps the things it had: an open thing (S2, S4) is never closed by a missed read (#236)
       things: Array.isArray(t.things) ? t.things : t.error ? was.things : [], ...(t.note ? { thingsNote: t.note } : {}),
       ...foldersOf(t, was),
       ...(t.moved?.code ? { moved: t.moved } : t.error && was.moved ? { moved: was.moved } : {}),
+      ...(t.movedAway?.repo ? { movedAway: t.movedAway } : t.error && was.movedAway ? { movedAway: was.movedAway } : {}),
       goal: g && typeof g.title === "string" ? g : null,
       feed: Array.isArray(f.lines) ? f.lines : [], ...(f.readAt ? { readAt: f.readAt } : {}), ...(f.error ? { feedError: f.error } : {}),
       foryou: Array.isArray(y.items) ? y.items : [],
@@ -63,8 +72,28 @@ export function useRoom(team: Team) {
         polls: Array.isArray(p.polls) ? p.polls : p.error ? was.tools.polls : null, ...(c.note ? { note: c.note } : {}) },
     }));
   }, [team.ask]);
+  // the connectors tab's one answer (#332): null until an engine that knows it answers
+  const [conn, setConn] = useState<Connectors | null>(DEV_TEAM ? fakeConn() : null);
+  const cseq = useRef(0);
+  /** an answer or a push of team.connectors taken, when it is one and this room's (its things name this room's record);
+   *  its things are the room's things too, so the tab's rows and the grid never say two different lists */
+  const takeConn = useCallback((m: unknown): boolean => {
+    const c = connectorsOf(m);
+    if (!c) return false;
+    const t = c.things;
+    if (t && typeof t.repo === "string" && repoNow.current !== undefined && t.repo !== repoNow.current) return false;
+    setConn(c);
+    if (t && Array.isArray(t.things) && typeof t.repo === "string" && t.repo === repoNow.current) setNow((n) => ({ ...n, things: t.things as Thing[], ...foldersOf(t, n) }));
+    return true;
+  }, []);
   // a room switch empties the page at once: nothing of the room before is drawn under the new one's name
-  useEffect(() => { if (!DEV_TEAM) { repoNow.current = undefined; setNow(EMPTY); } }, [room]);
+  useEffect(() => { if (!DEV_TEAM) { repoNow.current = undefined; setNow(EMPTY); setConn(null); } }, [room]);
+  // asked once a room (and again when the engine comes back); a refusal or no answer keeps what the tab had
+  useEffect(() => {
+    if (DEV_TEAM) return;
+    const n = ++cseq.current;
+    void team.ask("team.connectors", {}, 15_000).then((m) => { if (n === cseq.current) takeConn(m); });
+  }, [team.ask, takeConn, room, team.up]);
   // asked on open, on a room switch, and once a minute (the feed's own cache is a minute)
   useEffect(() => { void read(); if (DEV_TEAM) return; const t = window.setInterval(() => void read(), 60_000); return () => window.clearInterval(t); }, [read, room, team.up]);
   // the engine's pushes: the things after any change (and who is in each), the goal, a live line
@@ -79,6 +108,7 @@ export function useRoom(team: Team) {
       else if (m?.type === "team.calendar" && Array.isArray(m.events) && ours) setNow((n) => ({ ...n, tools: { ...n.tools, calendar: m.events } }));
       else if (m?.type === "team.decisions" && Array.isArray(m.decisions) && ours) setNow((n) => ({ ...n, tools: { ...n.tools, decisions: m.decisions } }));
       else if (m?.type === "team.polls" && Array.isArray(m.polls) && ours) setNow((n) => ({ ...n, tools: { ...n.tools, polls: m.polls } }));
+      else if (m?.type === "team.connectors") takeConn(m);
       else if (m?.type === "team.feed.line" && m.line?.id) setNow((n) => (n.feed.some((l) => l.id === m.line.id) ? n : { ...n, feed: [m.line, ...n.feed].slice(0, 200) }));
     });
   }, []);
@@ -139,7 +169,32 @@ export function useRoom(team: Team) {
     if (DEV_TEAM) { setNow((n) => ({ ...n, folders: (n.folders ?? []).filter((f) => f.id !== id), things: n.things.map((t) => (t.parent === id ? { ...t, parent: undefined } : t)) })); return {}; }
     return change("team.things.unfolder", { id });
   }, [change]);
-  return { ...now, read, add, remove, tool, folderAdd, move, unfolder };
+  // ---- the connectors tab's presses (#332): a repository connected, an ask to be let in, the build-updates workflow ----
+  /** connect a repository to a cloud group (round 55): the answer is the tab's whole answer again */
+  const connectRepo = useCallback(async (repo: string): Promise<{ error?: string }> => {
+    if (DEV_TEAM) {
+      if (conn?.repos.some((x) => x.repo.toLowerCase() === repo.toLowerCase())) return { error: `${repo} is connected already` };
+      setConn((c) => c && { ...c, repos: [...c.repos, { repo, by: "marco", at: new Date().toISOString(), in: [], members: 3, checked: true }] });
+      return {};
+    }
+    const r = await team.ask<{ error?: string }>("team.connect.repo", { repo }, 60_000);
+    if (r?.error) return { error: r.error };
+    takeConn(r);
+    return {};
+  }, [team.ask, takeConn, conn]);
+  /** ask the one who connected it to let me in (round 57): asked, or in at once, or why not */
+  const askIn = useCallback(async (repo: string): Promise<{ asked?: boolean; in?: boolean; to?: string; error?: string }> => {
+    const r = DEV_TEAM ? { asked: true, to: "frank" } : await team.ask<{ asked?: boolean; in?: boolean; to?: string; error?: string }>("team.letin.ask", { repo }, 60_000);
+    if (r?.asked) setConn((c) => c && { ...c, repos: c.repos.map((x) => (x.repo === repo ? { ...x, asked: true as const } : x)) });
+    return r ?? { error: "no answer" };
+  }, [team.ask]);
+  /** the build-updates workflow on or off (round 60); `needs` is GitHub's one more permission. ?dev=team&needs=1 asks for it */
+  const workflow = useCallback(async (repo: string, on: boolean): Promise<{ added?: boolean; removed?: boolean; needs?: string; say?: string; error?: string }> => {
+    if (DEV_TEAM) return !on ? { removed: true } : new URLSearchParams(location.search).get("needs") ? { needs: "workflow-scope", say: "GitHub needs one more permission for workflows" } : { added: true };
+    const r = await team.ask<{ added?: boolean; removed?: boolean; needs?: string; say?: string; error?: string }>(on ? "team.connect.events" : "team.connect.events.remove", { repo }, 120_000);
+    return r ?? { error: "no answer" };
+  }, [team.ask]);
+  return { ...now, conn, read, add, remove, tool, folderAdd, move, unfolder, connectRepo, askIn, workflow };
 }
 export type Room = ReturnType<typeof useRoom>;
 
@@ -165,6 +220,20 @@ function fakeTool(t: Tools, type: string, b: Record<string, any>): Tools {
   if (type === "team.polls.vote") return { ...t, polls: (t.polls ?? []).map((p) => (p.id === b.id ? { ...p, votes: { ...p.votes, marco: Number(b.option) } } : p)) };
   if (type === "team.polls.close") return { ...t, polls: (t.polls ?? []).map((p) => (p.id === b.id ? { ...p, closed: { by: "marco", at: now } } : p)) };
   return t;
+}
+/** ?dev=team: the connectors tab's one answer for a cloud group, two repositories: marco connected the first and is in
+ *  it; frank connected the second and marco is not let in yet. ?gh=out: no GitHub on this Mac */
+function fakeConn(): Connectors {
+  const out = new URLSearchParams(location.search).get("gh") === "out";
+  return {
+    record: "cloud",
+    repos: [
+      { repo: "marcocyl04-ux/sol-dev", by: "marco", at: ago(60 * 40), in: ["marcocyl04-ux", "franktsai2008-eng"], members: 3, checked: true },
+      { repo: "franktsai2008-eng/room", by: "frank", at: ago(60 * 30), in: ["franktsai2008-eng"], members: 3 },
+    ],
+    tools: [],   // the tiles say the fake tools below, as an older engine's would
+    me: { google: { in: true, email: "marco@matterfold.tech" }, github: out ? { in: false } : { in: true, who: "marcocyl04-ux" } },
+  };
 }
 const FAKE: RoomNow = {
   folders: [

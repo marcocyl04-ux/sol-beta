@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const shelf = await import("../src/shelf.ts");
-const { solWindows, pageWindows, handleGrab } = await import("../src/grab.ts");
+const { solOwner, solWindows, pageWindows, handleGrab } = await import("../src/grab.ts");
 const { holdShot, heldShot, drop } = await import("../src/team/file.ts");
 type Row = import("../src/shelf.ts").Row;
 
@@ -155,6 +155,23 @@ test("Sol's windows: owner Sol, on screen, any layer, not the sheet, not the not
     { id: 9, title: "Sol", x: 15, y: 562, w: 159, h: 156, kind: "window", tucked: true },
   ]);
   assert.deepEqual(solWindows(null as any), []);
+});
+
+test("Sol's owner name is read from its own windows: the dev build is owned by face, not Sol (#282)", () => {
+  const b = (x: number, y: number, w: number, h: number) => ({ x, y, w, h });
+  const dev: any[] = [
+    { id: 1, owner: "Safari", title: "Sol", layer: 0, onScreen: true, bounds: b(100, 80, 1200, 800) },
+    { id: 2, owner: "face", title: "Sol notch", layer: 25, onScreen: true, bounds: b(377, 0, 760, 460) },
+    { id: 3, owner: "face", title: "Sol grab", layer: 26, onScreen: false, bounds: b(0, 0, 1512, 982) },
+    { id: 4, owner: "face", title: "Sol", layer: 0, onScreen: true, bounds: b(306, 97, 900, 640) },
+  ];
+  assert.equal(solOwner(dev), "face");
+  // the Sol room finds the dev build's window; Page leaves it out, as it leaves the packaged Sol's out
+  assert.deepEqual(solWindows(dev).map((w) => w.id), [4]);
+  assert.deepEqual(pageWindows(dev).map((w) => w.id), [1]);
+  // nothing of Sol's in the list: the name is Sol, as before
+  assert.equal(solOwner([{ id: 1, owner: "Safari", title: "Apple", layer: 0, onScreen: true, bounds: b(0, 0, 800, 600) }]), "Sol");
+  assert.equal(solOwner(null as any), "Sol");
 });
 
 test("Page's windows: every app's normal on-screen windows, front to back, not Sol's, not the sheet, not tiny", () => {

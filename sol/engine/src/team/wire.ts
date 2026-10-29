@@ -3,24 +3,28 @@
 //
 // A face is a Cowork face once it says team.hello; only those are sent team.state, team.board and team.changed.
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, lstatSync } from "node:fs";
+import { existsSync, mkdirSync, lstatSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve, basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getTeam, patchTeam, forFace, onTeam, fillMe, roomKey, activeRoom, recordOf, sharedHub, hubKey, isCloud, type TeamSettings } from "./settings.js";
+import { getTeam, patchTeam, forFace, onTeam, fillMe, roomKey, activeRoom, recordOf, sharedHub, hubKey, isCloud, connectedRepos, ROOMS_DIR, type TeamSettings, type Room } from "./settings.js";
 import { getThings, changeThings, forgetThings, onThings, onAgain, thingsMsg, recordBranch, folderId, THINGS_PATH, serialize as serializeThings, type ThingsDeps, type Op as ThingsOp } from "./things.js";   // the room's things (#194)
 import { readGoal, readGoalFile, setGoal, addGoalFile, goalMsg, goalHead, goalSnapshot, GOAL_PATH } from "./goal.js";
-import { movedOf, movedForFace } from "./moved.js";   // where a room went (#246)
-import { planStart } from "./start.js";   // the box (#234)   // the room's goal (#216)
-import { Feed, pageOf, rosterLines, forYouOf, type FeedLine } from "./feed.js";   // what happened, for you (#232)
+import { movedOf, movedForFace, cloudMovedOf, followMove, type AwayDeps } from "./moved.js";   // where a room went (#246, #326)
+import { usageOf, takeRoom, type TakeDeps } from "./take.js";   // the quota and the move to GitHub (#326)
+import { planStart, firstTurn } from "./start.js";   // the box (#234)   // the room's goal (#216)
+import { memoryForStart } from "./memory.js";   // a group's memory (#316)
+import { Feed, feedOf, pageOf, rosterLines, forYouOf, type FeedLine } from "./feed.js";   // what happened, for you (#232)
+import { eventLine, sameAs, pollKey, pollEvents, myPolls, connectEvents, gitWith, SECRET_NAME, POLL_BACK, type EventsDeps, type Key } from "./updates.js";   // build updates (#328)
 import { readPings } from "./pings.js";
-import { accounts, signinCommand } from "./control.js";
+import { accounts, signinCommand, githubAccount, githubIn, noteGithub, onGithub } from "./control.js";
 import { startConnect, cancelConnect, onConnect } from "./gh.js";   // GitHub from a card (#174)
 import { stamp, stables, update, offerNow, shipNow, answered } from "./ship.js";
-import { getBoard, peekBoard, onBoard, member, forgetOwners, type Board } from "./board.js";
+import { getBoard, peekBoard, onBoard, member, forgetOwners, boardReason, boardWanted, type Board } from "./board.js";
 import { routeIssues } from "./leads.js";   // #118: routing on label
 import { pressLeads, candidates } from "./press.js";   // the owner's press (#117)
-import { onRelay, sendRelay, relayRoster, relayUp, relayHub, onRelayStatus, restartRelay, setPresence, setInside, startRelayClient, hubTicket, hubLogin, onCloud, hubHttp, CLOUD_FILE, driveHub, driveDeps, DRIVE_FILE, type RelayMsg } from "./relay.js";
+import { relayPollers, sayPresence } from "./relay.js";   // build updates (#328): who polls what, my polls said again
+import { setTalkSince, onRelay, sendRelay, relayRoster, relayUp, relayHub, onRelayStatus, restartRelay, setPresence, setInside, setGithub, startRelayClient, hubTicket, hubLogin, onCloud, hubHttp, CLOUD_FILE, driveHub, driveDeps, DRIVE_FILE, cloudRoom, onCloudWrite, type RelayMsg } from "./relay.js";
 import { connectDrive, disconnectDrive, driveAccount, driveForFace, driveToken, staleDrive } from "./drive.js";   // a Drive room (#152)
 import { driveMembers, driveFolderWritable, folderOfRecord } from "./record/drive.js";
 import { here, onHereChanged, roomSessions, belongs, roomMark, FocusOrder } from "./here.js";   // who is in which thing (#230)
@@ -31,7 +35,8 @@ import { mark, workState } from "../work/state.js";
 import { allRuns } from "../work/runs.js";
 import { workSessions } from "../work/sessions.js";
 import { handleWork, nameWhenWritten } from "../work/wire.js";
-import { typed, history, threadsWithLines, onTalkLine, hearRelay, watchBridges, threadOf } from "./talk.js";   // Talk (#37)
+import { typed, history, threadsWithLines, onTalkLine, hearRelay, watchBridges, threadOf, hearHistory, saidOf, readTalkFile, olderLines, setAttachDeps, talkSince, sweepCache, type AttachDeps, type OlderDeps } from "./talk.js";   // Talk (#37); kept on the cloud, attachments (#315)
+import { talkFileOf, TALK_HISTORY } from "../hub/index.js";
 // --- Hand (#34)
 import { startHand, heard, handNow, answerNow, handsNow, boardRead, gitCli } from "./hand.js";
 import { myLogin } from "./settings.js";
@@ -45,7 +50,7 @@ import { pingOf, route, keepPing, absorbedLine, flipped, learnedLine, lastPing, 
 import { flipBody } from "./mark.js";
 import { signature, mayAgentSpeak } from "./settings.js";
 import { teamNote, runGit } from "./note.js";
-import { record, runGh, runners, ghWithInput, makeGithubRecord, isGithubRecord } from "./record.js";   // the room's record (#152)
+import { record, runGh, runners, ghWithInput, makeGithubRecord, isGithubRecord, runGhStdin } from "./record.js";   // the room's record (#152)
 import { moveRoom } from "./move.js";   // a GitHub room to the cloud (#216, C15)
 import { STATE_DIR } from "../work/state.js";
 import { startOnCall } from "./oncall.js";   // on-call (#225)
@@ -74,12 +79,12 @@ setTimeout(() => {
 // --- end Pings
 import { shows, setShowBus, roomShowsWanted } from "./show.js";   // Show to team (#101)
 // --- Share code (#157)
-import { shareRoom, joinRoom, makeRoom, shareOnArrival, shareAgain, forgetGone, type RoomsDeps } from "./rooms.js";
+import { shareRoom, joinRoom, peekRoom, makeRoom, shareOnArrival, shareAgain, forgetGone, type RoomsDeps } from "./rooms.js";
 import type { Registry } from "../hub/index.js";
 import { ghToken } from "./identity.js";
 // --- end Share code
 // --- Let in (#162)
-import { askIn, cloneRoom, hearRoom, gitQuiet, remoteOf, roomFolders, letIn, waitingNow, type LetInDeps } from "./letin.js";
+import { askIn, cloneRoom, hearRoom, hearCloud, askCloud, askedNow, gitQuiet, remoteOf, roomFolders, letIn, waitingNow, groupClone, cloneAuth, type LetInDeps } from "./letin.js";
 // --- end Let in
 // --- File it (#119)
 import { fileIt, takeShot, heldShot, drop as dropShot, healthLine } from "./file.js";
@@ -90,6 +95,8 @@ import { calendar, upcoming, remindersDue, icsOf, type Calendar } from "./calend
 import { decisions, type Log } from "./decisions.js";
 import { polls, type Polls } from "./polls.js";
 // --- end File it
+// what a group is connected to, as one answer (#320): its repositories, things, tools, and Google and GitHub here
+import { connectors, connectRepo, repoFacts, connectorsMsg, toolLines, memberCount, forgetCounts, pruneMine, mineAfter, adminsAfter, liveOf, type ConnectDeps, type ConnectorsFile } from "./connectors.js";
 
 type Wire = { send: (m: object) => void };
 const faces = new Map<Wire, { cowork: boolean }>();
@@ -118,7 +125,7 @@ let pending: NodeJS.Timeout | undefined;
 const sendState = () => { clearTimeout(pending); pending = setTimeout(() => everyoneTeam(stateMsg()), 100); };
 
 const boardMsg = (b: Awaited<ReturnType<typeof getBoard>>, folders: Record<string, string>, rid?: unknown) =>
-  ({ type: "team.board", ...(rid ? { rid } : {}), repos: b.repos, cards: b.cards, prs: b.prs, branches: b.branches, stable: b.stable, main: b.main, leads: b.leads, owner: b.owner, at: b.at, folders, ...(b.error ? { error: b.error } : {}) });
+  ({ type: "team.board", ...(rid ? { rid } : {}), repos: b.repos, cards: b.cards, prs: b.prs, branches: b.branches, stable: b.stable, main: b.main, leads: b.leads, owner: b.owner, at: b.at, folders, ...(b.error ? { error: b.error } : {}), ...(b.reason ? { reason: b.reason } : {}) });
 
 // ---- which folder on this machine holds each team repo (Work's folders and this engine's own checkout; then a room's
 // own clone, #162) ----
@@ -183,12 +190,14 @@ export function startTeam() {
   onTeam(sendState);
   onRelay("changed", (m) => {
     if (m.leads) forgetOwners(typeof m.repo === "string" ? m.repo : undefined);
+    connectors.forget();   // #320: a cloud group's board reads what its connectors.json lists now
     void getBoard(true).catch(() => {});
     // #194: another Sol wrote the room's things (or anything else in the record repo): read the list anew for the faces
     const repo = recordOf(activeRoom(getTeam()));
     if (repo && (typeof m.repo !== "string" || m.repo.toLowerCase() === repo.toLowerCase())) {
       forgetThings(); forgetTools();
-      if ([...faces.values()].some((f) => f.cowork)) { void pushThings(repo).catch(() => {}); void pushTools(repo).catch(() => {}); }
+      if ([...faces.values()].some((f) => f.cowork)) { void pushThings(repo).catch(() => {}); void pushTools(repo).catch(() => {}); pushConnectors(); }
+      else if (activeRoom(getTeam()).provider === "cloud") void connectors.get(thingsDeps(), repo).then(pruneRepos, () => {});   // P2-5
     }
   });
   // a ping to me heard live; one kept by the hub while I was away comes in `spooled` below, not here
@@ -199,19 +208,44 @@ export function startTeam() {
   onMembers(sendState);
   // --- end spool
   onBoard((b) => { if ([...faces.values()].some((f) => f.cowork)) void teamFolders().then((f) => everyoneTeam(boardMsg(b, f))); });
+  // #320: my hello says whether GitHub is signed in here (a boolean, never a login); asked once now, then again every
+  // five minutes, relay or not (review P2-10), so a sign-out in a terminal is heard too
+  void githubAccount().then((a) => setGithub(a.in)).catch(() => {});
+  setInterval(() => void githubAccount(true).catch(() => {}), 5 * 60_000).unref();
+  // who is in the group changed (the roster's people, or the team's members): the tab's member count is counted again
+  let people = "";
+  onRelayStatus(() => { const k = relayRoster().map((e) => e.who.toLowerCase()).sort().join(","); if (k !== people) { people = k; forgetCounts(); pushConnectors(); } });
+  onMembers(() => { forgetCounts(); pushConnectors(); });
   // the board re-reads every minute while someone looks at it
   setInterval(() => { if ([...faces.values()].some((f) => f.cowork)) void getBoard().catch(() => {}); }, 60_000).unref();
+  // #328: the repositories the hub named me poller of, read every minute, face or not, their new lines told to the room
+  setInterval(() => void pollNow().catch(() => {}), 60_000).unref();
 }
 
 // --- Talk (#37, PROTOCOL.md round 24): every new line (said here, heard on the relay, read from a bridge) to every
 // Cowork face; a teammate's line is heard from the moment this module loads, like the other relay kinds
 onTalkLine((l) => everyoneTeam({ type: "team.talk.line", ...l }));
 onRelay("talk", hearRelay);
+// #315: the cloud's history of each thread on my hello, merged by id; attachments go to and come from the room's record
+onRelay(TALK_HISTORY, hearHistory);
+const attachNow = (): AttachDeps => ({ record, repo: () => recordOf(activeRoom(getTeam())), branch: (repo) => recordBranch(thingsDeps(), repo), up: relayUp });
+setAttachDeps(attachNow);
+// a hello says the newest line each thread has here, so the cloud sends only newer ones (#315, the review's P2-12)
+setTalkSince(talkSince);
+// the copies made to open an attachment are gone a day after: at start, then once a day (the review's P2-11)
+setTimeout(() => sweepCache(), 5_000).unref?.();
+setInterval(() => sweepCache(), 86_400_000).unref();
+/** the room in use when it meets on a cloud I am signed in to, by its code: where its older talk is paged from */
+const olderNow = (): OlderDeps => ({ where: () => { const r = activeRoom(getTeam()); return r.code && onCloud() ? { hub: hubHttp(r.hub), code: r.code } : null; }, ticket: hubTicket });
 // --- end Talk
 
 // --- Let in (#162): an ask in the room in use (I may be its maker), or an answer to me; live or kept by the hub
-// not on a cloud (#214): there the asker's name is a Sol name, and a yes would give push to whoever holds that GitHub login
-onRelay("room", (m) => { if (!onCloud()) void hearRoom(letInDeps(), m).catch(() => {}); });
+// not on a cloud (#214): there the asker's name is a Sol name, and a yes would give push to whoever holds that GitHub login.
+// A cloud group's (#325) is its own path: the ask says the GitHub login, and only the maker's press lets anyone in
+onRelay("room", (m) => {
+  if (activeRoom(getTeam()).provider === "cloud") void hearCloud(letInDeps(), m).catch(() => {});
+  else if (!onCloud()) void hearRoom(letInDeps(), m).catch(() => {});
+});
 // --- end Let in
 
 // --- the spool (#102, PROTOCOL.md round 26)
@@ -234,12 +268,13 @@ const RID = (v: unknown) => (typeof v === "string" || typeof v === "number" ? v 
 // place (another hub, key, org, or room on the hub: the hello names the room's code), a new org's members are read at
 // once, and other repos are another board and other shared things, read anew
 function afterRoomChange(before: TeamSettings, after: TeamSettings) {
-  if (activeRoom(after).id !== activeRoom(before).id) { here.clear(); sayInside(); feed.forget(); feed.live.clear(); lastRoster = []; seeding = true; }   // #230, #232: nothing I was in, nothing live, is the new room's
+  if (activeRoom(after).id !== activeRoom(before).id) { here.clear(); sayInside(); feed.forget(); feed.live.clear(); feed.updates.clear(); lastRoster = []; seeding = true; }   // #230, #232: nothing I was in, nothing live, is the new room's (#328: nor its build updates)
   if (after.relay.url !== before.relay.url || after.relay.key !== before.relay.key || roomKey(after) !== roomKey(before)
     || after.org !== before.org || activeRoom(after).code !== activeRoom(before).code) { sayInside(); restartRelay(); }   // #238: room shows of the room before stop before the relay moves
   if (after.org !== before.org) void refreshMembers(true);   // #102
   if (after.repos.join(",") !== before.repos.join(",") || recordOf(activeRoom(after)) !== recordOf(activeRoom(before))) forgetTools();
-  if (after.repos.join(",") !== before.repos.join(",")) { forgetShared(); forgetThings(); void getShared(true).catch(() => {}); void getBoard(true).catch(() => {}); }
+  if (after.repos.join(",") !== before.repos.join(",")) { forgetShared(); forgetThings(); feed.forget(); void getShared(true).catch(() => {}); void getBoard(true).catch(() => {}); }
+  if (activeRoom(after).repos.join(",") !== activeRoom(before).repos.join(",")) sayPresence();   // #328: the repositories I may poll
 }
 
 // --- Share code (#157): this engine's own registry, when it is a hub (index.ts hands it in), and the deps of share and join
@@ -277,6 +312,8 @@ export const moveNow = (id: unknown, as?: unknown) => moveRoom({ ...roomsDeps(),
   dir: join(STATE_DIR, "cloud", "moves"), hub: sharedHub() }, id, as);
 // --- end Share code
 
+/** my cloud groups' asks to be let in still out (#325, review P2-4), kept beside the engine's other state */
+const ASKS_FILE = join(STATE_DIR, "cloud", "letin-asks.json");
 // --- Let in (#162, PROTOCOL.md round 37): the friend's Sol asks the room to be let into its repository, the maker's
 // answers; a receipt to every face (the notch's too) says what came of it
 const letInDeps = (): LetInDeps => ({
@@ -285,13 +322,77 @@ const letInDeps = (): LetInDeps => ({
   reread: () => { void getShared(true).catch(() => {}); void getBoard(true).catch(() => {}); },
   have: async (repo) => (await workFolders([repo]))[repo] ?? "",
   wait: (asks) => everyFace({ type: "team.letin", asks }),
+  // #325: a cloud group's ask, the maker's press and the asker's taking in; my name there only when I am on its cloud
+  cloud: {
+    me: () => (onCloud() ? hubLogin() : ""),
+    file: (room) => connectors.get(thingsDeps(), recordOf(room), true),
+    change: (room, op) => connectors.change(thingsDeps(), recordOf(room), op),
+    github: () => githubAccount(),
+    members: async (room) => { const m = await cloudMembers(room.code); return m ? { logins: m.logins, maker: m.maker } : null; },
+    take: async (room, repo) => { const r = await connectMine(room, repo); return "error" in r ? r.error : ""; },
+    facts: (repo) => repoFacts(runGh, repo),
+    prove: (text) => record().who.prove(text),
+    unprove: (id) => record().who.unprove(id),
+    proofOf: (id) => record().who.proofOf(id),
+    // review P2-4: my asks out survive a restart, in the state folder, mine alone to read
+    store: { load: () => { try { return readFileSync(ASKS_FILE, "utf8"); } catch { return ""; } },
+      save: (text) => { mkdirSync(dirname(ASKS_FILE), { recursive: true, mode: 0o700 }); writeFileSync(`${ASKS_FILE}.tmp`, text, { mode: 0o600 }); renameSync(`${ASKS_FILE}.tmp`, ASKS_FILE); } },
+    changed: pushConnectors,
+    log: (line) => console.log(line),
+  },
 });
 // --- end Let in
+
+// --- The quota and the move to GitHub (#326, PROTOCOL.md round 58): how full a cloud group is, the maker's move of its
+// files to a private repository of theirs, and a member's press on "join it". My name on a group's hub is my account's
+// there, the name the cloud knows its maker by
+const nameOn = (r: Room) => accountOn(hubHttp(r.hub), CLOUD_FILE)?.login ?? "";
+const usageDeps = () => ({ team: getTeam, cloud: cloudRoom, me: nameOn });
+const ghLogin = () => record().who.login();
+const takeDeps = (): TakeDeps => ({ ...usageDeps(), patch: patchTeam, files: record, git: gitQuiet, cloneArgs: cloneAuth, dir: join(STATE_DIR, "cloud", "takes"), roomsDir: ROOMS_DIR,
+  github: { login: ghLogin, view: ghView, tree: (repo, sha) => runGh(["api", `repos/${repo}/git/trees/${sha}?recursive=1`]),
+    create: async (repo, name) => { await runGh(["repo", "create", repo, "--private", "--add-readme", "--description", `a Sol room: ${name}`]); } } });
+/** a repository of GitHub's, as `gh repo view` says it: null when GitHub has none of that name (or I cannot see it) */
+const ghView = async (repo: string): Promise<{ private: boolean } | null> => {
+  try { return { private: (await runGh(["repo", "view", repo, "--json", "isPrivate", "--jq", ".isPrivate"])).trim() === "true" }; }
+  catch (e) { if (/could not resolve|not found|HTTP 404/i.test(String((e as { full?: string })?.full ?? (e as Error)?.message))) return null; throw e; }
+};
+const awayDeps = (): AwayDeps => ({ usage: cloudRoom.usage });
+/** how full a group is, to every Cowork face (a write that answered `warn` or 423, a take that ended); once in three
+ *  seconds a group at most, since a burst of writes is one change of the bar, and the last ask of a burst is sent when
+ *  the three seconds end, so the bar never stays where the burst began */
+const usageSaid = new Map<string, { t: NodeJS.Timeout; again: boolean }>();
+function pushUsage(id: string) {
+  const w = usageSaid.get(id);
+  if (w) { w.again = true; return; }
+  usageSaid.set(id, { again: false, t: setTimeout(() => { const x = usageSaid.get(id); usageSaid.delete(id); if (x?.again) pushUsage(id); }, 3000).unref() });
+  void usageOf(usageDeps(), id).then((u) => { if (u && !("error" in u)) everyoneTeam({ type: "team.room.usage", ...u }); }).catch(() => {});
+}
+// a write refused while the group moves or after it moved (423): the move is read anew, and the faces get the things
+// with the card at once, not in ten minutes
+onCloudWrite((code, said) => {
+  const r = getTeam().rooms.find((x) => x.provider === "cloud" && x.code === code);
+  if (!r) return;
+  pushUsage(r.id);
+  if (said.status === 423) void cloudMovedOf(awayDeps(), recordOf(r), Date.now(), true).then((m) => { if (m && activeRoom(getTeam()).id === r.id) return pushThings(recordOf(r)); }).catch(() => {});
+});
+// --- end The quota
 
 // --- Who is in which thing (#230): my thing and my room sessions in the room in use, said on the relay when they
 // change; the face's focus and the agent's in_thing tell `here`, the runs and their marks say the sessions
 const titles = new Map<string, string>();   // a room session's title, as its turns said it or as Work named it
 let lastIn = "", inTimer: NodeJS.Timeout | undefined, pushIn: NodeJS.Timeout | undefined;
+/** what a group session's first turn carries before the words (#234, #245, #316), as the room's content: the goal's
+ *  snapshot, the newest five decisions, then the group's memory (the newest notes that fit in 8 KB); and the versions
+ *  read, kept on the session (`goalv`, `memv`). Nothing that cannot be read stops a session */
+async function roomContext(rec: string): Promise<{ text: string; goalv: string; memv: string }> {
+  if (!rec) return { text: "", goalv: "", memv: "" };
+  const goal = goalSnapshot(await readGoal(thingsDeps(), rec).catch(() => ({ title: "", lines: "", setBy: "", at: "", files: [] })));
+  const dec = (await decisions.get(thingsDeps(), rec).catch(() => null))?.decisions.slice(-5).reverse() ?? [];
+  const decLine = dec.length ? `What the room decided, newest first (the tool room_decisions reads them whole):\n${dec.map((d) => `- ${d.title}`).join("\n")}` : "";
+  const mem = await memoryForStart({ ...thingsDeps(), log: (l: string) => console.log(`memory: ${l}`) }, rec).catch(() => ({ text: "", version: "" }));
+  return { text: [[goal.text, decLine].filter(Boolean).join("\n"), mem.text].filter(Boolean).join("\n\n"), goalv: goal.version, memv: mem.version };
+}
 /** the mark of the room in use: what a session started under it carries (here.ts roomMark) */
 const markNow = () => { const r = activeRoom(getTeam()); return roomMark(r, recordOf(r)); };
 function sayInside() {
@@ -347,7 +448,14 @@ export const roomKeyNow = () => `${activeRoom(getTeam()).id} ${recordOf(activeRo
 export const feed = new Feed({
   // the board as last read, never a read of its own: the board's minute re-read runs while a Cowork face is open
   // (none read yet in a GitHub room: one read starts, the board's own, and the next ask has it)
-  board: async () => { if (!isGithubRecord(recordOf(activeRoom(getTeam())))) return null; const b = peekBoard(); if (!b) void getBoard().catch(() => {}); return b; },
+  // a cloud group's connected repositories too (#320), read with my gh: getBoard says why not when GitHub is not here
+  board: async () => {
+    const r = activeRoom(getTeam());
+    if (r.provider === "drive") return null;
+    if (r.provider === "cloud") await boardReason().catch(() => undefined);   // its connectors.json read first
+    if (!boardWanted()) return null;
+    const b = peekBoard(); if (!b) void getBoard().catch(() => {}); return b;
+  },
   notesRepo: () => { const r = recordOf(activeRoom(getTeam())); return isGithubRecord(r) ? r : ""; },
   recent: async (repo) => ((await record().notes.recent(repo, "created")) as any[]).map((c) => ({ repo, number: Number(String(c.issue_url ?? "").split("/").pop()), at: String(c.created_at ?? ""), author: String(c.user?.login ?? "") + (c.user?.type === "Bot" && !/\[bot\]$/.test(String(c.user?.login ?? "")) ? "[bot]" : ""), body: String(c.body ?? ""), url: String(c.html_url ?? "") })),
   things: async () => { const repo = recordOf(activeRoom(getTeam())); return repo ? getThings(thingsDeps(), repo) : null; },
@@ -375,18 +483,70 @@ onRelayStatus(() => {
 });
 // a talk line heard: once by its id (a line sent again is one line), cleaned, the first part of a long one only
 onRelay("talk", (m) => {
-  if (m.spooled || typeof m.text !== "string" || (Array.isArray(m.part) && m.part[0] !== 1)) return;
-  const text = m.text.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim();
+  if (m.spooled || (Array.isArray(m.part) && m.part[0] !== 1)) return;
+  // an attachment is words to an agent, never bytes (#315): "[an image]", "[a file: <name>]"
+  const text = saidOf(typeof m.text === "string" ? m.text.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim() : "", talkFileOf(m.file));
   if (!text) return;
   feedLine(feed.live.add({ at: new Date(typeof m.at === "number" ? m.at : Date.now()).toISOString(), who: m.from.login, agent: m.from.agent, kind: "said", text: `said: ${text.slice(0, 100)}` }, typeof m.id === "string" && /^[\w-]{1,80}$/.test(m.id) ? `talk:${m.id}` : undefined));
 });
+// --- Build updates (#328, round 60): a cloud group's connected repositories, heard as `event` (the workflow's, or the
+// poller's), and the cloud's last ones at each hello. A line the board here says already is not pushed again
+onRelay("event", (m) => {
+  if (activeRoom(getTeam()).provider !== "cloud") return;
+  const l = eventLine(m);
+  if (!l || !feed.updates.add(l)) return;
+  const said = new Set(feedOf({ board: peekBoard() }).map(sameAs));
+  if (!said.has(sameAs(l))) feedLine(l);
+});
+onRelay("events.recent", (m) => {
+  if (activeRoom(getTeam()).provider !== "cloud") return;
+  feed.updates.reset((Array.isArray(m.events) ? m.events : []).slice(-50).map((e: unknown) => eventLine(e)));
+});
+// the poll: what I already told the room (or the cloud told me), and since when, for the room in use
+const polled = { room: "", since: 0, sent: new Set<string>(), drafts: new Map<string, boolean>() };
+/** the board's new lines of the repositories the hub named me poller of (relay.ts relayPollers), as `event`s, at most
+ *  twenty a minute; nothing when I poll none (another Sol does, or a workflow does) */
+export async function pollNow() {
+  const room = activeRoom(getTeam());
+  if (room.provider !== "cloud" || !relayUp()) return;
+  const repos = myPolls(room, relayPollers(), hubLogin());
+  if (!repos.length) return;
+  if (polled.room !== room.id) { polled.room = room.id; polled.since = Date.now() - POLL_BACK; polled.sent.clear(); polled.drafts.clear(); }
+  for (const l of feed.updates.lines) { const k = pollKey(l); if (k) polled.sent.add(k); }
+  const b = await getBoard();
+  if (activeRoom(getTeam()).id !== room.id) return;
+  for (const { key, ev } of pollEvents(b, repos, polled.sent, polled.since, polled.drafts)) if (sendRelay("event", { ...ev, source: "poll" })) polled.sent.add(key);
+}
+// team.connect.events: the cloud's keys route with my ticket there, gh for the secret, the group's clone for the file
+async function eventKeys(room: Room, repo: string, remove: boolean): Promise<Key | { removed: boolean } | { error: string }> {
+  const hub = hubHttp(room.hub);
+  if (!/^https:\/\/|^http:\/\/127\.0\.0\.1(:\d+)?\//.test(hub) || !room.code) return { error: "sign in to Sol's cloud first" };
+  const t = await hubTicket(hub).catch(() => "");
+  if (!t) return { error: "sign in to Sol's cloud first" };
+  const base = `${hub.replace(/\/+$/, "")}/rooms/${room.code}/events/keys`;
+  const r = await fetch(remove ? `${base}?repo=${encodeURIComponent(repo)}` : base, { method: remove ? "DELETE" : "POST", signal: AbortSignal.timeout(15_000),
+    headers: { authorization: `Bearer ${t}`, ...(remove ? {} : { "content-type": "application/json" }) }, ...(remove ? {} : { body: JSON.stringify({ repo }) }) }).catch(() => null);
+  const v = r ? await r.json().catch(() => null) as Record<string, unknown> | null : null;
+  if (!r || !v) return { error: "Sol's cloud isn't reachable right now; try again in a moment" };
+  if (!r.ok) return { error: typeof v.error === "string" ? v.error.slice(0, 200) : `Sol's cloud said ${r.status}` };
+  if (remove) return { removed: v.removed === true };
+  return typeof v.eid === "string" && typeof v.secret === "string" ? { eid: v.eid, secret: v.secret, ...(v.rotated === true ? { rotated: true } : {}) } : { error: "Sol's cloud gave no key; try again in a moment" };
+}
+const eventsDeps = (): EventsDeps => ({
+  gh: runGh, github: () => githubAccount(), file: (room) => connectors.get(thingsDeps(), recordOf(room), true), keys: eventKeys, hub: (room) => hubHttp(room.hub),
+  secret: (repo, v) => (v === null ? runGh(["secret", "delete", SECRET_NAME, "--repo", repo]) : runGhStdin(["secret", "set", SECRET_NAME, "--repo", repo], v)),
+  folder: (room, repo) => groupClone(letInDeps(), room, repo), git: gitWith,
+});
+// --- end Build updates
 // --- end What happened
 
 // --- Things (#194, PROTOCOL.md round 39): the room's things, one file in its record repo; every change here and every
 // read anew after the relay's `changed` goes to every Cowork face
 const thingsDeps = (): ThingsDeps => ({ record, changed: (repo) => { sendRelay("changed", { repo }); } });
-const pushThings = async (repo: string) => everyoneTeam(thingsMsg(await getThings(thingsDeps(), repo, true), await getBoard().catch(() => null), repo, undefined, relayRoster()));
-onThings((repo, file) => { void getBoard().catch(() => null).then((b) => everyoneTeam(thingsMsg(file, b, repo, undefined, relayRoster()))); });
+// a cloud group's move rides every push of its things (#326), from the ten-minute cache
+const awayOf = async (repo: string) => { const movedAway = repo.startsWith("cloud:") ? await cloudMovedOf(awayDeps(), repo).catch(() => null) : null; return movedAway ? { movedAway } : {}; };
+const pushThings = async (repo: string) => everyoneTeam({ ...thingsMsg(await getThings(thingsDeps(), repo, true), await getBoard().catch(() => null), repo, undefined, relayRoster()), ...(await awayOf(repo)) });
+onThings((repo, file) => { void getBoard().catch(() => null).then((b) => everyoneTeam(thingsMsg(file, b, repo, undefined, relayRoster()))); pushConnectors(); });
 const thingsError = (type: string, rid: unknown, error: string) => ({ type, rid, error });
 // the same thing added again (ADDITIONS §5), by me or my agent: one live line here, the existing one opened (the face's
 // answer has it; the agent's tool line names it)
@@ -398,10 +558,10 @@ const pollMsg = (f: Polls, repo: string, rid?: unknown) => ({ type: "team.polls"
 const NO_RECORD_LINE = "this room has no record yet";
 /** the room's own tools as tiles (#245): a person on one of their pages stands on its tile, as on a thing's */
 export const TOOL_TILES: Record<string, string> = { "tool-calendar": "the calendar", "tool-decisions": "decisions", "tool-polls": "polls" };
-const forgetTools = () => { calendar.forget(); decisions.forget(); polls.forget(); };
-calendar.on((repo, f) => everyoneTeam(calMsg(f, repo)));
-decisions.on((repo, l) => everyoneTeam(decMsg(l, repo)));
-polls.on((repo, f) => everyoneTeam(pollMsg(f, repo)));
+const forgetTools = () => { calendar.forget(); decisions.forget(); polls.forget(); connectors.forget(); };
+calendar.on((repo, f) => { everyoneTeam(calMsg(f, repo)); pushConnectors(); });
+decisions.on((repo, l) => { everyoneTeam(decMsg(l, repo)); pushConnectors(); });
+polls.on((repo, f) => { everyoneTeam(pollMsg(f, repo)); pushConnectors(); });
 const pushTools = async (repo: string) => {
   const [c, d, p] = await Promise.all([calendar.get(thingsDeps(), repo, true).catch(() => null), decisions.get(thingsDeps(), repo, true).catch(() => null), polls.get(thingsDeps(), repo, true).catch(() => null)]);
   if (c) everyoneTeam(calMsg(c, repo)); if (d) everyoneTeam(decMsg(d, repo)); if (p) everyoneTeam(pollMsg(p, repo));
@@ -423,6 +583,98 @@ export const remindNow = async (now = Date.now()) => {
 };
 setInterval(() => void remindNow().catch(() => {}), 60_000).unref();
 // --- end The room's own tools
+
+// --- Connectors (#320, PROTOCOL.md round 55): what a group is connected to, as one answer. A cloud group may connect a
+// GitHub repository (an admin of it, a private one); its board then reads it with each viewer's own gh. The answer is
+// pushed again to every Cowork face whenever one of its parts changes: the things, a tool, connectors.json, Google or
+// GitHub here, the record read anew after the relay's `changed`
+const connectDeps = (id: string): ConnectDeps => ({ ...thingsDeps(), gh: runGh, github: () => githubIn(), who: () => hubLogin() || getTeam().me.login,
+  mine: () => getTeam().rooms.find((r) => r.id === id)?.repos ?? [] });
+/** my cloud group's repos that connectors.json no longer lists go (review P2-5): on every read of the file, so one taken
+ *  off the group by anyone is never stuck as a target of mine */
+function pruneRepos(file: ConnectorsFile | null) {
+  const before = getTeam(), room = activeRoom(before);
+  if (!file || room.provider !== "cloud" || file.newer) return;
+  const kept = pruneMine(room.repos, file), admins = (room.admins ?? []).filter((x) => kept.some((y) => y.toLowerCase() === x.toLowerCase()));
+  if (kept.join("\n") !== room.repos.join("\n")) afterRoomChange(before, patchTeam({ rooms: before.rooms.map((x) => (x.id === room.id ? { ...x, repos: kept, admins } : x)) }));
+}
+/** a cloud group's members as the cloud says them (GET <hub>/rooms/<code>/members, with my ticket there): how many,
+ *  their Sol names, and its maker's (#325, the one an ask goes to when connectors.json's row names nobody in the
+ *  group); null when it does not say */
+async function cloudMembers(code: string): Promise<{ count: number; logins: string[]; maker: string } | null> {
+  const v = await cloudGet(code, "members") as { members?: unknown; maker?: unknown } | null;
+  const logins = Array.isArray(v?.members) ? v.members.flatMap((x) => (x && typeof x === "object" && typeof (x as { login?: unknown }).login === "string" ? [(x as { login: string }).login] : [])) : [];
+  return v ? { count: Array.isArray(v.members) ? v.members.length : 0, logins, maker: typeof v.maker === "string" ? v.maker : "" } : null;
+}
+/** one GET of a cloud group's own routes (GET <hub>/rooms/<code>/<path>) with my ticket there: its JSON, or null when
+ *  the group is not mine, the hub is not one I sign in to, or it does not answer */
+async function cloudGet(code: string, path: string): Promise<unknown> {
+  const room = getTeam().rooms.find((r) => r.provider === "cloud" && r.code === code);
+  const hub = room ? hubHttp(room.hub) : "";
+  if (!/^https:\/\/|^http:\/\/127\.0\.0\.1(:\d+)?\//.test(hub)) return null;
+  const t = await hubTicket(hub).catch(() => "");
+  if (!t) return null;
+  const r = await fetch(`${hub.replace(/\/+$/, "")}/rooms/${code}/${path}`, { headers: { authorization: `Bearer ${t}` }, signal: AbortSignal.timeout(15_000) }).catch(() => null);
+  return r?.ok ? await r.json().catch(() => null) : null;
+}
+// the repositories of a cloud group whose build-updates key is live (GET …/events/keys: repo and live only, never a
+// secret), read once a minute at most, and again at once after this Sol adds or takes off a key
+const liveRead = new Map<string, { repos: string[]; at: number }>();
+async function liveKeys(room: Room): Promise<string[]> {
+  if (room.provider !== "cloud" || !room.code) return [];
+  const had = liveRead.get(room.code);
+  if (had && Date.now() - had.at < 60_000) return had.repos;
+  const v = await cloudGet(room.code, "events/keys") as { keys?: unknown } | null;
+  const repos = liveOf(v);
+  if (v) liveRead.set(room.code, { repos, at: Date.now() });
+  return repos;
+}
+/** how many are in a cloud group; 0 when the cloud does not say */
+const cloudCount = async (code: string) => (await cloudMembers(code))?.count ?? 0;
+/** a repository the group lists made one of my targets (team.connect.repo's checks: GitHub here, my gh may push to it),
+ *  written to team.json as it is at the moment of the write (review P2-4) */
+async function connectMine(room: Room, repo: unknown, connecting = true) {
+  const before = getTeam();
+  const r = await connectRepo(connectDeps(room.id), room, repo, connecting);
+  if ("error" in r) return r;
+  const now = getTeam(), had = now.rooms.find((x) => x.id === room.id), next = had ? mineAfter(had.repos, r) : [];
+  const admins = had ? adminsAfter(had.admins ?? [], next, r) : [];   // my gh's admin word, kept with the repos it checked
+  if (had && (had.repos.join("\n") !== next.join("\n") || (had.admins ?? []).join("\n") !== admins.join("\n")))
+    afterRoomChange(before, patchTeam({ rooms: now.rooms.map((x) => (x.id === room.id ? { ...x, repos: next, admins } : x)) }));
+  pushConnectors();
+  return r;
+}
+/** the `team.connectors` answer for the room in use: each part read from its own cache, a part that fails left empty */
+async function connectorsNow(rid?: unknown, refresh = false) {
+  const room = activeRoom(getTeam()), repo = recordOf(room), d = thingsDeps();
+  const [file, members, things, tools, gh, live] = await Promise.all([
+    room.provider === "cloud" && repo ? connectors.get(d, repo, refresh).then((f) => { pruneRepos(f); return f; }, () => null) : Promise.resolve(null),
+    memberCount({ gh: runGh, cloud: cloudCount }, room).catch(() => 0),
+    repo ? getThings(d, repo, refresh).then((f) => thingsMsg(f, peekBoard(), repo, undefined, relayRoster()) as object,
+      (e) => ({ repo, things: [], folders: [], error: `couldn't read the room's things: ${String((e as Error)?.message ?? e).split("\n")[0].slice(0, 200)}` }))
+      : Promise.resolve(thingsMsg({ v: 1, things: [] }, null, "") as object),
+    repo ? Promise.all([calendar.get(d, repo, refresh).catch(() => null), decisions.get(d, repo, refresh).catch(() => null), polls.get(d, repo, refresh).catch(() => null)]) : Promise.resolve([null, null, null] as const),
+    githubAccount().catch(() => ({ in: false, who: undefined })),
+    liveKeys(room).catch(() => [] as string[]),
+  ]);
+  const g = driveAccount(DRIVE_FILE);
+  return connectorsMsg({ room, file, members, things, tools: toolLines({ calendar: tools[0], decisions: tools[1], polls: tools[2] }),
+    me: { google: g ? { in: true, ...(g.email ? { email: g.email } : {}) } : { in: false }, github: gh.in ? { in: true, ...(gh.who ? { who: gh.who } : {}) } : { in: false } }, rid,
+    asked: askedNow(letInDeps(), room.id), admins: room.admins ?? [], live });
+}
+let connTimer: NodeJS.Timeout | undefined;
+/** the answer again to every Cowork face, once for a burst of changes */
+function pushConnectors() {
+  if (![...faces.values()].some((f) => f.cowork)) return;
+  clearTimeout(connTimer);
+  connTimer = setTimeout(() => void connectorsNow().then(everyoneTeam).catch(() => {}), 300);
+  connTimer.unref?.();
+}
+connectors.on((_repo, f) => { pruneRepos(f); pushConnectors(); });
+// GitHub here signed in or out (control.ts): my hello says so again, a cloud group's board and feed read anew, and the
+// connectors tab hears it
+onGithub((a) => { setGithub(a.in); feed.forget(); void getBoard(true).catch(() => {}); pushConnectors(); });
+// --- end Connectors
 
 onAgain((repo, t, who) => {
   if (repo !== recordOf(activeRoom(getTeam()))) return;
@@ -453,6 +705,11 @@ export async function handleTeam(w: Wire, m: any) {
         // folder of its choosing, never makes a joined room's repos its own, which would let anyone into them, and never
         // makes a joined room look like one of mine to register again
         if (Array.isArray(rest.rooms)) rest.rooms = rest.rooms.map((r: unknown) => { if (!r || typeof r !== "object") return r; const { code: _c, folder: _f, mine: _m, joined: _j, ...x } = r as Record<string, unknown>; return x; });
+        // #320: a cloud group's org and repos are not a face's words, nor its connected repos: the room in use's top level
+        if (activeRoom(before).provider === "cloud" && !("room" in rest && rest.room !== before.room)) { delete rest.repos; delete rest.org; }
+        // #320: a cloud group's repos are connected by team.connect.repo alone (an admin, a private repository), never
+        // by a face's edit: the stored ones are kept (settings.ts keepKeys)
+        if (Array.isArray(rest.rooms)) rest.rooms = rest.rooms.map((r: unknown) => { if (!r || typeof r !== "object" || !before.rooms.some((x) => x.id === (r as { id?: unknown }).id && x.provider === "cloud")) return r; const { repos: _r, ...x } = r as Record<string, unknown>; return x; });
         const dialsBefore = before.dials;
         const s = patchTeam({ ...rest, ...(relay && typeof relay === "object" ? { relay: { ...relay, key: typeof relay.key === "string" && relay.key !== "set" ? relay.key : before.relay.key } } : {}) });
         afterRoomChange(before, s);
@@ -472,17 +729,26 @@ export async function handleTeam(w: Wire, m: any) {
     }
     case "team.room.join": {
       const before = getTeam();
-      const r = await joinRoom(roomsDeps(), m.code);
+      // #327: a join link's card names the hub it peeked and the name it showed; only that hub is asked
+      const r = await joinRoom(roomsDeps(), m.code, typeof m.hub === "string" ? { hub: m.hub, name: m.name } : undefined);
       if ("error" in r) return w.send({ type: "team.room.join", rid, error: r.error });
       afterRoomChange(before, getTeam());   // what team.settings does on a switch
       if (!onCloud()) void askIn(letInDeps(), r.room).catch(() => {});   // #162: let me into its repository (the relay may be down: then on connect)
       return w.send({ type: "team.room.join", rid, room: roomForFace(r.room), ...(r.already ? { already: true } : {}) });
     }
+    // #327: a join link's code opened in the app: the group's name, asked before anyone presses join (PROTOCOL round 59)
+    case "team.room.peek":
+      return w.send({ type: "team.room.peek", rid, ...(await peekRoom(roomsDeps(), m.code)) });
     // the maker's one press (the review of #162): who waits to be let into a room of mine, and yes or not now
     case "team.letin.get":
       return w.send({ type: "team.letin", rid, asks: waitingNow() });
     case "team.letin.answer":
-      return w.send({ type: "team.letin.answer", rid, ...(await letIn(letInDeps(), String(m.room ?? ""), String(m.login ?? ""), m.yes === true)) });
+      // review P1-1: the card as the face showed it, so a press never lets in an ask that changed under it
+      return w.send({ type: "team.letin.answer", rid, ...(await letIn(letInDeps(), String(m.room ?? ""), String(m.login ?? ""), m.yes === true,
+        Array.isArray(m.repos) ? { github: typeof m.github === "string" ? m.github : "", repos: m.repos.filter((x: unknown): x is string => typeof x === "string").slice(0, 20) } : undefined)) });
+    // #325: my press on a cloud group's connected repository, "ask to be let in": the maker is asked once, with my GitHub login
+    case "team.letin.ask":
+      return w.send({ type: "team.letin.ask", rid, ...(await askCloud(letInDeps(), m.repo)) });
     case "team.room.make": {   // #160: a room from a name alone
       const before = getTeam();
       const r = await makeRoom(roomsDeps(), { name: m.name, ...(typeof m.hub === "string" ? { hub: m.hub } : {}), ...(typeof m.key === "string" ? { key: m.key } : {}), ...(m.code === true ? { code: true } : {}), ...(typeof m.drive === "string" ? { drive: m.drive } : {}) });
@@ -491,6 +757,27 @@ export async function handleTeam(w: Wire, m: any) {
       return w.send({ type: "team.room.make", rid, room: roomForFace(r.room), ...(r.warn ? { warn: r.warn } : {}) });
     }
     // --- end Share code
+    // --- The quota and the move to GitHub (#326, round 58)
+    case "team.room.usage": {
+      const u = await usageOf(usageDeps(), m.id);
+      return w.send({ type: m.type, rid, ...(u ?? { cloud: false }) });
+    }
+    case "team.room.take": {
+      const before = getTeam(), id = typeof m.id === "string" && m.id ? m.id : before.room;
+      const r = await takeRoom(takeDeps(), id);
+      pushUsage(id);
+      if ("error" in r) return w.send({ type: m.type, rid, ...r });
+      afterRoomChange(before, getTeam());   // a GitHub group now: its record, its board
+      return w.send({ type: m.type, rid, room: roomForFace(r.room), repo: r.repo, files: r.files, ...(r.already ? { already: true } : {}) });
+    }
+    case "team.room.follow": {
+      const before = getTeam();
+      const r = await followMove({ ...awayDeps(), team: getTeam, patch: patchTeam, github: ghLogin }, m.id);
+      if ("error" in r) return w.send({ type: m.type, rid, ...r });
+      afterRoomChange(before, getTeam());
+      return w.send({ type: m.type, rid, room: roomForFace(r.room) });
+    }
+    // --- end The quota
     case "team.board":
     case "team.board.get":
     case "team.board.refresh": {
@@ -505,7 +792,9 @@ export async function handleTeam(w: Wire, m: any) {
         // a GitHub room that moved to the cloud (#246, move.ts): its record says the new code, and the face offers to join
         const moved = movedForFace(await movedOf({ ...thingsDeps(), trusted: (h) => !!h && hubKey(h) === hubKey(sharedHub()),
           admin: (r, login) => runGh(["api", `repos/${r}/collaborators/${login}/permission`, "--jq", ".permission"]).then((p) => p.trim() === "admin") }, repo, Date.now(), !!m.refresh), getTeam().rooms);
-        return w.send({ ...thingsMsg(await getThings(thingsDeps(), repo, !!m.refresh), await getBoard().catch(() => null), repo, rid, relayRoster()), ...(moved ? { moved } : {}) });
+        // a cloud group whose maker moved its files to GitHub (#326): the card, never a switch on its own
+        const movedAway = repo.startsWith("cloud:") ? await cloudMovedOf(awayDeps(), repo, Date.now(), !!m.refresh) : null;
+        return w.send({ ...thingsMsg(await getThings(thingsDeps(), repo, !!m.refresh), await getBoard().catch(() => null), repo, rid, relayRoster()), ...(moved ? { moved } : {}), ...(movedAway ? { movedAway } : {}) });
       }
       catch (e) { return w.send(thingsError("team.things", rid, `couldn't read the room's things: ${String((e as Error)?.message ?? e).split("\n")[0].slice(0, 200)}`)); }
     }
@@ -546,7 +835,9 @@ export async function handleTeam(w: Wire, m: any) {
     case "team.feed": {
       const r = await feed.lines(roomKeyNow(), !!m.refresh);
       const page = pageOf(r.lines, m.before, m.limit);
-      return w.send({ type: "team.feed", rid, ...page, readAt: r.readAt, ...(r.error ? { error: r.error } : {}) });
+      // #320: a cloud group whose connected repositories this Sol cannot read says why the feed has no board lines
+      const why = activeRoom(getTeam()).provider === "cloud" ? await boardReason().catch(() => undefined) : undefined;
+      return w.send({ type: "team.feed", rid, ...page, readAt: r.readAt, ...(r.error ? { error: r.error } : {}), ...(why ? { reason: why } : {}) });
     }
     case "team.foryou": {
       const { pending } = await handsNow().catch(() => ({ pending: [] }));
@@ -624,6 +915,28 @@ export async function handleTeam(w: Wire, m: any) {
       return w.send({ ...pollMsg(r.file, repo, rid), type: m.type, changed: r.changed, ...(r.result ? { poll: r.result.poll, ...(r.result.again ? { again: true } : {}) } : {}) });
     }
     // --- end The room's own tools
+    // --- Connectors (#320, round 55): the one answer, and a repository connected to (or taken off) a cloud group
+    case "team.connectors":
+      return w.send(await connectorsNow(rid, !!m.refresh));
+    case "team.connect.repo":
+    case "team.connect.repo.remove": {
+      // the room's own repos are what its board reads: written by the engine only, after the checks (connectMine)
+      // #328 (review P1-2): a repository taken off takes its build updates with it first, while my clone of it is still
+      // mine (best effort: only its admin can, and a key left behind is heard no more once the group stops listing it)
+      if (m.type === "team.connect.repo.remove") await connectEvents(eventsDeps(), activeRoom(getTeam()), m.repo, false).catch(() => null);
+      const r = await connectMine(activeRoom(getTeam()), m.repo, m.type === "team.connect.repo");
+      if ("error" in r) return w.send({ type: m.type, rid, error: r.error });
+      return w.send({ ...(await connectorsNow(rid)), type: m.type, repo: r.connected.repo, changed: r.changed, ...(r.off ? { off: r.off } : {}) });
+    }
+    // --- Build updates (#328, round 60): the workflow added to (or taken off) a connected repository by its admin
+    case "team.connect.events":
+    case "team.connect.events.remove": {
+      const room = activeRoom(getTeam());
+      const r = await connectEvents(eventsDeps(), room, m.repo, m.type === "team.connect.events");
+      if (!("error" in r)) { liveRead.delete(room.code); pushConnectors(); }   // its row's `events` read anew
+      return w.send({ type: m.type, rid, ...r });
+    }
+    // --- end Connectors
     // "show my room sessions" (#238, the studio PRD §5): on or off for one room (the room in use unless `id` names
     // another of mine). Off stops their streams at once and my roster entry there says so
     case "team.room.show": {
@@ -648,12 +961,10 @@ export async function handleTeam(w: Wire, m: any) {
       // a Work session marked cowork and the room's (#230): Work's side does not list it, Cowork lists it under its room.
       // From a card: its repo's folder. From the box (#234): a bare line, maybe a thing; the goal's snapshot goes first
       const room = activeRoom(getTeam()), rec = recordOf(room);
+      const mk = roomMark(room, rec);   // the room as it was asked under: a switch during the awaits below does not move the session
       const things = rec && m.thing ? (await getThings(thingsDeps(), rec).catch(() => ({ things: [] }))).things : [];
-      const goal = rec ? goalSnapshot(await readGoal(thingsDeps(), rec).catch(() => ({ title: "", lines: "", setBy: "", at: "", files: [] }))) : { text: "", version: "" };
-      // what the room decided goes with the goal into the first turn (#245): the newest five titles, as the room's words
-      const dec = rec ? (await decisions.get(thingsDeps(), rec).catch(() => null))?.decisions.slice(-5).reverse() ?? [] : [];
-      const decLine = dec.length ? `What the room decided, newest first (the tool room_decisions reads them whole):\n${dec.map((d) => `- ${d.title}`).join("\n")}` : "";
-      const plan = planStart({ text: m.text, repo: m.repo, thing: m.thing, room, record: rec, folders: await teamFolders(), home: homedir(), things, goal: [goal.text, decLine].filter(Boolean).join("\n") });
+      const ctx = await roomContext(rec);
+      const plan = planStart({ text: m.text, repo: m.repo, thing: m.thing, room, record: rec, folders: await teamFolders(), home: homedir(), things, goal: ctx.text });
       if ("error" in plan) return w.send({ type: "team.session.start", rid, error: plan.error });
       // a cloud room's folder: made 700, and refused when something else (a link) stands there
       if (plan.make) {
@@ -662,11 +973,11 @@ export async function handleTeam(w: Wire, m: any) {
       }
       const id = randomUUID(), cwd = plan.cwd, repo = plan.repo;
       const issue = Number(m.issue) > 0 ? Number(m.issue) : undefined;
-      mark(id, { mode: "cowork", room: markNow(), ...(goal.version ? { goalv: goal.version } : {}), ...(typeof m.thing === "string" && /^[\w-]{1,40}$/.test(m.thing) ? { thing: m.thing } : {}) });   // #230: the room's own: its title may go to the room
+      mark(id, { mode: "cowork", room: mk, roomId: room.id, ...(ctx.goalv ? { goalv: ctx.goalv } : {}), ...(ctx.memv ? { memv: ctx.memv } : {}), ...(typeof m.thing === "string" && /^[\w-]{1,40}$/.test(m.thing) ? { thing: m.thing } : {}) });   // #230: the room's own: its title may go to the room
       // the answer comes once Work took the first turn (§9.7), else its error
       try { await handleWork(w, { type: "work.say", sessionId: id, fresh: true, cwd, text: plan.text, ...(Array.isArray(m.files) ? { files: m.files } : {}) }); }
       catch (e) { return w.send({ type: "team.session.start", rid, error: `the session did not start: ${String((e as Error)?.message ?? e).split("\n")[0].slice(0, 160)}` }); }
-      w.send({ type: "team.session.start", rid, sessionId: id, repo, cwd, ...(goal.version ? { goalVersion: goal.version } : {}), ...(m.thing ? { thing: m.thing } : {}) });
+      w.send({ type: "team.session.start", rid, sessionId: id, repo, cwd, ...(ctx.goalv ? { goalVersion: ctx.goalv } : {}), ...(m.thing ? { thing: m.thing } : {}) });
       const card = issue ? (await getBoard().catch(() => null))?.cards.find((c) => c.repo === repo && c.number === issue) : undefined;
       if (issue) void nameWhenWritten(id, `#${issue} ${card?.title ?? basename(cwd)}`.slice(0, 80));   // else Work names it as usual
       return;
@@ -702,13 +1013,14 @@ export async function handleTeam(w: Wire, m: any) {
       const hub = driveHub();
       if (!hub) return w.send({ type: "team.drive.connect", rid, ok: false, error: "sign in to Sol first: Settings › me › Sol (Drive is connected through your Sol account)" });
       const out = await connectDrive(hub, driveDeps());
-      if (out.ok) { forgetThings(); everyoneTeam({ type: "team.drive", ...driveForFace(driveAccount(DRIVE_FILE)), hub }); }
+      if (out.ok) { forgetThings(); everyoneTeam({ type: "team.drive", ...driveForFace(driveAccount(DRIVE_FILE)), hub }); pushConnectors(); }
       return w.send({ type: "team.drive.connect", rid, ...(out.ok ? { ok: true, ...driveForFace(driveAccount(DRIVE_FILE)) } : out) });
     }
     case "team.drive.disconnect": {
       const ok = await disconnectDrive(driveDeps());
       staleDrive(); forgetThings();
       everyoneTeam({ type: "team.drive", ...driveForFace(null), hub: driveHub() });
+      pushConnectors();
       return w.send({ type: "team.drive.disconnect", rid, ok });
     }
     case "team.drive.members": {   // the room in use's folder: its people, and which of them I am; unknown is nobody
@@ -721,8 +1033,8 @@ export async function handleTeam(w: Wire, m: any) {
     // --- end Drive
     // --- GitHub from a card (round 42): gh's device flow, the code and the page; the end goes to every face
     case "team.github.connect": {
-      const r = await startConnect();
-      return w.send({ type: "team.github.connect", rid, ...("code" in r ? { code: r.code, url: r.url } : { error: r.error }) });
+      const r = await startConnect(m.scope === "workflow" ? { scope: "workflow" } : {});   // #328: one more permission, for workflows
+      return w.send({ type: "team.github.connect", rid, ...(m.scope === "workflow" ? { scope: "workflow" } : {}), ...("code" in r ? { code: r.code, url: r.url } : { error: r.error }) });
     }
     case "team.github.connect.cancel":
       cancelConnect();
@@ -755,14 +1067,22 @@ export async function handleTeam(w: Wire, m: any) {
     // --- Talk (#37, PROTOCOL.md round 24): a line typed in the chat (a `/discord ` one goes out first), a thread's lines
     case "team.talk": {
       watchBridges();
-      const r = await typed(m.thread, m.text);
-      return w.send({ type: "team.talk", rid, ...(r.ok ? { ok: true, id: r.line.id, sent: r.sent } : { ok: false, error: r.error }) });
+      const r = await typed(m.thread, m.text, getTeam(), m.file);   // file { name, bytes, kind } (#315): into the room's record first
+      return w.send({ type: "team.talk", rid, ...(r.ok ? { ok: true, id: r.line.id, sent: r.sent, ...(r.line.file ? { file: r.line.file } : {}) } : { ok: false, error: r.error }) });
     }
     case "team.talk.history": {
       watchBridges();
       const thread = threadOf(m.thread) || "general";
+      // #315: older than `before` (ms), a page from the cloud the room meets on, never kept here
+      if (m.before !== undefined) { const r = await olderLines(olderNow(), thread, m.before, m.id); return w.send({ type: "team.talk.history", rid, thread, before: m.before, ...r }); }
       const discord = getTeam().speak.discord === "any" && !!process.env.DISCORD_WEBHOOK;
-      return w.send({ type: "team.talk.history", rid, thread, lines: history(thread), threads: threadsWithLines(), discord });
+      const lines = history(thread);
+      return w.send({ type: "team.talk.history", rid, thread, lines, threads: threadsWithLines(), discord, older: lines.length > 0 && !!olderNow().where() });
+    }
+    // #315: one attachment of the room in use's talk, its bytes for a thumbnail, or a copy to open (open: true)
+    case "team.talk.file": {
+      const r = await readTalkFile(attachNow(), m.path, { open: m.open === true, name: m.name });
+      return w.send({ type: "team.talk.file", rid, ...r });
     }
     // --- end Talk
     // --- Hand (#34, PROTOCOL.md round 21): hand an issue, a session or a PR to a teammate; take, pass or later
@@ -908,10 +1228,13 @@ startHand({
   repos: () => getTeam().repos,
   cards: async () => (await getBoard()).cards,
   start: async ({ cwd, issue, title, text }) => {
-    // the same session team.session.start makes: in the repo's folder, marked cowork, named after its card
+    // the same session team.session.start makes: in the repo's folder, marked cowork, named after its card, its first
+    // turn carrying the room's content and Sol's brief before the hand's words (#316)
     const id = randomUUID();
-    mark(id, { mode: "cowork", room: markNow() });
-    void handleWork(quiet, { type: "work.say", sessionId: id, fresh: true, cwd, text }).catch(() => {});
+    const r = activeRoom(getTeam()), rec = recordOf(r), mk = roomMark(r, rec);   // the room as asked under, before the await
+    const ctx = await roomContext(rec);
+    mark(id, { mode: "cowork", room: mk, roomId: r.id, ...(ctx.goalv ? { goalv: ctx.goalv } : {}), ...(ctx.memv ? { memv: ctx.memv } : {}) });
+    void handleWork(quiet, { type: "work.say", sessionId: id, fresh: true, cwd, text: firstTurn(ctx.text, text) }).catch(() => {});
     void nameWhenWritten(id, `#${issue} ${title || basename(cwd)}`.slice(0, 80));
     return id;
   },
@@ -922,6 +1245,7 @@ onBoard(() => boardRead());
 // --- GitHub from a card (#174): every face, not only Cowork's. Control sits in Settings in every mode, on the page's
 // one link, and that link says team.hello only while Cowork is open, so everyoneTeam would miss a sign-in from Life
 onConnect((r) => everyFace("login" in r ? { type: "team.github.connected", login: r.login } : { type: "team.github.connect.failed", error: r.error }));
+onConnect((r) => { if ("login" in r) noteGithub({ in: true, who: r.login }); });   // #320: GitHub here now, said to the room and the tab
 // --- end GitHub from a card
 // --- Try (#35): the try's steps, its state and its review items go to every Cowork face
 setTryBus(everyoneTeam);
@@ -1001,10 +1325,10 @@ const reasks = new Map<string, ReturnType<typeof setTimeout>>();
 // --- end Show
 // --- The hub's word (#223, S6a): a busy cloud's light, my place in its queue, a message it said to send again, a show
 // it would not let me watch, "please update". Every Cowork face hears it as team.hub and says it in place
-const HUB_WORDS = ["say", "light", "ok", "why", "after", "login", "session", "ahead", "wait", "what", "on"];
+const HUB_WORDS = ["say", "light", "ok", "why", "after", "login", "session", "ahead", "wait", "what", "on", "join"];   // join (#327): its host serves the join page
 onRelay("hub", (m) => {
   if (!["light", "queue", "retry", "watch", "update", "hello"].includes(String(m.say))) return;
   everyoneTeam({ type: "team.hub", ...Object.fromEntries(HUB_WORDS.filter((k) => k in m).map((k) => [k, (m as Record<string, unknown>)[k]])) });
 });
-function hubNow() { const i = relayHub(); return { type: "team.hub", say: "state", light: i.info?.light ?? "green", old: i.old, ...(i.queued ? { ahead: i.queued.ahead, wait: i.queued.wait } : {}) }; }
+function hubNow() { const i = relayHub(); return { type: "team.hub", say: "state", light: i.info?.light ?? "green", old: i.old, join: i.info?.join === true, ...(i.queued ? { ahead: i.queued.ahead, wait: i.queued.wait } : {}) }; }
 // --- end The hub's word

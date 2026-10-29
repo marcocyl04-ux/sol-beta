@@ -69,10 +69,11 @@ import { doorOpen, tailnetOk as tailnetDoor } from "./door.js";
 import { plan as goBackPlan, goBack } from "./goback.js";
 import { join as joinBusy, idle as engineIdle, busyList, busyLine, onBusy, lockSession, relockSession, Held, letGo, refusedWhileLettingGo } from "./busy.js";
 import { createServer } from "node:http";
+import { execFile } from "node:child_process";
 import { resolve, dirname, relative, join, basename } from "node:path";
 import { readFileSync, realpathSync, statSync, createReadStream, unlinkSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { Relay, relayFor } from "./relay.js";
@@ -84,13 +85,15 @@ import { setBrowserProfile, browserProfileDir, addFace, removeFace, watch, openT
 import { setDeskHome, addFace as addDeskFace, removeFace as removeDeskFace, adoptDesk, actDesk, deskMsg, takeDeskLines } from "./desk.js";
 import { addStickyFace, removeStickyFace, stickyMsg, actSticky } from "./sticky.js";
 import { SOL_TOOLS, runSolTool } from "./tools.js";
+import { setSuggestSend } from "./suggest.js";   // Home offers a group once (#321): its card goes to every face
 import { HOME_INVENTORY, solScript, type Inventory } from "./inventory.js";
 import { transcribe, DICTATION_MODEL } from "./voice.js";
-import { Call, haveVoiceKey } from "./call.js";
-import { getSettings, patchSettings, VOICE_OFF } from "./settings.js";
+import { makeCall, haveVoiceKey, voiceKeyName, voiceVendor, type VoiceCall } from "./call.js";
+import { getSettings, patchSettings, VOICE_OFF, ELEVEN_VOICES } from "./settings.js";
 import { setArrangeHome, arrangeMsg, setArrangement, undoArrangement, addUsage, oneAsk } from "./arrange.js";
 import { setTitle, nameConversation, namingModel } from "./titles.js";
 import { Sample } from "./sample.js";
+import { ElevenSample } from "./call/sample.js";   // "hear it" on ElevenLabs (#24)
 import { asDoor, continueDoor, doorOf, touchDoor, type Door } from "./doors.js";
 import { runBlock, stopBlock, type Finder } from "./run.js";
 import { sessionItems, sessionInfo, setWorkHome, workFolderIn, relocated } from "./work/sessions.js";
@@ -98,8 +101,8 @@ import { reviewThreads } from "./work/review.js";
 import { servePaneAsset, keyedAsset } from "./work/page.js";
 import { getRun, allRuns } from "./work/runs.js";
 import { renewOnBuild } from "./renew.js";
-import { addWorkFace, removeWorkFace, handleWork, setWorkChanging, broadcastSessions } from "./work/wire.js";
-import { addTeamFace, removeTeamFace, handleTeam, startTeam, setRegistry, hearClaim, moveNow } from "./team/wire.js";
+import { addWorkFace, removeWorkFace, handleWork, setWorkChanging, broadcastSessions, askInSession } from "./work/wire.js";
+import { addTeamFace, removeTeamFace, handleTeam, startTeam, setRegistry, hearClaim, moveNow, cloudNow } from "./team/wire.js";
 import { relayServer, relayRoutes, RelayHub, hubHttp, restartRelay, CLOUD_FILE, ENGINE_HUB } from "./team/relay.js";
 import { signIn, signOut, accounts as cloudAccounts } from "./team/cloud.js";
 import { Spool, Registry, Guesses, Proofs, REGISTRY_MAX, makeCode } from "./hub/index.js";   // the hub, built alone for the box as the package sol/hub (#208)
@@ -113,6 +116,8 @@ import { Changing } from "./changing.js";
 import { addPingFace, removePingFace, seenPing, ackPing, pingFaceIs } from "./ping.js";
 import { workState, STATE_DIR, mark } from "./work/state.js";
 import { storeDictation } from "./dictations.js";
+import { setTrackHome, setTrackVersion, trackIn, trackOut, startTrackSender, trackUrlOf, EVERY } from "./track.js";
+import { startOthers } from "./track-files.js";
 import { addCreatureFace, removeCreatureFace, setRole, setPresence, setDictation, sent as creatureSent, lifeTurn, type Role } from "./creature.js";
 import { watchHealth, noteRevert, type Health } from "./health.js";
 import { setShelfHome, startSweep } from "./shelf.js";
@@ -122,7 +127,7 @@ import { handleTalks, setTalks } from "./talks.js";   // Conversations (#253): t
 import { setSolHidden } from "./eye.js";
 import { setPrivateHome, handlePrivate } from "./private.js";
 
-// Keys live in sol/engine/.env (gitignored): GEMINI_API_KEY for the call.
+// Keys live in sol/engine/.env (gitignored): ELEVENLABS_API_KEY or GEMINI_API_KEY for the call (src/call/vendor.ts).
 try { process.loadEnvFile(resolve(dirname(fileURLToPath(import.meta.url)), "..", ".env")); } catch { /* no .env: no call */ }
 ownGhOnPath();   // Sol's own gh (~/.sol/gh/bin) first on PATH before anything spawns gh: PROTOCOL.md round 42
 
@@ -150,11 +155,25 @@ setBrowserProfile(process.env.SOL_PROFILE ?? browserProfileDir(HOME)); // SOL_PR
 setDeskHome(HOME);
 setWorkHome(HOME, reviewThreads);   // Work's side lists GPT talks in folders, not Sol's own chats nor the review seat's (#182)
 setArrangeHome(HOME, (m) => everyone(m));   // the arrangement (#133): its own file in the back room, told to every face
+// tracking (#356): how Sol is used as counts, home/track/<day>.jsonl, every socket message passing src/track.ts once;
+// the days before today go once a day to the cloud the team meets on (POST /relay/track on its box), SOL_TRACK_URL
+// names another address (a self-hoster), `off` none. On from the start (beta-rules §6); the first window shows one
+// card, one button (settings.track.told). Who: the Sol name on the cloud when signed in, and the Mac's user name.
+// Once a day the other tools' own files on this Mac are counted too (src/track-files.ts): Claude Code's and Codex's
+// transcripts as tokens a day, the plan type in their sign-in files, which AI apps are installed. Numbers, never words.
+// SOL_TRACK=off: nothing counted, written or sent (the tests that spawn this engine against the real settings file)
+const TRACK_OFF = /^(off|none|0|false)$/i.test((process.env.SOL_TRACK ?? "").trim());
+if (!TRACK_OFF) setTrackHome(HOME, { consent: () => getSettings().track, who: () => ({ name: cloudNow().login, user: userInfo().username }) });
+execFile("git", ["log", "-1", "--format=%h"], { cwd: HERE, timeout: 5000 }, (_e, out) => setTrackVersion(String(out ?? "").trim()));
+// SOL_TRACK_URL: unset is the team's hub; an http(s) address is that; any other word is off (never a silent fallback)
+const trackUrl = () => { const u = (process.env.SOL_TRACK_URL ?? "").trim(); return TRACK_OFF ? null : !u ? trackUrlOf(sharedHub()) : /^https?:\/\/\S+$/.test(u) ? u : null; };
+if (!TRACK_OFF) { startTrackSender(trackUrl); startOthers(); }
 // the shelf (Grab and Shelf, #200): home/shelf/, its items served by GET /file, the whole list told to every face
 setShelfHome(HOME, (abs) => `http://${HOST}:${PORT}/file?path=${encodeURIComponent(abs)}`, (items) => everyone({ type: "shelf.items", items }));
 // Anticipate (#253): a talk's turns and cards, told to every face; the helper is sol/mac/listen/bin/listen
 setAnticipate(HOME, resolve(HERE, "..", ".."), (m) => everyone(m));
 setTalks(HOME, (m) => everyone(m));   // Conversations (talks.ts): talks.changed reaches every face
+setSuggestSend((m) => everyone(m));   // home.suggest (#321): the face draws it under that conversation only
 setPrivateHome(HOME);   // the clean screen's private list (#253): home/private.json
 // every edit a seat makes to Sol's face, and every mutate and undo, goes out to every window (src/changing.ts)
 const changing = new Changing(HOME, (m) => {
@@ -176,6 +195,7 @@ const EFFORTS = ["low", "medium", "high", "max"];
 
 function send(ws: Wire, msg: object) {
   if (ws.readyState !== WebSocket.OPEN) return;
+  trackOut(ws, msg);   // counted by its kind alone (src/track.ts); a message to every face once
   ws.send(JSON.stringify(msg));
   if (ws instanceof WebSocket) creatureSent(ws, msg);   // the creature hears calls, voice and text out, turn ends (creature.ts)
 }
@@ -353,6 +373,7 @@ const withDoors = <T extends { sessionId: string }>(ts: T[]) => {
   });
 };
 function everyone(msg: object) {
+  trackOut(EVERY, msg);   // counted once, on no face (src/track.ts); each send() below then sees it counted
   for (const c of wss.clients) send(c as unknown as Wire, msg);
 }
 async function broadcastThreads() {
@@ -386,7 +407,7 @@ function talkSay(ws: Wire, text: string, sessionId?: string, title?: string): Pr
 }
 const settingsMsg = () => ({
   type: "settings",
-  settings: getSettings(),
+  settings: { ...getSettings(), voiceNow: voiceVendor() },   // voiceNow: the maker that carries a call now, "auto" resolved (read-only)
   haveVoiceKey: haveVoiceKey(),
   dictationModel: DICTATION_MODEL,
   up: { since: STARTED, port: PORT, health: health() },
@@ -943,16 +964,16 @@ const findRun: Finder = async (seat, sessionId, work?: boolean) => {
 wss.on("connection", (ws, req) => {
   const fromSol = solPage(req);
   let current: AbortController | null = null;
-  let call: Call | null = null;
+  let call: VoiceCall | null = null;
   let dialing: { hung: boolean } | null = null;   // a call whose conversation is still being read, before its Call exists
-  let sample: Sample | null = null;
+  let sample: Sample | ElevenSample | null = null;
   let turn: Relay | null = null;   // the Life turn this socket started or took back (src/relay.ts)
   const conn: Conn = { ws, chars: 0 };
   answered.set(ws, true);
   ws.on("pong", () => answered.set(ws, true));
   const hearing = { busy: false, next: null as { audio: string; tag?: number } | null, gen: 0 };   // dictation previews in flight
   // A seat turn run for the call: the face sees it like any turn; the answer text also comes back here.
-  const askSeat = (say: Say, abort: AbortSignal) => new Promise<string>((ok, no) => {
+  const askSeat = (say: Say, abort: AbortSignal, onDelta?: (text: string) => void) => new Promise<string>((ok, no) => {
     let text = "";
     let error = "";
     const tap: Wire = {
@@ -960,7 +981,7 @@ wss.on("connection", (ws, req) => {
       send: (line) => {
         send(ws, JSON.parse(line));
         const m = JSON.parse(line);
-        if (m.type === "delta") text += m.text;
+        if (m.type === "delta") { text += m.text; onDelta?.(m.text); }
         else if (m.type === "error") error = m.message;
         else if (m.type === "done") { if (m.sessionId) conn.sessionId = m.sessionId; if (text || !error) ok(text); else no(new Error(error)); }
       },
@@ -988,6 +1009,7 @@ wss.on("connection", (ws, req) => {
     }
     answered.set(ws, true);
     if ((msg as any).type === "ping") return send(ws, { type: "pong", at: (msg as any).at });   // the face's heartbeat (#17)
+    trackIn(ws, msg);   // counted by its kind and the few fields its table keeps, never its words (src/track.ts)
     if (refusedWhileLettingGo(msg.type)) {
       // a window just went back to the NucBox (One Sol, #62): nothing new starts on this Mac meanwhile
       const message = "Sol is moving to the NucBox; say it again there in a moment";
@@ -1159,13 +1181,34 @@ wss.on("connection", (ws, req) => {
       }
     } else if (msg.type === "voice.sample") {
       sample?.cancel();
-      const mine = (sample = new Sample(String((msg as any).voice ?? getSettings().voice), (o) => send(ws, o)));
+      // the chosen maker's voice: an ElevenLabs id when ElevenLabs carries the call, else a Gemini name
+      const asked = String((msg as any).voice ?? "");
+      const mine = (sample = voiceVendor() === "elevenlabs"
+        ? new ElevenSample(ELEVEN_VOICES.some(([id]) => id === asked) ? asked : getSettings().elevenVoice, process.env.ELEVENLABS_API_KEY ?? "", (o) => send(ws, o))
+        : new Sample(asked || getSettings().voice, (o) => send(ws, o)));
       void mine.start().finally(() => { if (sample === mine) sample = null; });
     } else if (msg.type === "call") {
       if (getSettings().voice === VOICE_OFF) return send(ws, { type: "call", ok: false, why: "voice is off: Sol listens and writes, it does not talk (settings → voice)" });
-      if (!haveVoiceKey()) return send(ws, { type: "call", ok: false, why: "no voice key: put GEMINI_API_KEY in sol/engine/.env" });
+      if (!haveVoiceKey()) return send(ws, { type: "call", ok: false, why: `no voice key: put ${voiceKeyName()} in sol/engine/.env` });
       if ((call && !call.done) || dialing) return;
       const m = msg as any;
+      // a call in a project session (#24): its turns go into that session through the work wire, which shows them in
+      // the session like typed ones; the call's own transcript lines stay off the Life talk
+      if (m.work) {
+        const id = String(m.sessionId ?? "");
+        if (!/^[A-Za-z0-9_-]{8,80}$/.test(id)) return send(ws, { type: "call", ok: false, why: "say one thing in the session first, then call" });
+        const mine = (call = makeCall({
+          home: HOME, history: [],
+          send: (o) => { const t = o as any; if (t.type !== "call.text") send(ws, t.type === "call" && t.state ? { ...t, sessionId: id, work: true } : o); },
+          step: () => {},   // a turn that fails shows its error in the session
+          ask: (text, abort, onDelta) => askInSession(id, text, abort, onDelta),
+        }));
+        try { await mine.start(); } catch (err) {
+          send(ws, { type: "call", ok: false, why: "voice: " + (err instanceof Error ? err.message.split("\n")[0] : String(err)) });
+          if (call === mine) call = null;
+        }
+        return;
+      }
       const seat: Seat = m.seat ?? getTeam().seats.life;
       const door = asDoor(m.door);
       const dial = (dialing = { hung: false });
@@ -1176,7 +1219,7 @@ wss.on("connection", (ws, req) => {
       } finally { dialing = null; }
       if (dial.hung) return send(ws, { type: "call", ok: true, state: "ended" });   // hung up before it was up
       conn.sessionId = sessionId;
-      const mine = (call = new Call({
+      const mine = (call = makeCall({
         home: HOME,
         history,
         send: (o) => {
@@ -1187,8 +1230,8 @@ wss.on("connection", (ws, req) => {
           if (t.type === "call" && t.state === "ended" && door && (sessionId ?? conn.sessionId)) touchDoor(door, (sessionId ?? conn.sessionId)!);
         },
         step: (s) => send(ws, { type: "tool", seat, ...s }),
-        ask: async (text, abort) => {
-          const answer = await askSeat({ type: "say", text, seat, sessionId: sessionId ?? conn.sessionId, draft: sessionId ? undefined : m.draft, model: m.model, effort: m.effort, ...(door ? { door } : {}) }, abort);
+        ask: async (text, abort, onDelta) => {
+          const answer = await askSeat({ type: "say", text, seat, sessionId: sessionId ?? conn.sessionId, draft: sessionId ? undefined : m.draft, model: m.model, effort: m.effort, ...(door ? { door } : {}) }, abort, onDelta);
           sessionId = conn.sessionId ?? sessionId;
           return answer;
         },

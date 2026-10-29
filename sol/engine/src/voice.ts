@@ -3,8 +3,10 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync, mkdirSync } from "node:fs";
-import { writeFile, rm } from "node:fs/promises";
+import { existsSync, mkdirSync, createWriteStream } from "node:fs";
+import { writeFile, rm, rename, open } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -13,6 +15,44 @@ const PATH = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
 const env = { ...process.env, PATH };
 export const DICTATION_MODEL = "whisper.cpp base.en (on this machine)";
 const MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin";
+
+// the speech model is fetched once, the first time the mic is used, into home/voice (148 MB): a tester's install does
+// not carry it (#169), and nothing else puts it there. The fetch runs on its own; the clip that started it, and any
+// clip while it runs, is told so at once rather than waiting on 148 MB. One fetch at a time; a half file never sits
+// under the model's name, and a page a captive portal or a proxy answers with is not taken for the model (ggml magic)
+const FETCH_LIMIT_MS = 10 * 60_000;
+const FETCHING = "fetching the speech model once (148 MB); try the mic again in a minute";
+let fetching: Promise<void> | null = null;
+let fetchFailed: string | null = null;
+const errWords = (err: unknown) => {
+  const e = err as { message?: string; cause?: { code?: string } };
+  const code = e?.cause?.code;
+  return `${(e?.message ?? String(err)).split("\n")[0]}${code ? ` (${code})` : ""}`;
+};
+export async function fetchModel(model: string): Promise<void> {
+  const part = model + ".part";
+  try {
+    const res = await fetch(MODEL_URL, { redirect: "follow", signal: AbortSignal.timeout(FETCH_LIMIT_MS) });
+    if (!res.ok || !res.body) throw new Error(`${res.status} from huggingface.co; is the network up?`);
+    await pipeline(Readable.fromWeb(res.body as import("node:stream/web").ReadableStream), createWriteStream(part));
+    const head = Buffer.alloc(4);
+    const fh = await open(part, "r");
+    try { await fh.read(head, 0, 4, 0); } finally { await fh.close(); }
+    if (head.toString("latin1") !== "lmgg") throw new Error("what came is not a whisper model (a sign-in page on this network?)");
+    await rename(part, model);
+    fetchFailed = null;
+  } catch (err) {
+    await rm(part, { force: true });
+    fetchFailed = `could not fetch the speech model: ${errWords(err)}`;
+  }
+}
+function ensureModel(model: string): string | null {
+  if (existsSync(model)) return null;
+  if (fetching) return FETCHING;
+  const once = fetchModel(model).finally(() => { if (fetching === once) fetching = null; });
+  fetching = once;
+  return fetchFailed ? `${FETCHING}; the last try failed: ${fetchFailed}` : FETCHING;
+}
 
 async function which(bin: string): Promise<string | null> {
   try {
@@ -28,8 +68,9 @@ export async function transcribe(home: string, audioBase64: string): Promise<{ t
   mkdirSync(tmp, { recursive: true });
   const model = join(dir, "ggml-base.en.bin");
   const bin = (await which("whisper-cli")) ?? (await which("whisper-cpp"));
-  if (!bin) return { text: "", why: "whisper.cpp is not installed (brew install whisper-cpp)" };
-  if (!existsSync(model)) return { text: "", why: `speech model missing: ${model} (from ${MODEL_URL})` };
+  if (!bin) return { text: "", why: `dictation needs whisper.cpp on the engine's machine (${process.platform === "darwin" ? "in Terminal, brew install whisper-cpp" : "built from github.com/ggml-org/whisper.cpp"}); typing works without it` };
+  const missing = ensureModel(model);
+  if (missing) return { text: "", why: missing };
 
   const id = randomUUID();
   const raw = join(tmp, id + ".in");

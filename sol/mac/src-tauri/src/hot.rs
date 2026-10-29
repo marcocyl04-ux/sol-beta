@@ -15,7 +15,7 @@ use tauri::menu::MenuItem;
 use tauri::{AppHandle, Emitter, Manager, Url, Wry};
 
 pub const DEV: &str = "http://localhost:1420";
-pub const LABELS: [&str; 4] = ["main", "notch", "island", "grab"];   // grab: the sheet, once it is made (grab.rs)
+pub const LABELS: [&str; 5] = ["main", "notch", "island", "grab", "vibe"];   // grab: the sheet, vibe: the glow, each once it is made (grab.rs, vibe.rs)
 const GRACE: Duration = Duration::from_secs(15); // a fresh Vite gets this long before Sol tries again
 
 #[derive(Default)]

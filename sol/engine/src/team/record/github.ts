@@ -30,6 +30,13 @@ export const runGh: Gh = (args, cwd) => new Promise<string>((ok, no) =>
   execFile("gh", args, { cwd, timeout: 30_000, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
     (err, out, errOut) => { if (!err) return ok(String(out)); const full = String(errOut || err.message).trim(); no(Object.assign(new Error(full.split("\n")[0]), { full })); }));
 
+/** gh with stdin (#328: `gh secret set`, whose value goes on stdin, never on a command line any process list shows) */
+export const runGhStdin = (args: string[], input: string, cwd?: string) => new Promise<string>((ok, no) => {
+  const c = execFile("gh", args, { cwd, timeout: 30_000, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+    (err, out, errOut) => { if (!err) return ok(String(out)); const full = String(errOut || err.message).trim(); no(Object.assign(new Error(full.split("\n")[0]), { full })); });
+  c.stdin?.end(input);
+});
+
 export const runners = {
   note: runGh,
   /** board.ts: 30 s, 16 MB */
@@ -113,8 +120,9 @@ export function makeGithubRecord(gh: Gh, more: More = {}): RoomRecord {
       // let in (#162). A collaborator added by the owner's gh is GitHub's own invitation, accepted from the friend's gh
       // push, not pull: anyone can read a public repository, and still needs to be added to work in it
       canWrite: (repo) => gh(["api", `repos/${repo}`, "--jq", ".permissions.push"]).then((t) => t.trim() === "true", () => false),
-      invitations: async () => (await gh(["api", "user/repository_invitations", "--paginate", "--jq", ".[] | {id: .id, repo: .repository.full_name} | tojson"]))
-        .split("\n").flatMap((l) => { try { const v = JSON.parse(l); return Number.isInteger(v?.id) && typeof v?.repo === "string" ? [{ id: v.id as number, repo: v.repo as string }] : []; } catch { return []; } }),
+      // private (#325): the invitation's own word, since a private repository is not readable before it is accepted
+      invitations: async () => (await gh(["api", "user/repository_invitations", "--paginate", "--jq", ".[] | {id: .id, repo: .repository.full_name, private: .repository.private} | tojson"]))
+        .split("\n").flatMap((l) => { try { const v = JSON.parse(l); return Number.isInteger(v?.id) && typeof v?.repo === "string" ? [{ id: v.id as number, repo: v.repo as string, ...(typeof v.private === "boolean" ? { private: v.private as boolean } : {}) }] : []; } catch { return []; } }),
       accept: (id) => gh(["api", "-X", "PATCH", `user/repository_invitations/${id}`]),
       // GitHub answers 201 and the invitation when it made one, 204 and nothing when the person was a collaborator already
       invite: async (repo, login) => ((await gh(["api", "-X", "PUT", `repos/${repo}/collaborators/${login}`, "-f", "permission=push"])).trim() ? "invited" : "already"),
@@ -125,7 +133,7 @@ export function makeGithubRecord(gh: Gh, more: More = {}): RoomRecord {
       list: (repo) => json(["issue", "list", "-R", repo, "--state", "all", "--limit", "100", "--json", "number,title,state,labels,assignees,author,createdAt,closedAt,milestone,url"]),
       // board.ts. 40, not 50: with each PR's commits, 50 asks GitHub for more than its 500,000-node limit and the read
       // fails. files rides in the same one request (#98): no request per PR
-      prs: (repo) => json(["pr", "list", "-R", repo, "--state", "all", "--limit", "40", "--json", "number,title,body,isDraft,state,headRefName,baseRefName,author,mergedAt,mergeCommit,reviewDecision,updatedAt,url,commits,files"]),
+      prs: (repo) => json(["pr", "list", "-R", repo, "--state", "all", "--limit", "40", "--json", "number,title,body,isDraft,state,headRefName,baseRefName,author,createdAt,mergedAt,mergeCommit,reviewDecision,updatedAt,url,commits,files"]),
       open: (title, label, body, repo) => gh(["issue", "create", ...R(repo), "--title", title, "--label", label, "--body", body]),   // file.ts, night.ts
       openIssues: () => gh(["issue", "list", "--state", "open", "--limit", "200", "--json", "number,title,labels,assignees"]),       // night.ts routeAll
       held: () => gh(["issue", "list", "--state", "open", "--label", "now", "--limit", "100", "--json", "number,title,assignees"]),   // night.ts
@@ -161,6 +169,7 @@ export function makeGithubRecord(gh: Gh, more: More = {}): RoomRecord {
       put: (repo, path, w, commit) => gh(["api", "-X", "PUT", `repos/${repo}/contents/${path}`, "-f", `message=${w.message}`, "-f", `branch=${w.branch}`,
         "-f", `content=${w.content}`, ...(w.sha !== undefined ? ["-f", `sha=${w.sha}`] : []), ...(commit ? ["--jq", ".commit.sha"] : [])]),   // note.ts, press.ts
       putBody: (repo, path, body) => input(["api", "-X", "PUT", `repos/${repo}/contents/${path}`], body),   // file.ts
+      remove: (repo, path, w) => gh(["api", "-X", "DELETE", `repos/${repo}/contents/${path}`, "-f", `message=${w.message}`, "-f", `branch=${w.branch}`, "-f", `sha=${w.sha}`]),   // talk.ts (#315)
       branch: (repo) => gh(["api", `repos/${repo}`, "--jq", ".default_branch"]).then((t) => t.trim()),       // things.ts (#194)
       tree: (repo) => gh(["api", `repos/${repo}/git/trees/HEAD?recursive=1`]),                                // share.ts
       list: (repo, dir, ref) => gh(["api", `repos/${repo}/contents/${dir}?ref=${encodeURIComponent(ref)}`]),  // share.ts
@@ -169,7 +178,7 @@ export function makeGithubRecord(gh: Gh, more: More = {}): RoomRecord {
         const [owner, name] = repo.split("/");
         const refs = [...new Set(items.map((x) => x.ref))];
         const body = refs.map((ref, r) => `r${r}: object(expression: ${JSON.stringify(ref)}) { ... on Commit { ${items.map((x, i) => (x.ref === ref
-          ? `h${i}: history(first: 1, path: ${JSON.stringify(x.path)}) { nodes { committedDate message author { name email user { login } } } }` : "")).join(" ")} } }`).join(" ");
+          ? `h${i}: history(first: 1, path: ${JSON.stringify(x.path)}) { nodes { committedDate message author { name email user { login } } committer { name email user { login } } } }` : "")).join(" ")} } }`).join(" ");
         const query = `query { repository(owner: ${JSON.stringify(owner)}, name: ${JSON.stringify(name)}) { ${body} } }`;
         const got = await gh(["api", "graphql", "-f", `query=${query}`]).then((t) => JSON.parse(t)?.data?.repository ?? {}, () => null);
         if (!got) return null;

@@ -65,8 +65,9 @@ export function startInstall(name: string, onChange: (s: Install) => void): () =
     return () => { ts.forEach(window.clearTimeout); window.clearTimeout(t); window.clearInterval(creep); };
   }
   const offs = [listen<{ line: string }>("install-line", (e) => line(e.payload.line)), listen<{ code: number }>("install-done", (e) => finish(e.payload.code))];
-  invoke("install_run", { name, gemini: "" }).catch((e) => { st.failed = String(e); st.phrase = "something stopped"; tell(); });
-  return () => { offs.forEach((p) => void p.then((f) => f())); window.clearInterval(creep); };
+  const off = () => offs.forEach((p) => void p.then((f) => f()));
+  invoke("install_run", { name, gemini: "" }).catch((e) => { st.failed = String(e); st.phrase = "something stopped"; tell(); off(); });
+  return () => { off(); window.clearInterval(creep); };
 }
 
 // the app with no code to run yet (lib.rs shows /?firstrun=1 then): the first run installs; elsewhere it only shows

@@ -74,13 +74,16 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
   const [pinned, setPinned] = useState(() => !solo && localStorage.getItem("sol.work.pin") !== "0");
   // the page in the stage: the talk, Settings (⌘,) or Conversations (⌘;, #253); ?page=conversations opens on it (dev stills)
   const [view, setView] = useState<"chat" | "settings" | "conversations">(() => (new URLSearchParams(location.search).get("page") === "conversations" ? "conversations" : kept("sol.work.view", "chat")));
-  // the mark held (Mark.tsx VibeMark): settings, open on the music drawer. A new key only when settings are closed;
+  // Sol held in the seat (SeatScene.tsx, the vibe switch): settings, open on the music drawer. A new key only when settings are closed;
   // when they are up, Settings opens the drawer in place, so an open drawer or a slider mid-drag is kept
   const [settingsFirst, setSettingsFirst] = useState<{ first: string; n: number }>({ first: "work", n: 0 });
   useEffect(() => {
     const f = () => { if (view === "settings") return; setSettingsFirst((s) => ({ first: "music", n: s.n + 1 })); setView("settings"); };
+    // a drawer asked for by name (#342, the join card's "sign in": "me"); Settings opens it in place when it is up
+    const named = (ev: Event) => { const d = (ev as CustomEvent).detail; if (view === "settings" || typeof d !== "string") return; setSettingsFirst((s) => ({ first: d, n: s.n + 1 })); setView("settings"); };
     window.addEventListener("sol-vibe-edit", f);
-    return () => window.removeEventListener("sol-vibe-edit", f);
+    window.addEventListener("sol:settings", named);
+    return () => { window.removeEventListener("sol-vibe-edit", f); window.removeEventListener("sol:settings", named); };
   }, [view]);
   useEffect(() => keepS("sol.work.view", view), [view]);
   const [talkView, setTalkView] = useState<TalkView>(() => (VIEWS.find((v) => v === localStorage.getItem("sol.work.talkview")) ?? "normal"));
@@ -244,15 +247,16 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
   useEffect(() => { if (e.up) w.view(view === "chat" && !chat ? w.live : null); }, [view, w.live, e.up, chat]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => w.view(null), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // the talk follows its end; it jumps when a session opens
+  // the talk follows its end; it jumps when a session opens. Set up before the paint, the place he left it too: after
+  // the paint, a session opened at the top for a frame and then glided down to where it was
   const has = items.length > 0;
-  useEffect(() => {
+  useLayoutEffect(() => {
     const t = talk.current, inner = t?.querySelector(".talk-inner") as HTMLElement | null;
     if (!t || !inner) { stick.current = null; setFlw(null); return; }
     const f = (stick.current = follow(t, inner));
     setFlw(f);
     const back = kept<{ id?: string | null; y: number } | null>("sol.work.scroll", null);
-    if (back && back.id === w.current && back.y >= 0) { requestAnimationFrame(() => f.goTo(back.y)); } else f.jump();
+    if (back && back.id === w.current && back.y >= 0) f.place(back.y); else f.jump();
     const onScroll = () => keepS("sol.work.scroll", { id: w.current, y: t.scrollTop });
     t.addEventListener("scroll", onScroll, { passive: true });
     return () => { t.removeEventListener("scroll", onScroll); f.destroy(); stick.current = null; setFlw(null); };
@@ -438,7 +442,7 @@ export function WorkApp({ e, onMode, solo }: { e: ReturnType<typeof useEngine>; 
               first={settingsFirst.first} more={(o, t) => <WorkDrawers w={w} open={o} toggle={t} flash={e.flash} />} onClose={() => setView("chat")} /></Site>
           ) : view === "conversations" ? (
             <Site name="conversations"><Conversations onOpenChat={(sessionId, t) => openChat({ seat: "claude", sessionId, title: t, updatedAt: Date.now() })} /></Site>
-          ) : chat ? <LifeTalk key="chat" e={e} mark={chatMark} onSwitch={chatSwitch} /> : (<>
+          ) : chat ? <LifeTalk key="chat" e={e} mark={chatMark} onSwitch={chatSwitch} onMode={solo ? undefined : onMode} /> : (<>
             <Site name="talk">
             <div className="talk-wrap">
               <div className="talk" ref={talk} onContextMenu={onTalkMenu}>

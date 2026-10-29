@@ -5,7 +5,8 @@
 // (engine team/calendar.ts, decisions.ts, polls.ts). While a page is open my worker stands on its tile, as on a thing's.
 import { useEffect, useState } from "react";
 import type { Team } from "./useTeam";
-import type { Room as RoomData, ToolId, CalEvent, Poll } from "./useRoom";
+import type { Room as RoomData, ToolId, CalEvent, Decision, Poll } from "./useRoom";
+import type { ToolTile } from "./connectors";
 import { Glyph } from "./Room";
 import { Who } from "./bits";
 import { since } from "./bits";
@@ -39,14 +40,20 @@ export function toolLine(id: ToolId, room: Pick<RoomData, "tools">): string {
     const next = coming(t.calendar)[0];
     return next ? `next · ${dayWord(localDay(next))}${next.allDay ? "" : ` ${hm(next.start)}`} · ${next.title}` : "nothing coming up";
   }
-  if (id === "decisions") {
-    if (!t.decisions) return "what the room decided";
-    const d = t.decisions[0];
-    return d ? `${t.decisions.length} decided · last by ${d.by || "someone"}${d.agent ? "'s agent" : ""} · ${since(d.at) === "now" ? "now" : `${since(d.at)} ago`}` : "nothing decided yet";
-  }
+  if (id === "decisions") return t.decisions ? decided(t.decisions.length, t.decisions[0] ?? null) : "what the room decided";
   if (!t.polls) return "ask the room";
   const open = t.polls.filter((p) => !p.closed);
   return open.length ? `${open.length} open · ${open[0].question}` : "no open poll";
+}
+const decided = (n: number, d: Decision | null) => (d ? `${n} decided · last by ${d.by || "someone"}${d.agent ? "'s agent" : ""} · ${since(d.at) === "now" ? "now" : `${since(d.at)} ago`}` : "nothing decided yet");
+
+/** a tile of the connectors tab's one answer (team.connectors, #332), said as toolLine says it, in local time: the
+ *  engine sends the parts raw (the next event, how many decided and the newest, the open polls newest first) */
+export function tileLine(t: ToolTile): string {
+  if (t.id === "decisions") return t.read ? decided(t.count, t.newest) : "what the room decided";
+  return toolLine(t.id, { tools: t.id === "calendar"
+    ? { calendar: t.read ? (t.next ? [t.next] : []) : null, decisions: null, polls: null }
+    : { calendar: null, decisions: null, polls: t.read ? t.open : null } });
 }
 
 /** while a tool's page is open, my worker stands on its tile: the face says so now and again, as a thing's pane does */

@@ -9,6 +9,8 @@ sol/home/school/*/material/*.pptx
 # Sol: the browser tool's logins and cookies, and saved attachments
 sol/home/browser-profile/
 sol/home/voice/
+# Sol: how Sol is used, as counts (engine/src/track.ts, #356): the tester code and the day files
+sol/home/track/
 sol/home/attachments/
 
 # Sol: the keeper's copies of the engine build and its try count (engine/launchd/keep)
@@ -17,7 +19,7 @@ sol/engine/dist.good.new/
 sol/engine/dist.bad/
 sol/engine/.keep
 
-# Sol: keys (Gemini Live)
+# Sol: keys (ElevenLabs, Gemini)
 sol/engine/.env
 # Sol: what sol/setup leaves behind (logs to read when a step failed, a skipped team key)
 sol/engine/.setup-*

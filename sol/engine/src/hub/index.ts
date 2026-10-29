@@ -14,3 +14,4 @@ export * from "./spool.js";
 export * from "./proof.js";
 export * from "./github.js";
 export * from "./load.js";
+export * from "./join.js";

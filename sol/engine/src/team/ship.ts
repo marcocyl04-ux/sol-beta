@@ -3,15 +3,21 @@
 //
 // stamp: refused, with the reason, on a dirty tree, off main, with main not pushed, or when the build is not green (the
 // engine by the keeper's record when it has one for this commit, else a type-check; the face always by a type-check).
-// Then an annotated tag stable-<yyyymmdd-hhmm>, the branch stable moved to HEAD, both pushed in one atomic push (put
-// back locally if GitHub refuses), a signed line on the record (a comment on the issue wearing `now`, else a commit
-// status), and `stable { sha, tag, by }` on the relay. A human's hand stamps: the button is the human, so `by` is the
+// Then an annotated tag stable-<yyyymmdd-hhmm>, HEAD pushed as GitHub's stable with that tag in one atomic push (the
+// local tag deleted if GitHub refuses), the local branch stable moved after, when no checkout holds it (#368: git will
+// not move a checked-out branch, and a Sol may live on `stable` beside the workshop; that Sol is offered the update like
+// any other), a signed line on the record (a comment on the issue wearing `now`, else a commit status), and
+// `stable { sha, tag, by }` on the relay. A human's hand stamps: the button is the human, so `by` is the
 // login, never "<login>'s agent". From a checkout off main (MY SOL, #140) it stamps from the checkout of main beside it
 // in the same repo, brought up to GitHub's main first (fast-forward only); with none beside it, the off-main refusal.
 // one stable back: the branch alone moves to an older stable-* tag (forced, the tag stays), the same line and relay word.
-// every Sol learns: a `stable` heard on the relay whose sha is not this checkout's stable becomes `team.stable` to every
-// face; the faces offer it while `behind` (HEAD does not hold it). The live Sol (branch `live`) is never offered one:
-// sol/promote moves it. At start the engine also asks GitHub once (ls-remote), for a stable stamped while it was off.
+// every Sol learns: a `stable` heard on the relay whose sha is not this checkout's stable, or is not in HEAD's history,
+// becomes `team.stable` to every face; the faces offer it while `behind` (HEAD does not hold it). The live Sol (branch `live`) is never offered one:
+// sol/promote moves it. The engine also asks GitHub itself (ls-remote): 20 s after start, for a stable stamped while it
+// was off, and every hour after (#353), for one whose word on the relay it missed (off at that second, in another room)
+// when the start's one ask failed too (no network yet, a credential prompt git cannot answer). GitHub's answer names no
+// stamper: for the sha already standing, the name and tag heard before stay said. An ask that finds the offer already
+// standing tells the faces nothing new; one that finds HEAD holding the offered sha (a pull by hand) stands it answered.
 // update: fast-forward only, on main or stable, on a clean tree; the build watcher and renew do the rest. On a */mine
 // branch (MY SOL, where Marco's Sol lives since sol/mine/live, #116) it runs sol/mine/rebase instead: his own commits
 // go onto the new stable, and a conflict leaves the checkout as it was, its places named.
@@ -104,10 +110,12 @@ export async function stampChecks(d: Ship): Promise<Checked> {
   const loose = (await git(d.root, ["status", "--porcelain", "--untracked-files=all", "--", "engine/src", "mac/src", "mac/*.html"])).split("\n").filter(Boolean);
   if (loose.length) return { ok: false, error: `${plural(loose.length, "source file")} not committed (${loose[0].slice(3).trim()}); commit or remove first` };
   const branch = (await tryGit(d, ["branch", "--show-current"])) ?? "";
-  if (branch !== "main") return { ok: false, error: `this checkout is on ${branch || "a detached head"}, not main; stable is stamped from main` };
+  if (branch === "live") { const l = await liveAtMain(d); if ("error" in l) return { ok: false, error: l.error }; }   // #66, #391
+  else if (branch !== "main") return { ok: false, error: `this checkout is on ${branch || "a detached head"}, not main; stable is stamped from main` };
   // what GitHub's main is now (a checkout that moved by `update` has a stale origin/main); offline, the last one known
   await tryGit(d, ["fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main"], 20_000);
-  const up =(await tryGit(d, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]))
+  // on live the upstream is origin/live (sol/live-setup), which the stamp never fetches: GitHub's main is the measure there
+  const up = (branch === "live" ? null : await tryGit(d, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]))
     || ((await tryGit(d, ["rev-parse", "--verify", "-q", "refs/remotes/origin/main"])) ? "origin/main" : null);
   if (!up) return { ok: false, error: "main is not on GitHub yet; push it first" };
   const ahead = Number(await git(d.root, ["rev-list", "--count", `${up}..HEAD`]));
@@ -120,12 +128,28 @@ export async function stampChecks(d: Ship): Promise<Checked> {
 
 // ---- stamp, and one stable back ----
 
+/** The live checkout (the NucBox's ~/sol-live, branch `live`, moved by sol/promote only) may stamp when it stands at
+ * GitHub's main (#66, #391): promote puts main's commit there, so a stamp from it stamps main. One that drifted (a
+ * commit on live, or main moved since the last promote) is refused with both named: promote first, or stamp from main. */
+async function liveAtMain(d: Ship): Promise<{ ok: true } | { error: string }> {
+  // the fetch must land: a live checkout that cannot reach GitHub (the NucBox has no key of its own, sol/promote) would
+  // otherwise be compared with a stale origin/main and told to promote, which changes nothing
+  if ((await tryGit(d, ["fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main"], 20_000)) === null)
+    return { error: "this checkout is on live, and GitHub could not be asked from here; stable is stamped from a checkout that reaches GitHub" };
+  const head = (await tryGit(d, ["rev-parse", "HEAD"])) ?? "";
+  const up = (await tryGit(d, ["rev-parse", "--verify", "-q", "refs/remotes/origin/main"])) ?? "";
+  if (!up) return { error: "this checkout is on live, and GitHub's main is not known here; stable is stamped from main" };
+  if (head !== up) return { error: `this checkout is on live at ${short(head)}, not at GitHub's main (${short(up)}); promote first, or stamp from main` };
+  return { ok: true };
+}
+
 /** where a stamp runs (#140): this checkout when it is on main; else the checkout of the same repo that holds main (MY
  * SOL is a worktree of SOL, whose own folder stays on main), with `follow` first brought up to GitHub's main
  * (fast-forward only), so what is stamped is main as GitHub has it, never a copy left behind */
 async function onMain(d: Ship, follow: boolean): Promise<{ d: Ship; beside: boolean } | { error: string }> {
   const branch = (await tryGit(d, ["branch", "--show-current"])) ?? "";
   if (branch === "main") return { d, beside: false };
+  if (branch === "live") { const l = await liveAtMain(d); return "error" in l ? l : { d, beside: false }; }   // the NucBox (#66, #391)
   const prefix = (await tryGit(d, ["rev-parse", "--show-prefix"])) ?? "";
   const list = (await tryGit(d, ["worktree", "list", "--porcelain"])) ?? "";
   const path = list.split("\n\n").map((b) => b.split("\n")).find((b) => b.includes("branch refs/heads/main"))?.[0]?.replace(/^worktree /, "");
@@ -185,6 +209,9 @@ export const BETA_KEEP = [
   // the install (#169): the one line's script, the page that serves it, and the two workflows that run only in the
   // public repo (by exact path: ci and apart stay home)
   "sol/install", "site", ".github/workflows/release.yml", ".github/workflows/pages.yml",
+  // the sol skill (#133): setup links it for Claude and Codex, and it is how a Sol changes itself from the inside;
+  // without it a tester's links point at nothing and setup's skill test fails (#300)
+  "sol/skills/sol",
 ];
 const kept = (path: string) => BETA_KEEP.some((k) => path === k || path.startsWith(k + "/"));
 const EXPORT_MSG = /^Sol stable-/;
@@ -218,8 +245,10 @@ question and sets itself up.
 **Linux**, and **Windows** inside Ubuntu under WSL (\`wsl --install\` once in PowerShell): the same line; there is
 no app, the face opens in your browser at http://localhost:1420.
 
-Both end with a sign-in to Claude (Claude Code runs the agents in Sol). There are no team features in a beta
-Sol (no relay, no shared view, no Hand).
+Both ask you to sign in to Claude (a Claude Pro or Max plan). ChatGPT (Plus or Pro, through Codex) works too: a
+chat starts on Codex, which signs you in the first time you talk to it, and a coding session in Work runs on
+Claude unless you pick GPT. Rooms you share with others (Cowork) meet on Sol's cloud, signed in with your Google
+account; the team's own machinery (the Hand, the stamp) is not in a beta Sol.
 
 ## Make it yours
 
@@ -234,7 +263,9 @@ Every commit there gets \`mine: \` in front. The harness comes along (\`sol/harn
 
 ## Keep it current
 
-A new version: \`git pull\` in that folder; Sol rebuilds itself. On your own branch, \`bash sol/mine/rebase\` instead:
+A new version: Sol says so in its own window within the hour, with an **Update** button; press it and Sol
+fetches the new version and rebuilds its engine and face from it. The Mac app's own shell comes from the
+[latest release](https://github.com/marcocyl04-ux/sol-beta/releases/latest) when it changed; the release notes say so. On your own branch, \`bash sol/mine/rebase\` instead:
 it puts your changes on top of the new version, and if one does not fit it names the place and changes nothing. When something breaks, \`sol/HELP.md\`.
 Something wrong, or a thought: open an issue on this repository.
 `;
@@ -332,18 +363,22 @@ async function mirror(d: Ship, sha: string, tag: string): Promise<{ beta?: strin
   if ((await tryGit(d, ["remote", "get-url", "beta"])) === null) return {};
   try {
     const { commit, prev } = await exportTree(d.root, sha, tag);
-    // the lease: main must still be what the export was built on (another stamp in between refuses, never overwrites)
-    await git(d.root, ["push", "-q", `--force-with-lease=refs/heads/main:${prev}`, "beta", `${commit}:refs/heads/main`, `+${commit}:refs/tags/${tag}`], 120_000);
+    // the lease: main must still be what the export was built on (another stamp in between refuses, never overwrites).
+    // `stable` moves with main: a tester's engine asks its origin for refs/heads/stable every hour (askOrigin) and Update
+    // fast-forwards to it; with main alone the tester never hears a new version and Update has nothing to fetch
+    // --atomic: the lease is checked per ref, so without it a refused main would still move stable and the tag, and a
+    // tester would be offered a stable that split from main
+    await git(d.root, ["push", "-q", "--atomic", `--force-with-lease=refs/heads/main:${prev}`, "beta", `${commit}:refs/heads/main`, `+${commit}:refs/heads/stable`, `+${commit}:refs/tags/${tag}`], 120_000);
     return { beta: `the beta repo runs it too` };
   } catch (e) {
     return { beta: `the beta repo did not take it: ${firstLine(e)}` };
   }
 }
 
-async function putBack(d: Ship, before: string | null) {
-  if (before) await tryGit(d, ["branch", "-f", "stable", before]);
-  else await tryGit(d, ["branch", "-D", "stable"]);
-}
+/** after GitHub took it: my `stable` is the team's now. Git refuses to move a branch some checkout has out, and a Sol
+ * may live on `stable` beside the workshop (#368): then the branch stays where that Sol is, the stamp stands on GitHub
+ * all the same, and that Sol hears it like any other (heardStable: behind, so offered) and its own Update moves it */
+const follow = (d: Ship, sha: string) => tryGit(d, ["branch", "-f", "stable", sha]);
 
 async function forward(here: Ship): Promise<Stamped> {
   const o = await onMain(here, true);
@@ -353,17 +388,22 @@ async function forward(here: Ship): Promise<Stamped> {
   if (!c.ok) return { error: c.error };
   const by = await d.me();
   const tag = await freeTag(d);
-  const before = await tryGit(d, ["rev-parse", "--verify", "-q", "refs/heads/stable"]);
   await git(d.root, ["tag", "-a", tag, "-m", `stable, stamped by ${by}`, c.sha]);
   try {
-    await git(d.root, ["branch", "-f", "stable", c.sha]);
-    await git(d.root, ["push", "-q", "--atomic", "origin", "refs/heads/stable:refs/heads/stable", `refs/tags/${tag}:refs/tags/${tag}`], 120_000);
+    // the commit itself goes up as stable, the local branch untouched until GitHub has it
+    await git(d.root, ["push", "-q", "--atomic", "origin", `${c.sha}:refs/heads/stable`, `refs/tags/${tag}:refs/tags/${tag}`], 120_000);
   } catch (e) {
-    // nothing moved on GitHub (the push is atomic): the local tag and branch go back to how they were
-    await tryGit(d, ["tag", "-d", tag]);
-    await putBack(d, before);
-    return { error: `GitHub did not take it: ${firstLine(e)}` };
+    // the push is atomic: GitHub took both or neither. Git cut off after GitHub took them (the timeout) lands here too,
+    // so GitHub is asked: both standing there, the stamp stands and goes on; else nothing moved there, and here only
+    // the tag did: it goes
+    const up = (await tryGit(d, ["ls-remote", "origin", "refs/heads/stable", `refs/tags/${tag}`], 20_000)) ?? "";
+    const took = up.includes(`${c.sha}\trefs/heads/stable`) && up.includes(`\trefs/tags/${tag}`);
+    if (!took) {
+      await tryGit(d, ["tag", "-d", tag]);
+      return { error: `GitHub did not take it: ${firstLine(e)}` };
+    }
   }
+  await follow(d, c.sha);
   const b = await mirror(d, c.sha, tag);
   const r = await record(d, c.sha, `stable stamped: ${tag} at ${short(c.sha)}, by ${by}${b.beta ? `; ${b.beta}` : ""}`);
   d.send("stable", { sha: c.sha, tag, by });
@@ -378,15 +418,15 @@ async function back(here: Ship, to: string): Promise<Stamped> {
   const d = o.d;
   const sha = await tryGit(d, ["rev-parse", "--verify", "-q", `refs/tags/${to}^{commit}`]);
   if (!sha) return { error: `there is no tag ${to} here` };
-  if ((await tryGit(d, ["branch", "--show-current"])) === "stable") return { error: "this checkout is on stable; switch to main first" };
-  const before = await tryGit(d, ["rev-parse", "--verify", "-q", "refs/heads/stable"]);
+  // the branch alone, forced back; the tags stay. Forced only over the stable last seen here (team.stables fetches it
+  // before the picker opens): a stamp by someone else in between is refused, never overwritten
+  const seen = await tryGit(d, ["rev-parse", "--verify", "-q", "refs/remotes/origin/stable"]);
   try {
-    await git(d.root, ["branch", "-f", "stable", sha]);
-    await git(d.root, ["push", "-q", "origin", "+refs/heads/stable:refs/heads/stable"], 120_000);   // the branch alone; the tag stays
+    await git(d.root, ["push", "-q", seen ? `--force-with-lease=refs/heads/stable:${seen}` : "--force", "origin", `${sha}:refs/heads/stable`], 120_000);
   } catch (e) {
-    await putBack(d, before);
     return { error: `GitHub did not take it: ${firstLine(e)}` };
   }
+  await follow(d, sha);
   const by = await d.me();
   const b = await mirror(d, sha, to);
   const r = await record(d, sha, `stable moved back to ${to} (${short(sha)}), by ${by}${b.beta ? `; ${b.beta}` : ""}`);
@@ -434,7 +474,10 @@ export async function heardStable(d: Ship, m: { sha?: unknown; tag?: unknown; by
   // MY SOL shares its `stable` with the checkout of main beside it, and a stamp from MY SOL moves it there: on a */mine
   // branch only HEAD's history says whether it has the stamp (#166)
   if (/\/mine$/.test(branch)) return behind ? { type: "team.stable", sha, tag: String(m.tag ?? ""), by: String(m.by ?? ""), mine, behind } : null;
-  if (mine === sha) return null;
+  // my `stable` (origin's, when I have none) is that sha already and HEAD holds it: nothing to say. A stamp run from the checkout of main beside this
+  // one may move the `stable` branch they share before this Sol hears it (when no checkout holds it, #368), so the
+  // branch alone never hides an offer while HEAD is behind (#344: the Sol that stamped was the one never offered its update)
+  if (mine === sha && !behind) return null;
   return { type: "team.stable", sha, tag: String(m.tag ?? ""), by: String(m.by ?? ""), mine, behind };
 }
 
@@ -478,17 +521,29 @@ let D: Ship | null = null;
 let offer: Offer | null = null;
 let tell: (m: object) => void = () => {};
 let listening = false;
+let asking: NodeJS.Timeout | null = null;
+let heard = 0;   // every word hear() took, counted: an ask of GitHub that a relay word overtook drops its answer
 export const shipNow = () => D;
 /** the standing offer (a face that connects asks for it with team.stable.get) */
 export const offerNow = () => offer;
 
-/** what the engine does with a `stable` heard on the relay (exported for the tests) */
+/** what the engine does with a `stable` heard on the relay, or read from GitHub (exported for the tests). The same
+ * offer heard again (the hourly ask, #353) is not told again: the faces have it, and a face that connects later asks. */
 export async function hear(m: { sha?: unknown; tag?: unknown; by?: unknown }) {
   if (!D) return;
+  heard++;
   const o = await heardStable(D, m).catch(() => null);
-  if (!o) return;
-  offer = o;
-  tell(o);
+  if (!o) {
+    // nothing to offer for the sha standing as behind: HEAD came to hold it some other way (a pull by hand), so the
+    // offer stands answered, as after Update, and no face that connects later is shown an Update for it
+    if (offer?.behind && offer.sha === String(m.sha ?? "")) answered(offer.sha);
+    return;
+  }
+  // GitHub's answer names no stamper and may name no tag: for the sha already standing, what was heard before stays said
+  const next: Offer = offer && offer.sha === o.sha ? { ...o, tag: o.tag || offer.tag, by: o.by || offer.by } : o;
+  if (offer && JSON.stringify(next) === JSON.stringify(offer)) return;   // nothing new: the faces have it
+  offer = next;
+  tell(next);
 }
 /** after an update: the offer stands answered, every face hears it is no longer behind */
 export function answered(sha: string) {
@@ -497,14 +552,22 @@ export function answered(sha: string) {
   tell(offer);
 }
 
-/** what this engine's stable is on GitHub, asked once at start: a stable stamped while it was off is offered too */
-async function askOrigin() {
-  if (!D) return;
+/** how often the engine asks GitHub itself (#353): a stamp whose relay word this Sol missed reaches it within the hour */
+export const ASK_EVERY_MS = 60 * 60_000;
+const ASK_FIRST_MS = 20_000;
+/** what this engine's stable is on GitHub (exported for the tests), asked 20 s after start and every hour after: a stable
+ * stamped while it was off, or one whose relay word it missed (off at that second, in another room), is offered too */
+export async function askOrigin() {
+  if (!D || stamping || updating) return;   // mid-stamp or mid-update the branches are moving; the next hour asks again
+  const before = heard;
   const out = await git(D.root, ["ls-remote", "origin", "refs/heads/stable", "refs/tags/stable-*"], 20_000).catch(() => "");
+  if (heard !== before) return;   // a word came over the relay while GitHub was answering: that word is newer than this answer
   const refs = out.split("\n").filter(Boolean).map((l) => l.split("\t") as [string, string]);
   const sha = refs.find(([, r]) => r === "refs/heads/stable")?.[0];
   if (!sha) return;
-  const tagged = refs.find(([s, r]) => s === sha && r.endsWith("^{}")) ?? refs.find(([s, r]) => s === sha && r.startsWith("refs/tags/"));
+  // ls-remote lists tags by name, so of two on one sha the last is the newest stamp
+  const tags = refs.filter(([s, r]) => s === sha && r.startsWith("refs/tags/")).reverse();
+  const tagged = tags.find(([, r]) => r.endsWith("^{}")) ?? tags[0];
   await hear({ sha, tag: tagged ? tagged[1].replace(/^refs\/tags\//, "").replace(/\^\{\}$/, "") : "", by: "" });
 }
 
@@ -522,5 +585,10 @@ export function startShip(root: string, everyone: (m: object) => void, over: Par
   tell = everyone;
   offer = null;
   if (!listening) { listening = true; onRelay("stable", (m) => void hear(m as { sha?: unknown })); }
-  if (!process.env.SOL_NO_SHIP_CHECK) setTimeout(() => void askOrigin().catch(() => {}), 20_000).unref();
+  if (!process.env.SOL_NO_SHIP_CHECK) {
+    const ask = () => void askOrigin().catch(() => {});
+    setTimeout(ask, ASK_FIRST_MS).unref();
+    if (asking) clearInterval(asking);   // startShip again (the tests): one clock, never two
+    asking = setInterval(ask, ASK_EVERY_MS).unref();
+  }
 }

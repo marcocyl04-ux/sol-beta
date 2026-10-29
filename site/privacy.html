@@ -22,21 +22,21 @@
       <li>Sol runs on your own computer. Your AI conversations, your files and your browser stay there. Only what you or your AI post in a shared room passes through Sol's cloud.</li>
       <li>Sol's cloud keeps only what a team needs to share: your account, the rooms you are in, and messages waiting for someone who is offline.</li>
       <li>The cloud is in the United States.</li>
-      <li>We don't sell your data or show you ads, and the cloud runs no trackers or analytics.</li>
+      <li>We don't sell your data or show you ads. The website runs no trackers. During the beta, the app counts how it is used (which buttons, how long a turn took, which mode) and once a day what Claude Code's and Codex's files on your Mac add up to (tokens, your plan), and sends the counts to the team once a day with your name, never what you type, say or open. A word in the beta testers' Discord turns it off or deletes it.</li>
       <li>You can ask for a copy of your data, or ask us to delete it. Deletion is complete within 30 days of your confirmation, backups included.</li>
     </ul>
   </section>
 
   <section>
     <h2>Who runs Sol</h2>
-    <p>Sol is run by Sol Inc. It is "we" on this page. To reach us, see <a href="support.html">Support</a>.</p>
+    <p>Sol is run by the team that makes it, not by a company yet; when one is formed, this line names it. The team is "we" on this page. To reach us, see <a href="support.html">Support</a>.</p>
   </section>
 
   <section>
     <h2>What stays on your computer</h2>
     <p>The Sol app and its engine run on your machine. Your chats with AI, your coding sessions, the pages you browse inside Sol, your notes, desk and recordings all stay in your Sol folder. So does the chat history of your rooms: each member's Sol keeps the latest messages of each thread.</p>
     <p>Sol talks to AI through your own accounts (for example Claude or ChatGPT). What you send them goes from your computer straight to that provider, under that provider's own privacy policy. It never goes through Sol's cloud.</p>
-    <p>In a shared room, what you and your AI post there (chat, pings, the sessions you show the room, who is online) passes through the cloud on its way to the other members. The cloud passes it on and doesn't store it, except as the next section says.</p>
+    <p>In a shared room, what you and your AI post there (chat, pings, the sessions you show the room, who is online) passes through the cloud on its way to the other members. The cloud keeps a group's chat for the group's members: its messages, up to 2 MB of them per group (the oldest go first), and the images and files members attach, which count toward the room's 20 MB; an attachment goes when its message is trimmed. The messages stay until the group is deleted, and the ones you wrote go when your account does. Only the group's members can read them. The cloud never keeps a prompt you send your AI, a session's transcript, or anything from your Sol folder; the live view of a session you show the room passes on and is not stored. Everything else is as the next section says.</p>
   </section>
 
   <section>
@@ -48,6 +48,7 @@
       <li><b>Your name on Google:</b> Google sends it to us, and we don't keep it. Your teammates see your Sol name.</li>
       <li><b>Your signed-in computers:</b> a sign-in token for each of up to 10 machines, stored only in scrambled form (as a hash). Each one expires 90 days after it was last used.</li>
       <li><b>Rooms:</b> each room's name and code, who made it, who is in it and when they joined, and the files the room shares (such as its list of things, its goal and the goal's text files), each with who changed it last and when. A room holds 20 MB at most. For a room connected to GitHub, the room also keeps the names of its GitHub organisation and repositories. Your code stays in your own GitHub, never in Sol.</li>
+      <li><b>Group chat:</b> a group's messages, up to 2 MB of them per group (the oldest go first), with who wrote each and when, for the group's members only. The images and files members attach are files of the group, 150 at most (a new one past that takes the oldest's place); an attachment goes when its message is trimmed, and all of them when the group is deleted. The messages you wrote are deleted with your account, and are in your account's export.</li>
       <li><b>Messages waiting for you:</b> when someone writes in a room while you're offline, the cloud holds the message until your Sol picks it up, for 7 days at most and 500 messages at most. After that it's deleted at the next clean-up. Who is online right now is kept in memory only, and is never written down. The cloud does note that your Sol name has connected at least once.</li>
       <li><b>How much the cloud sent you each month:</b> a count of bytes per month, next to your Sol name, so one person can't use up what everyone shares. If you go far past the monthly amount, the live view of others' AI sessions slows down; chat never does. It's deleted with your account.</li>
       <li><b>A sign-in in progress:</b> between signing in with Google and picking your Sol name, your email and Google account ID wait for up to 15 minutes. If you stop there, they're deleted at the next clean-up.</li>
@@ -57,10 +58,23 @@
     </ul>
   </section>
 
+  <section id="counts">
+    <h2>How Sol is used (the beta)</h2>
+    <p>While Sol is in beta, the app on your computer counts how it is used, so we can see what works: which buttons are pressed, how long a turn took and whether it finished, which mode (Home, Work or a room) and which AI answered, when the app was opened, and what broke. It never records what you type, say, read or open: no messages, no transcripts, no file names, no paths, no addresses. A text's length is kept only as a band ("21 to 100 characters"), a folder only as its last name and a hash of its path made with a secret that stays on your Mac.</p>
+    <p>Once a day it also reads the files Claude Code and Codex keep on your Mac, and counts: how many prompts and answers a day, with which model, from which folder, and how many tokens; the kind of plan each is signed in with; and which AI apps are installed. It reads them to count, and sends numbers, not content: no words of a conversation, no email, no token, no key ever leaves your Mac.</p>
+    <p>The counts are written on your computer first, one file a day, and sent to the team's cloud once a day. They carry your name: the name you picked in Sol when you signed in, or else your Mac's user name, beside a code your Sol made. The beta's testers are people we know, and we look at the counts by person to understand how each of you uses Sol. Each post arrives from your computer's internet address, which the cloud's access log keeps for 14 days, as it does for everything else that reaches it. Each file is kept on your computer for 90 days. The cloud keeps the counts while the beta's questions are open. What happens to them after the beta will be said here before it is decided.</p>
+    <p>The first time Sol opens after this update, one card says all of this, with one button. There is no switch: to turn the counting off, or to have everything sent under your name deleted, say so in the beta testers' Discord and we do it the same day. A backup made before then keeps the rows until it ages out, 14 days.</p>
+  </section>
+
+  <section>
+    <h2>When you tell us something</h2>
+    <p>Beta testers tell us things in a Discord server. <b>Tell us…</b> in Sol only opens that server and copies one line to your clipboard, Sol's version and your Mac's model and macOS; Sol sends nothing on its own. What you write there is kept by Discord under its own privacy policy, and we see it with your Discord name. We use it only to fix Sol and to write back to you. If you email us instead, the email stays in the team's inbox until you ask us to delete it.</p>
+  </section>
+
   <section>
     <h2>Where it is kept, and who can see it</h2>
     <p>The cloud is one server at DigitalOcean in New York, United States. Backups are made daily on that server. An encrypted copy may also be kept with Hetzner, in Germany or Finland. The people who run Sol can see the cloud's data, and only to run and protect the service. We don't share it with anyone else, unless the law makes us.</p>
-    <p>The companies that keep Sol running handle only what they need to: DigitalOcean (the server and its backups), Hetzner (an encrypted backup copy), Google (sign-in), and GitHub (this website, and the rooms you choose to connect to a repository).</p>
+    <p>The companies that keep Sol running handle only what they need to: DigitalOcean (the server and its backups), Hetzner (an encrypted backup copy), Google (sign-in, and the team inbox your email reaches), GitHub (this website, and the rooms you choose to connect to a repository) and Discord (the beta testers' server, if you join it).</p>
     <p>If you are in the European Union or the United Kingdom: we use your data to give you the service you signed up for, and, for the sign-up limits, the logs and reports, because we have a legitimate interest in keeping Sol safe. Your data is kept in the United States. You can ask to see, correct or delete your data, or object to how we use it, and you can complain to your data protection authority.</p>
   </section>
 
@@ -87,7 +101,7 @@
     <p>When this page changes, the date below changes. For a change that matters, we'll also tell you by email or in Sol before it takes effect.</p>
   </section>
 
-  <footer>Last changed 26 October 2026. <a href="terms.html">Terms</a> · <a href="support.html">Support</a></footer>
+  <footer>Last changed 29 October 2026. <a href="terms.html">Terms</a> · <a href="support.html">Support</a></footer>
 </main>
 </body>
 </html>

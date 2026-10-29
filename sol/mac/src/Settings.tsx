@@ -4,7 +4,7 @@ import { reducedMotion } from "./motion";
 import { PART_NAMES, PRESETS, setPart, setVibe, useVibe, type Part, type Prefs } from "./vibe";
 import { ONE, FELL } from "./engine";
 import { ENGINE, WHICH, LIVE, NEXT, FAR_NAME, pickEngine, sameEngine, keptMachines, type Effort, type EngineInfo, type Health, type Models, type Seat, type Settings as S, type GoBackPlan } from "./useEngine";
-import { VOICES, VOICE_OFF } from "./voices";
+import { VOICES, VOICE_OFF, ELEVEN_VOICES, ELEVEN_DEFAULT, MAKERS } from "./voices";
 import { ControlDrawers } from "./control/Control";
 import { CellRange, Status } from "./creature/indicators";
 import { invoke } from "@tauri-apps/api/core";
@@ -196,6 +196,10 @@ export function LookDrawer({ s, off, onSet, open, onToggle }: { s: S; off: boole
   );
 }
 
+// The call's maker and ElevenLabs voice (#24), and the maker that carries a call now ("auto" resolved, the engine's
+// read-only voiceNow); absent on an older engine. Read here, not added to useEngine's Settings (on the fence).
+type Voiced = S & { voiceVendor?: "auto" | "gemini" | "elevenlabs"; elevenVoice?: string; voiceNow?: "gemini" | "elevenlabs" };
+
 // The way out, where every pane closes: the top right, under the bar. Escape is the same door: both apps' window
 // listeners already close a view that is not the chat, after a menu or a pane's own key has had its turn.
 function Shut({ onClose }: { onClose: () => void }) {
@@ -233,11 +237,14 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
 
   // in the shell a section is picked, never closed: toggle is the drawers' old word for "open this one"
   const toggle = (n: string) => setOpen(n);
-  // the mark held while settings are up (Mark.tsx VibeMark): the music drawer opens here, nothing else is redrawn
+  // Sol held while settings are up (SeatScene.tsx, the vibe switch): the music drawer opens here, nothing else is redrawn
   useEffect(() => {
     const f = () => setOpen("music");
+    // and a drawer asked for by name (#342, sol:settings: the join card's "sign in" opens "me")
+    const named = (ev: Event) => { const d = (ev as CustomEvent).detail; if (typeof d === "string") setOpen(d); };
     window.addEventListener("sol-vibe-edit", f);
-    return () => window.removeEventListener("sol-vibe-edit", f);
+    window.addEventListener("sol:settings", named);
+    return () => { window.removeEventListener("sol-vibe-edit", f); window.removeEventListener("sol:settings", named); };
   }, []);
   // the Go back row asks the engine what one step back would do, each time the drawer opens with the engine up
   useEffect(() => { if (open === "engine" && up && send) send({ type: "goback.plan" }); }, [open, up, send]);
@@ -255,7 +262,8 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
     options.unshift(ONE_OPT);
     return { value: ONE ? "one" : at?.url ?? ENGINE, options };
   })();
-  const BACK_LINE = "bash ~/computer/personal/projects/ecosystem/sol/back";
+  // the line HELP.md gives: ~/Sol is where the install puts a tester's Sol; a Sol cloned by hand lives where it was put
+  const BACK_LINE = "bash ~/Sol/sol/back";
   const [copied, setCopied] = useState(false);
   const copyBack = () => { void navigator.clipboard?.writeText(BACK_LINE).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 2000); }); };
   // the engine drawer, the one part that must work with the engine down (#16 blocker 6): status, which engine, the
@@ -280,12 +288,12 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
           <li>still down after two minutes: press Cmd-Space, type Terminal, and paste this line
             <code className="mono">{BACK_LINE}</code>
             <button className="link" onClick={copyBack}>{copied ? "copied" : "copy"}</button>
-            <span>it puts the last good build back, takes back the face's last change, starts the engine again, and says what it did</span></li>
+            <span>it puts the last good build back, takes back the face's last change, starts the engine again, and says what it did (~/Sol is where the install put Sol; a Sol you cloned yourself: that folder instead)</span></li>
           <li>Sol.app itself will not open: the same line, then open Sol again</li>
-          <li>none of it helps: Claude Code in ~/computer/personal/projects/ecosystem, "Sol is down, read sol/HELP.md"</li>
+          <li>none of it helps: say so in the beta testers' Discord (Tell us… in the menu bar) with the end of ~/Library/Logs/sol-engine.log; or Claude Code in Sol's folder, "Sol is down, read sol/HELP.md"</li>
         </ol></dd></>}
         {health?.reverted && <><dt>last take-back</dt><dd title={health.reverted.line}>{health.reverted.what === "engine" ? "the engine's last good build" : "a face edit"}, {new Date(health.reverted.at).toLocaleTimeString()}{health.reverted.line ? `: ${health.reverted.line}` : ""}</dd></>}
-        <dt>gemini key</dt><dd>{info ? (info.haveVoiceKey ? "set" : "not set") : "–"}</dd>
+        <dt>voice key</dt><dd>{info ? `${(real as Voiced | null)?.voiceNow === "elevenlabs" ? "ElevenLabs" : "Gemini"}, ${info.haveVoiceKey ? "set" : "not set"}` : "–"}</dd>
         <dt>dictation</dt><dd>{info?.dictationModel || "–"}</dd>
         {note && <><dt>last error</dt><dd className="mono" title={note}>{note}</dd></>}
       </dl>
@@ -307,12 +315,22 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
   const named = mics.some((m) => m.label);
   const seatModels = (k: Seat) => models.seats.find((x) => x.seat === k)?.models ?? [];
   const patience_ = patience ?? s.patienceMs;
+  // ElevenLabs carries the call (#24): its voices stand in for Gemini's; "off" stays first
+  const sv = s as Voiced;
+  const eleven = sv.voiceNow === "elevenlabs";
+  const elevenNow = sv.elevenVoice ?? ELEVEN_DEFAULT;
+  const cards: [string, string, string][] = eleven
+    ? [[VOICE_OFF, VOICE_OFF, VOICES[0][1]], ...ELEVEN_VOICES]
+    : VOICES.map(([name, word]): [string, string, string] => [name, name, word]);
+  const cardOn = (id: string) => eleven ? (id === VOICE_OFF ? s.voice === VOICE_OFF : s.voice !== VOICE_OFF && elevenNow === id) : s.voice === id;
+  const pickCard = (id: string) => onSet(!eleven || id === VOICE_OFF ? { voice: id }
+    : { elevenVoice: id, ...(s.voice === VOICE_OFF ? { voice: FALLBACK.voice } : {}) });
 
   // what each section is set to now, as a word or a mark beside it in the rail
   const seatNow = s.defaults.seat ?? "codex";
   const micNow = s.mic ? mics.find((m) => m.deviceId === s.mic)?.label : "";
   const peek: Record<string, React.ReactNode> = {
-    voice: s.voice === VOICE_OFF ? "off" : s.voice.toLowerCase(),
+    voice: s.voice === VOICE_OFF ? "off" : eleven ? (ELEVEN_VOICES.find((v) => v[0] === elevenNow)?.[1] ?? "eleven").toLowerCase() : s.voice.toLowerCase(),
     microphone: micNow ? micNow.replace(/\s*\(.*\)$/, "").slice(0, 14) : "default",
     defaults: (s.defaults.model[seatNow] ?? "").replace(/^claude-/, "").replace(/^gpt-/, "gpt "),
     look: <i className="sdot swatch-peek" style={{ background: s.look?.color ?? LOOK_DEFAULT.color }} />,
@@ -326,17 +344,21 @@ export function Settings({ s: real, stale, info, up, health = null, goBack = nul
       <div className={off ? "settings-off" : ""} style={{ display: "contents" }}>
         <ControlDrawers open={open} toggle={toggle} onSet={onSet} />
         <Drawer name="voice" open={open === "voice"} onToggle={() => toggle("voice")}>
+          <div className="field-r">
+            <div className="lab"><span>maker</span><small>who hears and talks on a call</small></div>
+            <Pick value={sv.voiceVendor ?? "auto"} options={MAKERS} disabled={off || !sv.voiceVendor} onChange={(v) => onSet({ voiceVendor: v })} />
+          </div>
           <div className="voices">
-            {VOICES.map(([name, word]) => {
-              const on = s.voice === name;
+            {cards.map(([id, name, word]) => {
+              const on = cardOn(id);
               return (
-                <div key={name} className={`vcard ${on ? "on" : ""}`} role="button" tabIndex={off ? -1 : 0} aria-disabled={off}
-                  onClick={() => { if (!off) onSet({ voice: name }); }}
-                  onKeyDown={(ev) => { if (!off && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); onSet({ voice: name }); } }}>
+                <div key={id} className={`vcard ${on ? "on" : ""}`} role="button" tabIndex={off ? -1 : 0} aria-disabled={off}
+                  onClick={() => { if (!off) pickCard(id); }}
+                  onKeyDown={(ev) => { if (!off && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); pickCard(id); } }}>
                   <b>{name.toLowerCase()}</b>
                   <span>{word}</span>
                   {on && name !== VOICE_OFF && (
-                    <button className={`hear ${sampling ? "playing" : ""}`} disabled={off || sampling || !up} onClick={(ev) => { ev.stopPropagation(); onHear(name); }}
+                    <button className={`hear ${sampling ? "playing" : ""}`} disabled={off || sampling || !up} onClick={(ev) => { ev.stopPropagation(); onHear(eleven ? id : name); }}
                       title="a real sample in this voice">{sampling ? "playing…" : "hear it"}</button>
                   )}
                 </div>

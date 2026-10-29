@@ -126,6 +126,11 @@ function frame(now: number) {
 // short with its discs half faded, the creature halfway from the wing (Marco's two shots, 2026-10-26). The guard is a
 // plain timer: while any spring moves and no frame has come for 120 ms, it steps every spring up to the real time
 // itself, so a motion always ends where it was told to go, seen or not.
+// A silence is not always a stall: the page busy for a few hundred ms (a long render) silences the frames too, and
+// stepping the whole silence then made every motion on screen leap to its end at once. So the guard carries on by one
+// frame's worth per tick, as a slow frame does, and the motion goes on from where it was; only a window out of sight
+// or a silence past a second (nobody saw it move) catches up whole.
+const STALL = 1000;
 function startGuard() {
   if (guard || typeof window === "undefined") return;
   guard = window.setInterval(() => {
@@ -134,7 +139,8 @@ function startGuard() {
     if (silent < 120) return;
     onStall?.(silent);
     if (raf) { cancelAnimationFrame(raf); raf = 0; }
-    let left = silent / 1000;
+    const unseen = silent > STALL || (typeof document !== "undefined" && document.hidden);
+    let left = unseen ? silent / 1000 : 1 / 20;
     while (left > 0 && active.size) { const h = Math.min(left, 1 / 20); stepAll(h, now); left -= h; }
     frameHook?.();
     last = now;
@@ -265,25 +271,32 @@ export function slidePill(container: HTMLElement, pill: HTMLElement, o: { fit?: 
       if (ss.target !== 1) ss.to(1);
     },
     /** the target moved (scroll, a layout change): follow it without a spring */
-    follow() { if (el) { const r = rectOf(el); sx.set(r.x); sy.set(r.y); sw.set(r.w); sh.set(r.h); } },
+    /** the target moved (scroll, a layout change): follow it without a spring. A target that left the page (its
+     *  row was rebuilt) is let go, or the pill would read its empty rect and fly to the corner (#287) */
+    follow() { if (el && !el.isConnected) { el = null; ss.to(0); return; } if (el) { const r = rectOf(el); sx.set(r.x); sy.set(r.y); sw.set(r.w); sh.set(r.h); } },
     destroy() { sx.stop(); sy.stop(); sw.stop(); sh.stop(); ss.stop(); },
   };
 }
 
 // ---- growTo: an element whose content just got taller opens to its new height on a spring ----
 // The way a streaming answer grows: each new line of a paragraph is revealed by the box opening under it, so the
-// text below moves with a spring instead of jumping a line at a time. `from` forces a start height (0: unfold from nothing).
+// text below moves with a spring instead of jumping a line at a time. `from` is the start height (0: unfold from
+// nothing; the height read before the content changed, so a line that lands while nothing moves still opens). A grow
+// already in flight keeps its spring, position and velocity, and only takes the new height as its target: it never
+// starts over from the top.
 const heights = new WeakMap<HTMLElement, Spring>();
+/** the element is opening on a spring right now */
+export const growing = (el: HTMLElement) => { const s = heights.get(el); return !!s && !s.resting; };
 export function growTo(el: HTMLElement, from?: number, cfg: Cfg = CFG.arrive) {
   const s = heights.get(el);
   const flying = !!s && !s.resting;
-  const was = from ?? (flying ? s!.v : el.offsetHeight);
+  const was = flying ? s!.v : from ?? el.offsetHeight;
   el.style.height = ""; el.style.overflow = "";
   const nat = el.offsetHeight;
-  if (reducedMotion() || (!flying && from === undefined && nat <= was + 2)) { if (s) { s.stop(); heights.delete(el); } return; }
+  if (reducedMotion() || (!flying && nat <= was + 2 && from !== 0)) { if (s) { s.stop(); heights.delete(el); } return; }
   const sp = s ?? new Spring(was, { ...cfg, eps: 0.4 }, (v, sp) => {
     if (sp.resting && v === sp.target) { el.style.height = ""; el.style.overflow = ""; heights.delete(el); }
-    else { el.style.height = `${Math.max(0, v)}px`; el.style.overflow = "hidden"; }
+    else { el.style.height = `${Math.max(0, Math.round(v))}px`; el.style.overflow = "hidden"; }   // whole pixels: a frame that moves less lays nothing out
   });
   heights.set(el, sp);
   if (!flying) sp.set(was);
@@ -348,11 +361,16 @@ export function follow(scroller: HTMLElement, content: HTMLElement) {
     if (t === document.body || t === document.documentElement || t === document || (t && scroller.contains(t))) release();
   };
 
+  // words he is selecting in the talk hold it still: the follow waits (it stays stuck) until the selection is let go
+  const selecting = () => {
+    const s = document.getSelection?.();
+    return !!s && !s.isCollapsed && !!s.anchorNode && scroller.contains(s.anchorNode);
+  };
   const ro = new ResizeObserver(() => {
     const h = scroller.scrollHeight, grew = h > height + 0.5, wasEnd = bottom >= height - 2;
     height = h;
     if (!stuck && grew && wasEnd && performance.now() - hands > 300) stick();   // he sat at the end: it follows on
-    if (stuck) chase();
+    if (stuck && !selecting()) chase();
     else if (grew) fresh = true;
     bottom = scroller.scrollTop + scroller.clientHeight;
     tell();
@@ -378,6 +396,8 @@ export function follow(scroller: HTMLElement, content: HTMLElement) {
     jump() { stick(); sp.stop(); write(end()); bottom = scroller.scrollTop + scroller.clientHeight; tell(); },
     glide() { stick(); chase(); tell(); },
     goTo(y: number) { stuck = false; if (sp.resting) sp.set(scroller.scrollTop); sp.to(Math.max(0, Math.min(end(), y))); tell(); }, // to a place in the talk, and stay
+    /** at a place in the talk at once, no glide: a talk reopened where he left it, set before it is painted */
+    place(y: number) { stuck = false; sp.stop(); write(Math.max(0, Math.min(end(), y))); bottom = scroller.scrollTop + scroller.clientHeight; tell(); },
     release,
     isStuck: () => stuck,
     state,

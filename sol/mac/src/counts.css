@@ -1,0 +1,14 @@
+/* the one card about counting (#356, CountsCard.tsx): bottom right, over either mode, under the join card's spot and z (a
+   tester who arrives from a group link sees both), the app's own tokens, one button. A dialog, not a sheet: the app behind
+   stays usable. */
+.counts { position: fixed; bottom: 24px; right: 16px; z-index: 39; width: min(440px, calc(100% - 32px)); padding: 14px 16px 12px;
+  border: 1px solid var(--edge); border-radius: var(--r-m, 12px); background: var(--paper, rgb(20 20 20 / .92)); color: var(--ink);
+  box-shadow: 0 12px 32px -12px rgb(0 0 0 / .6); animation: counts-in 220ms ease-out both; }
+.counts-h { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+.counts-p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.45; color: var(--dim); }
+.counts-ok { margin-top: 4px; height: 30px; padding: 0 18px; border: 1px solid var(--edge); border-radius: var(--pill, 15px); background: var(--ink); color: var(--paper, #111);
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.counts-ok:hover { opacity: .9; }
+.counts-ok:focus-visible { outline: 1px solid var(--edge); outline-offset: 3px; }
+@keyframes counts-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .counts { animation: none; } }

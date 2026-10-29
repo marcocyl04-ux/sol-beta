@@ -28,7 +28,7 @@ type S = { trying: Trying | null; steps: Step[]; open: boolean; tab: "try" | "re
 let s: S = { trying: null, steps: [], open: false, tab: "try", review: null, said: null };
 const subs = new Set<() => void>();
 const set = (p: Partial<S>) => { s = { ...s, ...p }; subs.forEach((f) => f()); };
-const useTry = () => useSyncExternalStore((f) => { subs.add(f); return () => subs.delete(f); }, () => s);
+export const useTry = () => useSyncExternalStore((f) => { subs.add(f); return () => subs.delete(f); }, () => s);
 let saidT = 0;
 const say = (line: string, ok = true, by?: string) => { set({ said: { line, ok, by, at: Date.now() } }); clearTimeout(saidT); saidT = window.setTimeout(() => set({ said: null }), 6000); };
 

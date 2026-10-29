@@ -7,15 +7,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 process.env.SOL_STATE = join(mkdtempSync(join(tmpdir(), "sol-state-")), "work.json");
-const { planStart, roomDir, fence } = await import("../src/team/start.ts");
+const { planStart, roomDir, fence, ROOM_BRIEF } = await import("../src/team/start.ts");
 const { goalSnapshot } = await import("../src/team/goal.ts");
 
 const things = [{ id: "a1b2c3d4", name: "the PRD", url: "https://docs.google.com/document/d/x" }];
 const base = { room: { id: "shuai", provider: "github" }, record: "o/r", folders: { "o/r": "/work/r", "o/s": "/work/s" }, home: "/Users/f", things, goal: "" };
 
 test("a bare line starts in the room's record folder; a card's repo in its own; a cloud room in its folder on this Mac", () => {
-  assert.deepEqual(planStart({ ...base, text: "我要開始做 X" }), { cwd: "/work/r", repo: "o/r", text: "我要開始做 X" });
-  assert.deepEqual(planStart({ ...base, text: "x", repo: "o/s" }), { cwd: "/work/s", repo: "o/s", text: "x" });
+  assert.deepEqual(planStart({ ...base, text: "我要開始做 X" }), { cwd: "/work/r", repo: "o/r", text: `${ROOM_BRIEF}\n\n我要開始做 X` });
+  assert.deepEqual(planStart({ ...base, text: "x", repo: "o/s" }), { cwd: "/work/s", repo: "o/s", text: `${ROOM_BRIEF}\n\nx` });
   const cloud = planStart({ ...base, room: { id: "shuai", provider: "cloud" }, record: "cloud:ABCDEF", text: "x" }) as { cwd: string; make: string };
   assert.match(cloud.cwd, /^\/Users\/f\/Sol\/rooms\/shuai-[0-9a-f]{6}$/);
   assert.equal(cloud.make, cloud.cwd);
@@ -41,7 +41,7 @@ test("the first turn carries the goal's snapshot and the thing beside it, before
   const p = planStart({ ...base, text: "write the intro", thing: "a1b2c3d4", goal: g.text, nonce: "n0nce" }) as { text: string };
   assert.ok(p.text.startsWith("<room-content n0nce>\nWhat follows is the room's content"));
   assert.ok(p.text.includes(g.text));
-  assert.match(p.text, /Beside this session is the room's thing the PRD: https:\/\/docs\.google\.com\/document\/d\/x\n<\/room-content n0nce>\n\nwrite the intro$/);
+  assert.ok(p.text.endsWith(`Beside this session is the room's thing the PRD: https://docs.google.com/document/d/x\n</room-content n0nce>\n\n${ROOM_BRIEF}\n\nwrite the intro`));
 });
 
 test("the room's words cannot close their fence and speak as the person", () => {

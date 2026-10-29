@@ -175,3 +175,13 @@ test("A5: the parts of a long line are put back together before they are kept, w
   talk.hearRelay(msgs[0] as any);   // a part again (a resend): not a new line, and nothing left waiting forever
   assert.equal(talk.history("general").filter((l) => l.from === "marco").length, 1);
 });
+
+test("#327: a hub that serves the join page says join in its hello, and the client keeps it; one that does not, never", async () => {
+  const on = await hubAt({ joinPage: true }), off = await hubAt();
+  const a = client(on.url, "frank").start(), b = client(off.url, "marco").start();
+  try {
+    await until(() => a.info !== null && b.info !== null);
+    assert.equal(a.info?.join, true);
+    assert.equal(b.info?.join, undefined);
+  } finally { a.stop(); b.stop(); await on.close(); await off.close(); }
+});

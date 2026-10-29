@@ -1,0 +1,21 @@
+/* Home's group card (#321, GroupOffer.tsx): wF.html #s1's measures. A hairline at the left, not a box; the pill is the
+   first run's gradient (firstrun/.fr-go), copied here because the first run's sheet loads only with the first run. */
+.gsug { margin: 6px 0 22px 2px; padding: 2px 0 2px 22px; border-left: 1px solid var(--edge); display: flex; flex-direction: column; align-items: flex-start; gap: 14px;
+  animation: gsug-in 320ms cubic-bezier(.2, .8, .3, 1) both; }
+.gsug-q { margin: 0; font-size: 14px; color: var(--ink); }
+.gsug-go { position: relative; border: 0; font: inherit; cursor: pointer; color: #fff; font-weight: 600; letter-spacing: .01em; isolation: isolate;
+  height: 38px; padding: 0 22px; border-radius: var(--pill); font-size: 13.5px; white-space: nowrap;
+  background: radial-gradient(120% 90% at 30% 0%, rgb(255 255 255 / .42), transparent 55%), radial-gradient(90% 80% at 75% 120%, rgb(0 0 0 / .28), transparent 65%),
+    linear-gradient(95deg, #fb5ad0 0 14%, #f8478e 26% 40%, #ef3a2a 52% 64%, #fb7111 76% 100%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .35), inset 0 -2px 3px rgb(0 0 0 / .18), 0 8px 18px -8px rgb(0 0 0 / .6);
+  transition: scale 180ms cubic-bezier(.3, 1.6, .5, 1); }
+.gsug-go > span { text-shadow: 0 1px 2px rgb(0 0 0 / .55), 0 0 8px rgb(0 0 0 / .35); }
+.gsug-go:hover { scale: 1.04 .97; }
+.gsug-go:active { scale: 1.1 .86; }
+.gsug-in, .gsug-skip { border: 0; background: none; padding: 0; font: inherit; cursor: pointer; text-align: left; }
+.gsug-in { font-size: 13px; color: var(--dim); }
+.gsug-skip { margin-top: -6px; font-size: 12.5px; color: var(--mute); }
+.gsug-in:hover, .gsug-skip:hover { color: var(--ink); }
+.gsug-go:focus-visible, .gsug-in:focus-visible, .gsug-skip:focus-visible { outline: 1px solid var(--edge); outline-offset: 3px; }
+@keyframes gsug-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .gsug { animation: none; } .gsug-go { transition: none; } .gsug-go:hover, .gsug-go:active { scale: none; } }

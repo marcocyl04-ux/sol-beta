@@ -6,12 +6,15 @@ import { readFileSync, mkdtempSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { devOnly } from "./dev-copy.ts";
 
 const { leadsOf, cleanLeads, setLeads, leadsMessage, leadsLine, pressLeads, CODEOWNERS } = await import("../src/team/press.ts");
 const { owners } = await import("../src/team/claims.ts");
 type Deps = import("../src/team/press.ts").PressDeps;
 
-const REAL = readFileSync(resolve(import.meta.dirname, "../../../.github/CODEOWNERS"), "utf8");
+// the repo's own file, read in a dev checkout; a tester's copy has none, and the two tests on it skip (#300)
+const DEV_FILE = devOnly(".github/CODEOWNERS");
+const REAL = DEV_FILE ? "" : readFileSync(resolve(import.meta.dirname, "../../../.github/CODEOWNERS"), "utf8");
 const SMALL = [
   "# label base: the engine.",
   "/sol/engine/                 @marco",
@@ -26,7 +29,7 @@ const SMALL = [
   "",
 ].join("\n");
 
-test("leadsOf reads each label's leads off CODEOWNERS, the social leads line too", () => {
+test("leadsOf reads each label's leads off CODEOWNERS, the social leads line too", { skip: DEV_FILE }, () => {
   const l = leadsOf(SMALL);
   assert.deepEqual(l.base, ["marco"]);
   assert.deepEqual(l.cowork, ["marco", "frank"]);
@@ -47,7 +50,7 @@ test("cleanLeads: one or two people, each once, no bots", () => {
   assert.match(String(cleanLeads("frank")), /a list/);
 });
 
-test("setLeads moves people on one label's lines, never a path, and keeps the columns", () => {
+test("setLeads moves people on one label's lines, never a path, and keeps the columns", { skip: DEV_FILE }, () => {
   const next = setLeads(SMALL, "cowork", ["frank", "isaac"]);
   assert.match(next, /^\/sol\/mac\/src\/cowork\/         @frank @isaac$/m, "the gap before the owners is kept");
   assert.match(next, /^\/sol\/engine\/src\/team\/        @frank @isaac$/m);

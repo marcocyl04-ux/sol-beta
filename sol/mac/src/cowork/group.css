@@ -1,0 +1,251 @@
+/* Groups (#314, the groups PRD §3, §4.2–§4.4; the look is wF.html): the side's groups and their sessions, a person's
+   small body, and a group's page: three plain tabs with a short gradient underline, the people strip, the goal line, and
+   each tab's content (talk, build updates, connectors), and the first-time page. Lines are 1px var(--line); the
+   gradient pill is only ever the page's one primary action. Motion is transform and opacity, ease-out, and stands still
+   under prefers-reduced-motion. */
+
+/* ---- a person's small body (bits.tsx Body): the flat Sol in their colour; an agent's in a thin white ring ---- */
+.cbody { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+.cbody.ag { border-radius: 50%; box-shadow: inset 0 0 0 1.2px rgb(255 255 255 / .85); }
+
+/* ---- the side: groups only ---- */
+.cside .gs-head { display: flex; align-items: baseline; justify-content: space-between; padding-right: 12px; font-size: 11.5px; letter-spacing: 0; font-variant-caps: normal; }
+.cside .gs-head small { font-variant-numeric: tabular-nums; }
+.cside .gs-note { margin-top: 2px; }
+.cside .gs-room .t { color: var(--ink); }
+.cside .gs-room.on { background: rgb(235 235 232 / .07); }
+.cside .gs-room .caret { color: var(--mute); }
+.cside .gs-code { flex: none; margin-left: auto; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; color: var(--mute); }
+.cside .gs-sess { padding-left: 30px; font-size: 12.5px; }
+.cside .gs-sess .t { color: var(--ink); opacity: .86; }
+.cside .gs-when { flex: none; margin-left: auto; font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.cside .gs-new { color: var(--mute); }
+.cside .gs-new .t { color: var(--mute); opacity: 1; }
+.cside .gs-new:hover .t { color: var(--dim); }
+
+/* ---- the group's page ---- */
+.cface .cstage[data-view="dashboard"], .cface .cstage[data-view="thing"], .cface .cstage[data-view="member"], .cface .cstage[data-view="goal"], .cface .cstage[data-view="tool"] { overflow: hidden; }
+.gp { --ease: cubic-bezier(.16, 1, .3, 1); flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.gp .dim { color: var(--dim); }
+.gp .none { margin: 10px 0; font-size: 12.5px; color: var(--mute); list-style: none; }
+
+.gp .gp-tabs { flex: none; display: flex; align-items: stretch; gap: 32px; height: 52px; padding: 0 40px; border-bottom: 1px solid var(--line); }
+.gp .gp-tab { position: relative; display: flex; align-items: center; gap: 7px; padding: 0; background: none; border: 0; font: inherit; font-size: 14px; color: var(--dim); white-space: nowrap; cursor: pointer; }
+.gp .gp-tab:hover { color: var(--ink); }
+.gp .gp-tab small { font-size: 12px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.gp .gp-tab.on { color: var(--ink); font-weight: 600; }
+.gp .gp-tab::after { content: ""; position: absolute; left: 0; bottom: -1px; width: 28px; height: 2px; border-radius: 2px;
+  background: linear-gradient(95deg, #fb5ad0 0 14%, #f8478e 26% 40%, #ef3a2a 52% 64%, #fb7111 76% 100%);
+  opacity: 0; transform: scaleX(.4); transform-origin: left center; transition: opacity 180ms ease-out, transform 240ms var(--ease); }
+.gp .gp-tab.on::after { opacity: 1; transform: none; }
+.gp .gp-tab:focus-visible { outline: 1px solid var(--mute); outline-offset: 4px; border-radius: 4px; }
+.gp .gp-sp { flex: 1; }
+.gp .gp-tabs > .gp-code, .gp .gp-tabs > .gp-quiet { align-self: center; }
+.gp .gp-code { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; color: var(--dim); user-select: all; }
+.gp .gp-tabs > .gp-code + .gp-quiet { margin-left: -18px; }
+.gp-form .gp-bigcode .gp-quiet { align-self: center; margin-left: auto; }
+
+/* a quiet button: a hairline, never the gradient */
+.gp .gp-quiet, .gp-form .gp-quiet { flex: none; height: 30px; padding: 0 12px; background: #1f1f1f; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 12.5px; color: var(--ink); cursor: pointer; white-space: nowrap; }
+.gp .gp-quiet:hover:not(:disabled), .gp-form .gp-quiet:hover:not(:disabled) { border-color: var(--mute); }
+.gp .gp-quiet:disabled { opacity: .5; cursor: default; }
+
+/* the people: a small Sol each, the name, one word */
+.gp .gp-people { flex: none; display: flex; align-items: center; gap: 48px; height: 72px; padding: 0 40px; overflow-x: auto; scrollbar-width: none; }
+.gp .gp-who { display: flex; align-items: center; gap: 11px; padding: 6px 0; background: none; border: 0; font: inherit; color: var(--ink); text-align: left; cursor: pointer; white-space: nowrap; transition: opacity 160ms ease-out; }
+.gp .gp-who.away { opacity: .5; }
+.gp .gp-who:hover { opacity: 1; }
+.gp .gp-who .tx { display: flex; flex-direction: column; }
+.gp .gp-who .n { font-size: 13px; font-weight: 600; line-height: 1.3; }
+.gp .gp-who .l { font-size: 12px; color: var(--dim); }
+.gp .gp-who.on .n { text-decoration: underline; text-decoration-color: var(--mute); text-underline-offset: 3px; }
+
+/* the goal: one line */
+.gp .gp-goal { flex: none; display: flex; align-items: center; gap: 14px; height: 46px; margin: 0 40px; padding: 0; background: none; border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  font: inherit; font-size: 14px; color: var(--ink); text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.gp .gp-goal .k { flex: none; font-family: var(--mono); font-size: 11.5px; color: var(--mute); }
+.gp .gp-goal .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.gp .gp-goal .t.dim { color: var(--dim); }
+.gp .gp-goal:hover .t { text-decoration: underline; text-decoration-color: var(--mute); text-underline-offset: 3px; }
+.gp .gp-moved { flex: none; display: flex; align-items: center; gap: 14px; margin: 12px 40px 0; font-size: 13px; color: var(--dim); }
+
+/* each tab's content fills the rest */
+.gp .gp-body { flex: 1; min-height: 0; display: flex; flex-direction: column; animation: gp-in 220ms ease-out; }
+.gp .gp-body[data-tab="updates"], .gp .gp-body[data-tab="connectors"] { overflow-y: auto; }
+.gp .gp-talk { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.gp .gp-talk .tk-head, .gp .gp-talk .tk-foot { max-width: none; padding-inline: 40px; }
+.gp .gp-talk .tk-talk { padding-inline: 12px; }
+.gp .gp-sub { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 40px; }
+.gp .gp-two { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 400px; }
+.gp .gp-two > .gp-sub { min-width: 0; }
+
+/* build updates: one line each */
+.gp .gp-feed { list-style: none; margin: 0; padding: 14px 40px 28px; }
+.gp .gp-feed li { display: grid; grid-template-columns: 48px 20px 1fr; gap: 12px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; line-height: 1.45; }
+.gp .gp-feed li.none { display: block; border: 0; }
+.gp .gp-feed time { font-family: var(--mono); font-size: 11px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.gp .gp-feed .tx { min-width: 0; color: var(--dim); overflow-wrap: anywhere; }
+.gp .gp-feed .tx b { font-weight: 600; color: var(--ink); }
+.gp .gp-feed li.ag .tx b { color: var(--amber); font-weight: 500; }
+
+/* connectors: two columns */
+.gp .gp-conn { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 60px; padding: 28px 40px 40px; align-items: start; }
+.gp .gp-col { min-width: 0; }
+.gp .gp-hd { display: flex; align-items: baseline; justify-content: space-between; margin: 0; padding-bottom: 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; font-weight: 400; color: var(--dim); }
+.gp .gp-link-btn { padding: 0; background: none; border: 0; font: inherit; font-size: 12px; color: var(--mute); cursor: pointer; }
+.gp .gp-link-btn:hover { color: var(--ink); }
+.gp .gp-cn-list { list-style: none; margin: 0; padding: 0; }
+.gp .gp-cn { position: relative; display: flex; align-items: center; gap: 10px; min-height: 56px; border-bottom: 1px solid var(--line); }
+.gp .gp-cn-f > .gp-cn-list > .gp-cn:last-child { border-bottom-style: dashed; }
+.gp .gp-cn-in { flex: 1; min-width: 0; display: flex; align-items: center; gap: 14px; align-self: stretch; padding: 0 4px; background: none; border: 0; font: inherit; color: var(--ink); text-align: left; cursor: pointer; white-space: nowrap; }
+.gp .gp-cn-in.static { cursor: default; }
+.gp .gp-cn-in .nm { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+.gp .gp-cn-in .dd { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; color: var(--dim); }
+.gp .gp-cn-in .gp-go-on { flex: none; margin-left: auto; font-size: 12px; color: var(--dim); }
+.gp button.gp-cn-in:hover .nm { text-decoration: underline; text-decoration-color: var(--mute); text-underline-offset: 3px; }
+.gp .gp-cn.tool .nm { color: var(--ink); }
+.gp .gp-glyph { flex: none; display: block; }
+.gp .gp-cn-acts { flex: none; display: flex; gap: 2px; opacity: 0; transition: opacity 140ms ease-out; }
+.gp .gp-cn:hover > .gp-cn-acts, .gp .gp-cn:focus-within > .gp-cn-acts { opacity: 1; }
+.gp .gp-x { width: 24px; height: 24px; padding: 0; background: none; border: 0; border-radius: 6px; font: inherit; font-size: 14px; line-height: 1; color: var(--mute); cursor: pointer; }
+.gp .gp-x:hover { color: var(--ink); background: var(--surface); }
+.gp .gp-ask { flex: none; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); }
+.gp .gp-menu { position: absolute; z-index: 5; right: 0; top: 46px; display: flex; flex-direction: column; min-width: 200px; padding: 4px; background: var(--side); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--pop-shadow, 0 12px 30px -10px rgb(0 0 0 / .7)); }
+.gp .gp-menu button { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; background: none; border: 0; border-radius: 6px; font: inherit; font-size: 12.5px; color: var(--ink); text-align: left; cursor: pointer; }
+.gp .gp-menu button:hover, .gp .gp-menu button:focus-visible { background: var(--surface); outline: 0; }
+.gp .gp-menu button.dim { color: var(--dim); }
+.gp .gp-mk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.gp .gp-mk input, .gp .gp-add input { flex: 1; min-width: 180px; height: 30px; padding: 0 10px; background: rgb(0 0 0 / .28); border: 1px solid var(--line); border-radius: 8px; font: inherit; font-size: 13px; color: var(--ink); outline: 0; }
+.gp .gp-mk input:focus, .gp .gp-add input:focus { border-color: var(--mute); }
+.gp .err { color: var(--red-soft, #f2867c); font-size: 12px; }
+.gp .gp-add { display: flex; align-items: center; gap: 12px; width: 100%; height: 48px; margin-top: 14px; padding: 0 16px; background: none; border: 1px dashed #3a3a3a; border-radius: 14px; font: inherit; font-size: 13.5px; color: var(--dim); text-align: left; cursor: pointer; }
+.gp button.gp-add:hover { color: var(--ink); border-color: var(--mute); }
+.gp .gp-add.on { height: auto; flex-wrap: wrap; padding: 8px 8px 8px 16px; cursor: default; }
+.gp .gp-drive { margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+.gp .gp-drive .cdrive { display: flex; flex-direction: column; gap: 4px; }
+.gp .gp-drive .cdrivepeople { list-style: none; margin: 0; padding: 0; }
+
+/* on this Mac: the GitHub card, glass, its primary button drawn quiet */
+.gp .gp-gh { margin-top: 20px; }
+.gp .gp-gh .cgh { padding: 24px 26px 22px; border-radius: 24px;
+  background: radial-gradient(120% 80% at 18% 0%, rgb(255 255 255 / .07), transparent 60%), linear-gradient(180deg, rgb(235 235 232 / .14), rgb(235 235 232 / .06)); box-shadow: 0 18px 40px -18px rgb(0 0 0 / .7); }
+.gp .gp-gh .cgh .wbtn { height: 32px; padding: 0 16px; background: #1f1f1f; color: var(--ink); font-weight: 500; border: 1px solid var(--line); border-radius: 10px; box-shadow: none; }
+.gp .gp-gh .cgh .wbtn:hover:not(:disabled) { border-color: var(--mute); }
+.gp .gp-gh .cgh-conn { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; }
+.gp .gp-gh .cgh-conn .cgh-lead { margin: 0; font-size: 14px; color: var(--ink); }
+.gp .gp-gh .cgh-big { font-family: var(--mono); font-size: 34px; font-weight: 600; letter-spacing: .14em; color: var(--ink); user-select: all; }
+.gp .gp-gh .cgh-conn .cgh-codeline { display: flex; align-items: center; gap: 14px; }
+.gp .gp-gh .cgh-conn .cgh-note { margin: 0; font-size: 12px; color: var(--mute); }
+.gp .gp-gh .cgh-no { padding: 0; font-size: 12.5px; color: var(--dim); }
+
+/* ---- the first time (S2): the Sol and one line in the centre, the form in the right half ---- */
+.gp-first { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; }
+.gp-first .gp-hero { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 0 24px; text-align: center; }
+.gp-first .gp-hero h1 { margin: 18px 0 0; font-size: 20px; font-weight: 600; letter-spacing: -.01em; color: var(--ink); }
+.gp-first .gp-hero p { margin: 0 0 16px; font-size: 14px; color: var(--dim); }
+.gp-first .gp-half { display: flex; flex-direction: column; justify-content: flex-start; padding: 64px 56px; border-left: 1px solid var(--line); opacity: 0; transition: opacity 240ms ease-out; }
+.gp-first .gp-half.on { opacity: 1; }
+.gp-form { display: flex; flex-direction: column; gap: 10px; max-width: 520px; animation: gp-in 260ms ease-out; }
+.gp-form .gp-lbl { margin-top: 18px; font-size: 12.5px; color: var(--dim); }
+.gp-form .gp-lbl:first-child { margin-top: 0; }
+.gp-form .wfield { width: 100%; height: 46px; padding: 0 16px; box-sizing: border-box; background: none; border: 1px solid #4a4a48; border-radius: 12px; font: inherit; font-size: 17px; color: var(--ink); outline: 0; }
+.gp-form .wfield:focus { border-color: var(--dim); }
+.gp-form .wfield:disabled { opacity: 1; }
+.gp-form .ckeeps { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.gp-form .ckeep { color: var(--dim); }
+.gp-form .ckeep.on { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.gp-form .croommore { align-self: flex-start; }
+.gp-form .cbad { margin: 0; font-size: 12.5px; color: var(--dim); }
+.gp-form .cacts { display: flex; justify-content: flex-end; align-items: center; gap: 14px; margin-top: 18px; }
+.gp-form .gp-link { display: flex; align-items: center; gap: 14px; height: 46px; padding: 0 6px 0 16px; border: 1px solid var(--line); border-radius: 12px; font-family: var(--mono); font-size: 13.5px; color: var(--ink); }
+.gp-form .gp-link .u { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: all; }
+.gp-form .gp-link .gp-quiet { margin-left: auto; font-family: var(--mono); }
+.gp-form .gp-bigcode { display: flex; align-items: baseline; gap: 18px; margin: 14px 0 0; }
+.gp-form .gp-bigcode b { font-family: var(--mono); font-size: 28px; font-weight: 600; letter-spacing: .16em; color: var(--ink); user-select: all; }
+.gp-form .gp-bigcode span { font-size: 13px; color: var(--dim); }
+.gp-form > .gp-go { align-self: flex-start; margin-top: 36px; }
+
+/* a cloud group nearly full (#326, wF's S5): one glass banner under the tabs, a thin amber bar, "18 of 20 MB", one dim
+   line, and for its maker the page's one gradient pill. The bar grows by transform (scaleX from the left) */
+.gp .gp-quota { flex: none; display: flex; align-items: center; gap: 24px; min-height: 96px; margin: 16px 40px 4px; padding: 16px 24px 16px 28px; border-radius: 24px;
+  background: radial-gradient(120% 80% at 18% 0%, rgb(255 255 255 / .07), transparent 60%), linear-gradient(180deg, rgb(235 235 232 / .14), rgb(235 235 232 / .06));
+  box-shadow: 0 18px 40px -18px rgb(0 0 0 / .7); animation: gp-in 220ms ease-out both; }
+.gp .gp-quota .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.gp .gp-meter { display: flex; align-items: center; gap: 14px; }
+.gp .gp-meter .tr { flex: none; width: min(360px, 60%); height: 4px; border-radius: 2px; background: rgb(255 255 255 / .1); overflow: hidden; }
+.gp .gp-meter .tr i { display: block; height: 100%; background: var(--amber, #f89b2a); border-radius: 2px; transform-origin: left center; transition: transform 400ms ease-out; }
+.gp .gp-meter .w { font: 12px var(--mono); color: var(--ink); white-space: nowrap; }
+.gp .gp-quota .ln { font-size: 12.5px; color: var(--dim); }
+.gp .gp-quota.moving .tr i { opacity: .6; }
+.gp .gp-quota-gh { flex: none; margin: 8px 40px 0; }
+.gp .gp-mine { flex: none; margin: 6px 40px 0; font-size: 12.5px; color: var(--dim); }
+
+/* the one primary action of a page: the gradient pill (firstrun.css .fr-go's recipe), pressed on a short ease-out */
+.gp-go { position: relative; isolation: isolate; height: 44px; padding: 0 26px; border: 0; border-radius: 999px; font: inherit; font-size: 14px; font-weight: 600; letter-spacing: .01em; color: #fff; cursor: pointer; white-space: nowrap;
+  background: radial-gradient(120% 90% at 30% 0%, rgb(255 255 255 / .42), transparent 55%), radial-gradient(90% 80% at 75% 120%, rgb(0 0 0 / .28), transparent 65%),
+    linear-gradient(95deg, #fb5ad0 0 14%, #f8478e 26% 40%, #ef3a2a 52% 64%, #fb7111 76% 100%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .35), inset 0 -2px 3px rgb(0 0 0 / .18), 0 8px 18px -8px rgb(0 0 0 / .6);
+  transition: transform 180ms ease-out, opacity 180ms ease-out; }
+.gp-go > span { text-shadow: 0 1px 2px rgb(0 0 0 / .55), 0 0 8px rgb(0 0 0 / .35); }
+.gp-go:hover:not(:disabled) { transform: scale(1.03); }
+.gp-go:active:not(:disabled) { transform: scale(.97); }
+.gp-go:disabled { cursor: default; opacity: .45; }
+
+@keyframes gp-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* a narrow stage: one column, the margins come in */
+@container (max-width: 820px) {
+  .gp .gp-conn { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .gp .gp-two { grid-template-columns: minmax(0, 1fr); }
+  .gp .gp-two > .rm-convo { display: none; }
+  .gp-first { grid-template-columns: 1fr; }
+  .gp-first .gp-half { border-left: 0; padding: 0 24px 32px; }
+  .gp .gp-tabs, .gp .gp-people, .gp .gp-feed, .gp .gp-conn, .gp .gp-sub { padding-inline: 20px; }
+  .gp .gp-goal, .gp .gp-moved, .gp .gp-quota, .gp .gp-quota-gh, .gp .gp-mine { margin-inline: 20px; }
+  .gp .gp-quota { flex-wrap: wrap; }
+  .gp .gp-tabs { gap: 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gp .gp-body, .gp-form, .gp .gp-quota { animation: none; }
+  .gp .gp-meter .tr i { transition: none; }
+  .gp .gp-tab::after, .gp-go, .gp .gp-who, .gp .gp-cn-acts, .gp-first .gp-half { transition: none; }
+  .gp-go:hover:not(:disabled), .gp-go:active:not(:disabled) { transform: none; }
+}
+
+/* under the repository: the hands to me and the PR I am trying (#34, #35), as the side's rows were */
+.gp .gp-board { display: flex; flex-direction: column; gap: 2px; padding: 8px 0 12px 30px; border-bottom: 1px solid var(--line); }
+.gp .gp-board .hd { font-size: 11.5px; color: var(--mute); margin-bottom: 2px; }
+.gp .gp-board .row { gap: 8px; }
+.gp .gp-board .row .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.gp .gp-board .row .cnum { color: var(--mute); }
+.gp .gp-in { flex: none; display: flex; gap: 2px; margin-right: 6px; }
+
+/* a repository of the group (#332): who was let in and "N of M" at the right, then its one action; a dim word when my
+   own GitHub did not check it, or my ask is out, or its build updates are on */
+.gp .gp-repo .gp-unv { flex: none; font-size: 11.5px; color: var(--mute); }
+.gp .gp-repo .gp-nof { flex: none; margin-right: 10px; font-size: 12.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.gp .gp-repo .gp-dimw { flex: none; font-size: 12.5px; color: var(--mute); white-space: nowrap; }
+.gp .gp-repo .gp-x { flex: none; margin-left: 2px; }
+.gp .gp-repo > .gp-quiet { margin-left: 2px; }
+/* the permission GitHub wants before a workflow: the GitHub card's glass, smaller, under the row it is for */
+.gp .gp-scope { list-style: none; padding: 12px 0 16px 30px; border-bottom: 1px solid var(--line); animation: gp-in 220ms ease-out; }
+.gp .gp-scope .gp-scope-card { margin-top: 0; }
+.gp .gp-scope .cgh { padding: 18px 20px 16px; border-radius: 18px; }
+.gp .gp-scope .cgh-conn { gap: 12px; }
+.gp .gp-scope .cgh-big { font-size: 24px; }
+.gp .gp-scope .cgh-said { margin: 0; font-size: 12px; color: var(--dim); }
+/* a cloud group's "+ connect": a link or a repository */
+.gp .gp-add.gp-pick { gap: 10px; }
+.gp .gp-add.gp-pick > .gp-quiet:first-of-type { margin-left: 6px; }
+/* "connect GitHub" on a row lights the card on the right once: a ring that fades in and out (opacity only) */
+.gp .gp-gh { position: relative; }
+.gp .gp-gh::after { content: ""; position: absolute; inset: -3px; border-radius: 27px; border: 1.5px solid rgb(235 235 232 / .55); opacity: 0; pointer-events: none; transition: opacity 260ms ease-out; }
+.gp .gp-gh.lit::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .gp .gp-scope { animation: none; }
+  .gp .gp-gh::after { transition: none; }
+}
+/* a repository's row is the busiest: its name gives way before who connected it and when */
+.gp .gp-repo .gp-cn-in .nm { flex: 0 1 auto; min-width: 0; }
+.gp .gp-repo .gp-cn-in .dd { flex: none; }

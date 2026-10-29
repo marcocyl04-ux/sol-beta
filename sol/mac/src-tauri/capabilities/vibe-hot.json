@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "vibe-hot",
+  "description": "The vibe glow window in mutable mode, its page served by Vite on localhost:1420 (vibe.rs): events only, as vibe.json",
+  "windows": [
+    "vibe"
+  ],
+  "remote": {
+    "urls": [
+      "http://localhost:1420/*"
+    ]
+  },
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

@@ -46,7 +46,7 @@ export function DiffPane({ w, cwd, busy, onSend, onFile }: {
     void w.ask<Diff>("work.diff", { cwd, scope }).then((r) => { if (n !== gen.current) return; setD(r); setLoading(false); });
   };
   // comments belong to the folder they were written on
-  useEffect(() => { setRemarks([]); setWriting(null); setText(""); setD(null); setPick(null); }, [cwd]);
+  useLayoutEffect(() => { setRemarks([]); setWriting(null); setText(""); setD(null); setPick(null); }, [cwd]);
   // asked again when the scope or folder changes, and when a turn ends (the files may have moved)
   useEffect(load, [cwd, scope, busy]); // eslint-disable-line react-hooks/exhaustive-deps
   // a review by Codex of the scope shown: its remarks arrive in the talk (review.ts); a refusal shows on the button

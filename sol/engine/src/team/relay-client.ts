@@ -13,9 +13,10 @@ import { WebSocket } from "ws";
 import { SPOOLED, GONE, SLOWED, FULL, TOO_OLD, TOO_FAST, KICKED, PROTOCOL, HUB, isObj, type Kind, type RelayMsg, type PresenceState, type RosterEntry } from "../hub/index.js";
 
 export type Fn = (m: RelayMsg) => void;
-export type Me = () => { login: string; state: PresenceState; session?: RosterEntry["session"]; room?: string; thing?: RosterEntry["thing"]; sessions?: RosterEntry["sessions"]; quiet?: true };   // quiet (#238): my room sessions are not shown here. room: the active room's code (#157); thing, sessions: what I am in there (#230)
+export type Me = () => { login: string; state: PresenceState; session?: RosterEntry["session"]; room?: string; thing?: RosterEntry["thing"]; sessions?: RosterEntry["sessions"]; quiet?: true; talkSince?: Record<string, number>; github?: boolean;
+  polls?: string[] };   // polls (#328): the room's repositories my gh checked, whose board I may read for everyone   // github (#320): GitHub signed in on this Mac, a boolean only   // talkSince (#315): the newest talk line a thread has here   // quiet (#238): my room sessions are not shown here. room: the active room's code (#157); thing, sessions: what I am in there (#230)
 /** what a hub said of itself in its answer to my hello (v2); null: an old hub, or none yet */
-export type HubInfo = { v: number; msgMax: number; light: string; watch: boolean; rooms?: boolean };   // rooms (#238): it keeps a room show's lines to its watchers
+export type HubInfo = { v: number; msgMax: number; light: string; watch: boolean; rooms?: boolean; join?: boolean };   // rooms (#238): it keeps a room show's lines to its watchers; join (#327): it serves the join page
 
 const KEPT: readonly Kind[] = SPOOLED;     // talk, ping, room: kept until the hub says ok (C2)
 const KEEP_FOR = 9 * 60_000;               // the hub remembers an id ten minutes: never sent again after that
@@ -49,6 +50,8 @@ export const GONE_AGAIN = 60 * 60_000;
 
 export class RelayClient {
   roster: RosterEntry[] = [];
+  /** who reads the board of which repository for my room (#328), as the hub's last roster said, by repository in lower case */
+  pollers: Record<string, string> = {};
   up = false;
   /** the hub's answer to my hello (v2), or null */
   info: HubInfo | null = null;
@@ -159,7 +162,7 @@ export class RelayClient {
   }
 
   /** this engine's presence changed: the hub re-sends the roster */
-  presence() { const me = this.me(); this.send("presence", { state: me.state, session: me.session, thing: me.thing, sessions: me.sessions, ...(me.quiet ? { quiet: true } : {}) }); }
+  presence() { const me = this.me(); this.send("presence", { state: me.state, session: me.session, thing: me.thing, sessions: me.sessions, ...(me.quiet ? { quiet: true } : {}), ...(typeof me.github === "boolean" ? { github: me.github } : {}), ...(me.polls?.length ? { polls: me.polls } : {}) }); }
 
   private setUp(v: boolean) { if (this.up !== v) { this.up = v; if (!v) this.roster = []; for (const f of this.status) f(); } }
 
@@ -208,7 +211,7 @@ export class RelayClient {
     });
     ws.on("open", () => {
       const m = this.me();
-      ws.send(JSON.stringify({ kind: "hello", from: { login: m.login, agent: false }, at: Date.now(), machine: this.machine, state: m.state, session: m.session, thing: m.thing, sessions: m.sessions, ...(m.quiet ? { quiet: true } : {}), room: m.room ?? "", v: PROTOCOL }));
+      ws.send(JSON.stringify({ kind: "hello", from: { login: m.login, agent: false }, at: Date.now(), machine: this.machine, state: m.state, session: m.session, thing: m.thing, sessions: m.sessions, ...(m.quiet ? { quiet: true } : {}), ...(typeof m.github === "boolean" ? { github: m.github } : {}), ...(m.polls?.length ? { polls: m.polls } : {}), room: m.room ?? "", ...(m.talkSince && Object.keys(m.talkSince).length ? { talkSince: m.talkSince } : {}), v: PROTOCOL }));
       this.setUp(true);
     });
     ws.on("message", (d) => {
@@ -219,6 +222,8 @@ export class RelayClient {
         this.wait = 1000; this.misses = 0;   // the hub took my hello; a hello it closes (a code it does not know) backs off instead
         this.ticket = ""; this.queued = null;
         this.roster = m.roster as RosterEntry[];
+        this.pollers = {};   // #328: only logins, by repositories in GitHub's shape
+        if (isObj(m.pollers)) for (const [k, v] of Object.entries(m.pollers)) if (/^[\w.-]{1,100}\/[\w.-]{1,100}$/.test(k) && typeof v === "string" && /^[A-Za-z0-9-]{1,39}$/.test(v)) this.pollers[k.toLowerCase()] = v;
         for (const e of this.roster) if (typeof e?.who === "string") this.seenSet.add(e.who);
         for (const f of this.status) f();
       }
@@ -231,7 +236,7 @@ export class RelayClient {
     ws.on("close", (code) => {
       if (this.ws !== ws) return;
       if (!took) this.misses++;
-      this.ws = null; this.info = null; this.setUp(false);
+      this.ws = null; this.info = null; this.pollers = {}; this.setUp(false);
       for (const k of this.kept.values()) if (k.timer) { clearTimeout(k.timer); k.timer = undefined; }
       for (const k of this.recent.values()) if (k.timer) clearTimeout(k.timer);
       this.recent.clear();
@@ -259,7 +264,7 @@ export class RelayClient {
   private heard(m: Record<string, unknown>) {
     const say = m.say;
     if (say === "hello") {
-      this.info = { v: Number(m.v) || 0, msgMax: Number(m.msgMax) > 0 ? Number(m.msgMax) : 0, light: String(m.light ?? "green"), watch: m.watch !== false, ...(m.rooms === true ? { rooms: true } : {}) };
+      this.info = { v: Number(m.v) || 0, msgMax: Number(m.msgMax) > 0 ? Number(m.msgMax) : 0, light: String(m.light ?? "green"), watch: m.watch !== false, ...(m.rooms === true ? { rooms: true } : {}), ...(m.join === true ? { join: true } : {}) };
       if (this.info.v >= 2) this.again();
     } else if (say === "ok" && typeof m.id === "string") this.drop(m.id);
     else if (say === "retry" && typeof m.id === "string") {

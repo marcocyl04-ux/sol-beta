@@ -9,7 +9,7 @@ import { basename } from "node:path";
 import { getTeam, roomKey, activeRoom, setHubName, isCloud, type Room } from "./settings.js";
 import { ghVerify, ghToken } from "./identity.js";
 import { record, setCloudRecord, setDriveRecord } from "./record.js";
-import { makeCloudRecord } from "./record/cloud.js";
+import { makeCloudRecord, cloudRoomCalls, type CloudRecordDeps } from "./record/cloud.js";
 import { makeDriveRecord } from "./record/drive.js";
 import { driveFile, driveToken, staleDrive, type DriveDeps } from "./drive.js";
 import { setSeen } from "./members.js";
@@ -53,6 +53,12 @@ const PORT = Number(process.env.SOL_PORT ?? process.env.PORT ?? 7777);
 let mine: { state: PresenceState; session?: RosterEntry["session"] } = { state: "here" };
 // what I am in, in the room in use (#230): the thing and my room sessions; wire.ts works them out (here.ts)
 let inside: Pick<RosterEntry, "thing" | "sessions" | "quiet"> = {};
+// is GitHub signed in here (#320): said on my hello and presence as a boolean, never a login or a token; unknown until
+// control.ts first answers, and then not said at all
+let github: boolean | undefined;
+/** the repositories my hello and presence say I may read the board of for my room (#328): a cloud group's own repos
+ *  (the ones my gh checked, connectors.ts) while GitHub is signed in here; the hub keeps only those its record lists */
+export const pollsNow = (): string[] => { const r = activeRoom(getTeam()); return r.provider === "cloud" && github === true ? r.repos.slice(0, 20) : []; };
 
 /** where this engine's client goes: the teammate's hub, or its own. With an org the key stays home: GitHub says who */
 export function relayUrl(port = PORT) {
@@ -122,10 +128,17 @@ export async function relayAuth(org = getTeam().org, token = ghToken, room: Pick
 // my name on the hub in use signs what I do in the team view (settings.ts signature), and a cloud room's record is read
 // and written with my ticket there (#216, record/cloud.ts): the hub of the room of mine that has the code
 setHubName((s) => (onCloud(s) ? hubLogin(s) : ""));
-setCloudRecord(makeCloudRecord({
+// a write the cloud answered with how full the group is, or refused while it moves (#326): told to whoever listens
+const cloudWrites = new Set<(code: string, said: { warn?: string; status?: number }) => void>();
+export const onCloudWrite = (fn: (code: string, said: { warn?: string; status?: number }) => void) => { cloudWrites.add(fn); return () => { cloudWrites.delete(fn); }; };
+const cloudDeps: CloudRecordDeps = {
   hubOf: (code) => { const r = getTeam().rooms.find((x) => x.provider === "cloud" && x.code === code); return r ? hubHttp(r.hub) : ""; },
   ticket: (hub) => hubTicket(hub),
-}));
+  onWrite: (code, said) => { for (const f of cloudWrites) f(code, said); },
+};
+setCloudRecord(makeCloudRecord(cloudDeps));
+/** the calls only a cloud room has (#326): how full it is, the maker's freeze, who its maker is */
+export const cloudRoom = cloudRoomCalls(cloudDeps);
 
 /** where my Google Drive connection is kept (drive.ts, #152) */
 export const DRIVE_FILE = process.env.SOL_DRIVE_ACCOUNT ?? driveFile(STATE_DIR);
@@ -140,7 +153,11 @@ setDriveRecord(makeDriveRecord({ token: () => driveToken(driveDeps()), stale: st
 
 // three connects in a row the hub did not take: my ticket may be the reason (its key or its org changed), so it is
 // proved again, at most once an hour (refusedBy)
-const client = new RelayClient(() => relayUrl(), () => ({ login: hubLogin(), room: activeRoom(getTeam()).code, ...mine, ...inside }), undefined,
+// the newest line each talk thread has here (#315): set by wire.ts (talk.ts), which this file must not import
+let since: () => Record<string, number> = () => ({});
+/** wire.ts hands in talk's newest lines a thread, said on every hello (the cloud then sends only newer ones) */
+export const setTalkSince = (fn: () => Record<string, number>) => { since = fn; };
+const client = new RelayClient(() => relayUrl(), () => ({ login: hubLogin(), room: activeRoom(getTeam()).code, talkSince: since(), ...mine, ...inside, ...(github !== undefined ? { github } : {}), polls: pollsNow() }), undefined,
   (misses) => { if (misses >= 3) { const h = hubHttp(activeRoom(getTeam()).hub || "ws://127.0.0.1/relay"); refusedBy(h); dropTicket(h); } return relayAuth(); });
 setSeen(() => client.seen());
 let started = false;
@@ -164,9 +181,20 @@ export function setInside(next: Pick<RosterEntry, "thing" | "sessions"> & { quie
   client.presence();
 }
 
+/** GitHub here signed in or out (#320, wire.ts from control.ts): the room hears it on my presence, only when it changed */
+export function setGithub(v: boolean) {
+  if (github === v) return;
+  github = v;
+  client.presence();
+}
+
 /** a relay message of this kind arrived (from another engine; never this one's own). "spooled": the hub's kept list,
  *  after each of its messages went to its own kind's handlers with `spooled: true` */
-export const onRelay = (kind: Kind | "spooled" | "hub", fn: Fn) => client.on(kind, fn);
+export const onRelay = (kind: Kind | "spooled" | "hub" | "talk.history" | "events.recent", fn: Fn) => client.on(kind, fn);   // talk.history: the cloud's on a hello (#315); events.recent: its build updates (#328)
+/** who reads the board of which repository for my room (#328): the hub's last roster's word, by repository in lower case */
+export const relayPollers = () => client.pollers;
+/** say my presence again (#328: the repositories I may poll changed with my room's repos) */
+export const sayPresence = () => client.presence();
 /** send a signed message to everyone on the relay (ping goes to payload.to only). false when the relay is down */
 export const sendRelay = (kind: Kind, payload: Record<string, unknown> = {}, agent = false) => client.send(kind, payload, agent);
 export const relayRoster = () => client.roster;

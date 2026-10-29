@@ -21,7 +21,7 @@ const { Registry, makeCode, CODE, REGISTRY_MAX, PEOPLE_MAX, PER_MAKER, LONELY } 
 const { RelayHub, RelayClient, knock, relayServer, relayRoutes, relayAuth, relayUrl } = await import("../src/team/relay.ts");
 const { ghVerify } = await import("../src/team/identity.ts");
 const { Spool } = await import("../src/hub/index.ts");
-const { shareRoom, joinRoom, hubHttp } = await import("../src/team/rooms.ts");
+const { shareRoom, joinRoom, peekRoom, hubHttp } = await import("../src/team/rooms.ts");
 const T = await import("../src/team/settings.ts");
 type RelayMsg = import("../src/team/relay.ts").RelayMsg;
 
@@ -506,6 +506,56 @@ test("join: this engine's own registry last; a 403 everywhere says sign in; a ba
   assert.deepEqual(await joinRoom(deps(miss.f, reg), "ZZZZZZ"), { error: "no room has that code" });
   assert.deepEqual(await joinRoom(deps(miss.f, reg), "ABC"), { error: "a code is six letters and digits" });
   assert.deepEqual(await joinRoom(deps(miss.f, reg), "ABCDE0"), { error: "a code is six letters and digits" });
+});
+
+test("peek (#327): the shared hub's read-only peek gives a code's name, with no sign-in sent; a room I am in answers here", async () => {
+  T.patchTeam({ rooms: [{ id: "sol", name: "Sol", repos: ["marcocyl04-ux/sol-dev"], hub: "", code: "K7QX2M" }], room: "sol" });
+  const { calls, f } = hubs({
+    "https://shared.example.net/relay/peek/2QKTYA": () => [200, { code: "2QKTYA", name: " 帥\u0007 group\n " }],
+    "https://shared.example.net/relay/peek/ZZZZZZ": () => [404, { error: "no group has this code" }],
+    "https://shared.example.net/relay/peek/SLWSLW": () => [429, { error: "too many codes tried; wait ten minutes" }],
+  });
+  assert.deepEqual(await peekRoom(deps(f), " 2qktya "), { code: "2QKTYA", name: "帥 group", hub: "wss://shared.example.net/relay", signedIn: false }, "one plain line, and the hub asked");
+  assert.equal(calls[0].url, "https://shared.example.net/relay/peek/2QKTYA");
+  assert.equal(calls[0].headers.authorization, undefined, "no ticket, no token: the page is public");
+  assert.deepEqual(await peekRoom(deps(f), "ZZZZZZ"), { error: "no group has this code" });
+  assert.deepEqual(await peekRoom(deps(f), "SLWSLW"), { error: "too many codes tried; wait ten minutes" });
+  const before = calls.length;
+  assert.deepEqual(await peekRoom(deps(f), "k7qx2m"), { code: "K7QX2M", name: "Sol", already: true }, "mine already: no hub asked");
+  assert.deepEqual(await peekRoom(deps(f), "../x"), { error: "a code is six letters and digits" });
+  assert.equal(calls.length, before);
+  assert.deepEqual(await peekRoom(deps(f), "2QKTYA", ""), { error: "Sol has no cloud to ask; type the code in join a group" });
+  assert.deepEqual(T.getTeam().rooms.map((r) => r.id), ["sol"], "a peek joins nothing");
+});
+
+test("peek (#342): the answer says whether I have a Sol account on the hub asked, so the card can say sign in first", async () => {
+  T.patchTeam({ rooms: [{ id: "sol", name: "Sol", repos: ["marcocyl04-ux/sol-dev"], hub: "", code: "K7QX2M" }], room: "sol" });
+  const { f } = hubs({ "https://shared.example.net/relay/peek/2QKTYA": () => [200, { code: "2QKTYA", name: "smoke group" }] });
+  const asked: string[] = [];
+  const on = (hub: string) => { asked.push(hub); return hub === "https://shared.example.net/relay"; };
+  assert.deepEqual(await peekRoom({ ...deps(f), cloudAt: on }, "2QKTYA"), { code: "2QKTYA", name: "smoke group", hub: "wss://shared.example.net/relay", signedIn: true });
+  assert.deepEqual(asked, ["https://shared.example.net/relay"], "the account looked up by the hub's http address, as a join's refusal is");
+  assert.deepEqual(await peekRoom({ ...deps(f), cloudAt: () => false }, "2QKTYA"), { code: "2QKTYA", name: "smoke group", hub: "wss://shared.example.net/relay", signedIn: false }, "no account there");
+  assert.deepEqual(await peekRoom({ ...deps(f), cloudAt: () => false }, "K7QX2M"), { code: "K7QX2M", name: "Sol", already: true }, "a room I am in needs no sign-in to open");
+});
+
+test("join from a link's card (#327): only the hub that was peeked is asked, never my own registry; another name is refused", async () => {
+  T.patchTeam({ rooms: [{ id: "kao", name: "Kao", repos: ["kao-ai/site"], hub: "wss://kao.example.net/relay", key: "kao-key" }], room: "kao" });
+  const reg = new Registry(file(), () => 1, () => "LQCLQC");
+  reg.register({ name: "Local", repos: ["frank/local"] }, "frank");
+  const { calls, f } = hubs({
+    "https://kao.example.net/relay/rooms/": () => [200, { code: "2QKTYA", room: { name: "Kao's twin", provider: "github", org: "", repos: ["kao-ai/twin"] } }],
+    "https://shared.example.net/relay/rooms/2QKTYA": () => [200, { code: "2QKTYA", room: { name: "帥", provider: "cloud", org: "", repos: [] } }],
+    "https://shared.example.net/relay/rooms/": () => [404, { error: "no room has that code" }],
+  });
+  const shared = "wss://shared.example.net/relay";
+  assert.deepEqual(await joinRoom(deps(f, reg), "2QKTYA", { hub: shared, name: "其他" }), { error: "that group is not the one the link named; open the link again" });
+  assert.deepEqual(calls.map((c) => c.url.split("?")[0]), ["https://shared.example.net/relay/rooms/2QKTYA"], "the kao hub, which also knows the code, is never asked");
+  assert.deepEqual(await joinRoom(deps(f, reg), "LQCLQC", { hub: shared, name: "Local" }), { error: "no room has that code" }, "never this engine's own registry");
+  assert.deepEqual(await joinRoom(deps(f, reg), "2QKTYA", { hub: "wss://evil.example.net/relay", name: "帥" }), { error: "Sol does not know where that link came from; type the code in join a group" });
+  assert.ok(!calls.some((c) => c.url.includes("evil")), "a place a face names is never asked");
+  const r = await joinRoom(deps(f, reg), "2QKTYA", { hub: shared, name: " 帥 " });
+  assert.ok("room" in r && r.room.name === "帥" && r.room.hub === shared);
 });
 
 // ---- over real sockets ----

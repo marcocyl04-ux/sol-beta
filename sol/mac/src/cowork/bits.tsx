@@ -38,6 +38,15 @@ export function Who({ login, size = 14, away, working, needs, title, className }
   );
 }
 
+/** a person's small body on the group page and in the side (#314, the groups PRD §2): the flat Sol, in their family's
+ *  colour, one fill (mine wears the brand's lobes). An agent's is the same body in a thin white ring; away or not seen,
+ *  its eyes shut */
+export function Body({ login, size = 28, agent, away, title, className }: { login: string; size?: number; agent?: boolean; away?: boolean; title?: string; className?: string }) {
+  const me = useContext(MeCtx);
+  const body = <Sol alone size={agent ? Math.round(size * 0.66) : size} eyes={!away} fill={same(login, me) ? undefined : FAMILIES[familyOf(login || "?")][1]} />;
+  return <span className={`cbody ${agent ? "ag" : ""} ${className ?? ""}`.trim()} title={title} style={{ width: size, height: size }}>{body}</span>;
+}
+
 /** a state as the daily mark (creature/goo.tsx Droplet): turning while it runs, the check when done, the sag when it
  *  failed, the halo when it waits on a person */
 export const StateMark = ({ kind, seed, size = 12 }: { kind: "running" | "done" | "failed" | "needs"; seed?: string; size?: number }) => (

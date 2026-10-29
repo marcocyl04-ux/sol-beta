@@ -126,7 +126,21 @@ fn glow(app: &AppHandle, on: bool, x: f64, y: f64, colours: Vec<String>, screen:
         Some(w) => w,
         None => {
             if !on { return Ok(()); }
-            let w = WebviewWindowBuilder::new(&app, "vibe", WebviewUrl::App("vibe.html".into()))
+            // The page: Vite's while the face is hot (hot.rs, as the grab sheet's first page: a hot face is the checkout's
+            // code, and so is its glow; hot's flips move this window too, LABELS), else the bundled one, which must be in
+            // this build: a page Vite did not emit (sol/mac/vite.config.ts build.rollupOptions.input) is answered by Tauri
+            // with index.html, and this window, the size of the screen and above everything, would wear the whole face
+            // (2026-10-26 to 10-29: a stale vite.config.js left vibe.html out).
+            let url = if crate::hot::is_on(&app) {
+                tauri::Url::parse(&format!("{}/vibe.html", crate::hot::DEV)).map(WebviewUrl::External).map_err(|e| e.to_string())?
+            } else {
+                let assets = app.asset_resolver();
+                if assets.iter().next().is_some() && !assets.iter().any(|(p, _)| p.trim_start_matches('/') == "vibe.html") {
+                    return Err("the glow's page (vibe.html) is not in this build of Sol: no glow until the face is built with it (sol/mac/vite.config.ts)".into());
+                }
+                WebviewUrl::App("vibe.html".into())
+            };
+            let w = WebviewWindowBuilder::new(&app, "vibe", url)
                 .title("Sol vibe")
                 .position(mx, my)
                 .inner_size(mw, mh)

@@ -9,6 +9,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { devOnly } from "./dev-copy.ts";
 
 const ENGINE = join(dirname(fileURLToPath(import.meta.url)), "..");
 process.env.SOL_TEAM = join(mkdtempSync(join(tmpdir(), "sol-team-")), "team.json");
@@ -34,17 +35,17 @@ const ENGINE_ONLY = ["team/settings.ts", "settings.ts", "team/pings.ts", "team/r
 test("the hub loads alone (#206, #208): src/hub and relay-client pull in nothing else of the engine", () => {
   const got = loads("src/hub/index.ts", "src/team/relay-client.ts");
   for (const f of ENGINE_ONLY) assert.ok(!got.includes(f), `${f} was loaded: ${got.join(", ")}`);
-  assert.deepEqual([...got].sort(), [...["hub/github.ts", "hub/hub-types.ts", "hub/index.ts", "hub/load.ts", "hub/proof.ts", "hub/registry.ts", "hub/relay-hub.ts", "hub/spool.ts"], "team/relay-client.ts"]);
+  assert.deepEqual([...got].sort(), [...["hub/github.ts", "hub/hub-types.ts", "hub/index.ts", "hub/join.ts", "hub/load.ts", "hub/proof.ts", "hub/registry.ts", "hub/relay-hub.ts", "hub/spool.ts"], "team/relay-client.ts"]);
 });
 
 test("the hub alone makes no client (#206, #208): src/hub loads only its own files, and the probe sees the engine when it loads relay.ts", () => {
-  assert.deepEqual([...loads("src/hub/index.ts")].sort(), ["hub/github.ts", "hub/hub-types.ts", "hub/index.ts", "hub/load.ts", "hub/proof.ts", "hub/registry.ts", "hub/relay-hub.ts", "hub/spool.ts"]);
+  assert.deepEqual([...loads("src/hub/index.ts")].sort(), ["hub/github.ts", "hub/hub-types.ts", "hub/index.ts", "hub/join.ts", "hub/load.ts", "hub/proof.ts", "hub/registry.ts", "hub/relay-hub.ts", "hub/spool.ts"]);
   // the same probe on the wiring sees the engine and the hub: the check above can fail
   const wiring = loads("src/team/relay.ts");
   for (const f of ["team/settings.ts", "team/record.ts", "team/identity.ts", "team/members.ts", "team/relay-client.ts", "hub/relay-hub.ts"]) assert.ok(wiring.includes(f), f);
 });
 
-test("sol/hub is the same source (#208): its src is a link to src/hub, so the box builds what the engine runs", async () => {
+test("sol/hub is the same source (#208): its src is a link to src/hub, so the box builds what the engine runs", { skip: devOnly("sol/hub") }, async () => {
   const { lstatSync, readlinkSync, realpathSync } = await import("node:fs");
   const link = join(ENGINE, "../hub/src");
   assert.ok(lstatSync(link).isSymbolicLink());

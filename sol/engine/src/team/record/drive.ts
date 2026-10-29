@@ -236,6 +236,8 @@ export function makeDriveRecord(d: DriveRecordDeps): RoomRecord {
       readSha: async (repo, path) => { const x = await read(repo, path); return JSON.stringify({ sha: x.sha, content: x.content.toString("base64") }); },
       put: (repo, path, w: FileWrite) => put(repo, path, w),
       putBody: (repo, path, body: { content: string; sha?: string }) => put(repo, path, body),
+      // talk.ts (#315): an attachment whose line did not go, to the folder's bin (the sha is not asked: it was just written)
+      remove: async (repo, path) => { const at = await locate(repo, path); if (at?.file) await call("PATCH", `/drive/v3/files/${at.file.id}?supportsAllDrives=true`, { body: JSON.stringify({ trashed: true }), type: "application/json" }); return ""; },
       branch: async (repo) => { await check(room(repo)); return "main"; },
       tree: async (repo) => {
         const tree: { path: string; type: string; sha: string; size: number }[] = [];

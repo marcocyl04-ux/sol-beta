@@ -10,6 +10,7 @@ import { homedir } from "node:os";
 import { query, createSdkMcpServer, tool, type Options, type PermissionMode, type PermissionResult, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { SOL_TOOLS, runSolTool } from "../tools.js";
+import { HOME_ONLY } from "../suggest.js";
 import { saveFiles, attachedLines, type FileIn } from "../files.js";
 import { Items, type Item } from "./items.js";
 import { relocated, sessionInfo, sessionItems, workFolderIn } from "./sessions.js";
@@ -153,9 +154,9 @@ export class Run {
 
   start(fresh: boolean) {
     const p = prefs();
-    // the browser tools only when the browser drawer allows them; the desk's always
+    // the browser tools only when the browser drawer allows them; the desk's always; Home's group offer never (#321)
     const browser = new Set(BROWSER_TOOLS.map((t) => t.name));
-    const solTools = SOL_TOOLS.filter((t) => p.browser || !browser.has(t.name));
+    const solTools = SOL_TOOLS.filter((t) => (p.browser || !browser.has(t.name)) && !HOME_ONLY.has(t.name));
     const sol = createSdkMcpServer({
       name: "sol",
       version: "1.0.0",

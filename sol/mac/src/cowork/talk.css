@@ -44,5 +44,28 @@
 .tk-said { display: flex; align-items: center; gap: 7px; margin: 0 4px 7px; font-size: 12px; color: var(--dim); }
 .tk-said.tk-no { color: var(--ink); }
 
+/* attachments (#315): two quiet icons inside the box, a chip above it, a thumbnail or a file row in a line */
+.tk-box { position: relative; }
+.tk-box::after { content: ""; position: absolute; inset: -1px; border-radius: inherit; border: 1.5px dashed var(--dim); opacity: 0; pointer-events: none; transition: opacity 0.15s ease-out; }
+.tk-box.drop::after { opacity: 1; }
+.tk-att { flex: none; display: grid; place-items: center; width: 24px; height: 26px; margin: 0 -4px 0 -6px; padding: 0; background: none; border: 0; border-radius: var(--r-s); color: var(--mute); cursor: pointer; transition: opacity 0.15s ease-out; }
+.tk-att + .tk-att { margin-left: -2px; }
+.tk-box .tk-att ~ textarea { margin-left: 4px; }
+.tk-att:hover, .tk-att:focus-visible { color: var(--dim); }
+.tk-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; box-sizing: border-box; margin: 0 4px 7px; padding: 3px 4px 3px 11px; border: 1px solid var(--line); border-radius: var(--pill); background: var(--surface); font-size: 12px; color: var(--ink); }
+.tk-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-chip-size, .tk-file-size { flex: none; color: var(--mute); font-variant-numeric: tabular-nums; }
+.tk-chip-x { flex: none; width: 20px; height: 20px; padding: 0; background: none; border: 0; border-radius: 50%; font: inherit; font-size: 14px; line-height: 1; color: var(--dim); cursor: pointer; }
+.tk-chip-x:hover { color: var(--ink); }
+.tk-group.mine .tk-me:has(.tk-thumb, .tk-file) { flex-direction: column; align-items: flex-end; }   /* three classes, as the row rule above: otherwise its `center` wins and the stack sits in the middle (#347) */
+.tk-line:has(.tk-thumb, .tk-file) { flex-direction: column; align-items: flex-start; }
+.tk-thumb { display: block; width: 160px; height: 100px; padding: 0; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; cursor: zoom-in; }
+.tk-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.tk-thumb-wait { display: block; width: 100%; height: 100%; }
+.tk-file { display: flex; align-items: baseline; gap: 8px; max-width: 100%; box-sizing: border-box; margin: 0; padding: 7px 13px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-l); font-size: 12.5px; color: var(--ink); }
+.tk-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-earlier { margin: 0 0 14px; text-align: center; font-size: 12px; }
+@media (prefers-reduced-motion: reduce) { .tk-box, .tk-box::after, .tk-att { transition: none; } }
+
 /* a narrow stage (cowork.css makes .cstage the container): the margins come in */
 @container (max-width: 600px) { .tk-head, .tk-foot { padding-inline: 16px; } }

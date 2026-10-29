@@ -24,7 +24,7 @@ export type GhInput = (args: string[], body: object) => Promise<string>;
 /** one write of a file: its new content (base64), the branch, the message, the version it replaces when there is one */
 export type FileWrite = { message: string; branch: string; content: string; sha?: string };
 /** the last commit on a path, as the provider says it */
-export type LastCommit = { committedDate?: string; message?: string; author?: { name?: string; email?: string; user?: { login?: string } } };
+export type LastCommit = { committedDate?: string; message?: string; author?: { name?: string; email?: string; user?: { login?: string } }; committer?: { name?: string; email?: string; user?: { login?: string } } };
 
 export interface RoomRecord {
   /** me, as the provider knows me */
@@ -47,7 +47,7 @@ export interface RoomRecord {
     room(): Promise<string>;                            // the room of the folder this runs in, "owner/name"
     // let in (#162): a friend asks, the owner adds them, the friend accepts
     canWrite(repo: string): Promise<boolean>;           // may I push to it (a collaborator); false on any refusal (a 404 is one)
-    invitations(): Promise<{ id: number; repo: string }[]>;   // the invitations waiting for me, repo as "owner/name"
+    invitations(): Promise<{ id: number; repo: string; private?: boolean }[]>;   // the invitations waiting for me, repo as "owner/name"; private as the invitation says (#325)
     accept(id: number): Promise<string>;                // take one invitation; throws when it is not mine or gone
     invite(repo: string, login: string): Promise<"invited" | "already">;   // add a person, "already" when they were in
   };
@@ -86,6 +86,7 @@ export interface RoomRecord {
     readSha(repo: string, path: string, ref: string): Promise<string>;   // {sha, content (base64)} as JSON text
     put(repo: string, path: string, w: FileWrite, commit?: boolean): Promise<string>;   // commit: answers the commit's sha
     putBody(repo: string, path: string, body: FileWrite): Promise<string>;   // the same write, the body on --input (a big file is too big for an argument)
+    remove?(repo: string, path: string, w: { message: string; branch: string; sha: string }): Promise<string>;   // a file out (#315: an attachment whose line did not go)
     branch(repo: string): Promise<string>;              // the default branch's name (#194); throws when the repo cannot be seen
     tree(repo: string): Promise<string>;                // every file of the default branch (JSON)
     list(repo: string, dir: string, ref: string): Promise<string>;   // one folder on one branch (JSON)
@@ -118,7 +119,7 @@ export interface RoomRecord {
   };
 }
 
-export { makeGithubRecord, runGh, runners, ghWithInput } from "./record/github.js";
+export { makeGithubRecord, runGh, runners, ghWithInput, runGhStdin } from "./record/github.js";
 
 let active: RoomRecord | null = null;
 let cloud: RoomRecord | null = null;

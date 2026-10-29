@@ -2,7 +2,7 @@
 // brightness, colours; vibe/glow.ts, face.css): a band of Sol's colours round the screen's edges (a transparent
 // click-through window the size of the screen, made by vibe.rs), a frame inside the window when it is full screen,
 // and a ring round the chat box. By default only the ring takes the beat; the glow just shines. Nothing in the text or
-// the panels moves. Everything starts from the mark at the top of the sidebar (Mark.tsx VibeMark) and spreads out.
+// the panels moves. Everything starts from Sol at the top of the sidebar (SeatScene.tsx, the switch) and spreads out.
 // The creature's own moves with the music (Widget.tsx, Space.tsx, state.ts read vibe.move) are behind BODY, off.
 //
 // The sound comes from the shell: vibe_start (src-tauri/src/vibe.rs) runs a Swift helper that taps what the Mac
@@ -161,7 +161,7 @@ let screenOrigin: { x: number; y: number } | null = null;
 // the page's own parts light up in order of their distance from the mark (face.css animation-delay var(--vd))
 function stagger() {
   const o = origin ?? (screenOrigin ? { x: window.innerWidth, y: 0 } : { x: window.innerWidth / 2, y: window.innerHeight / 2 });
-  document.querySelectorAll<HTMLElement>(".ask-inner, .picker, .brand, .verdict .ok, .recap li.ok, .wticket, .wst.done, .mitem.on").forEach((el) => {
+  document.querySelectorAll<HTMLElement>(".ask-inner, .picker, .verdict .ok, .recap li.ok, .wticket, .wst.done, .mitem.on").forEach((el) => {
     const r = el.getBoundingClientRect();
     const d = Math.hypot(r.left + r.width / 2 - o.x, r.top + r.height / 2 - o.y);
     el.style.setProperty("--vd", `${Math.min(1.1, d / 1300).toFixed(2)}s`);
@@ -229,7 +229,7 @@ export function setVibe(on: boolean) {
   set({ want: on, error: "" });
   void (on ? start() : stop());
 }
-/** the sidebar's mark (Mark.tsx VibeMark): everything spreads from it */
+/** the switch, Sol at the top of the sidebar (SeatScene.tsx): everything spreads from it */
 export function toggleVibe(el: HTMLElement) {
   const r = el.getBoundingClientRect();
   origin = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; screenOrigin = null;

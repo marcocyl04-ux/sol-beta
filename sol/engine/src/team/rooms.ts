@@ -83,7 +83,10 @@ export async function shareRoom(d: RoomsDeps, id?: string): Promise<{ code: stri
   return { code: got.code };
 }
 
-const sameRepos = (a: Pick<Room, "repos">, b: Pick<Room, "repos">) => a.repos.join("\n") === b.repos.join("\n");
+// what a hub registers of a room's repos: a cloud room's are the repositories connected to it (#320), never the hub's
+// word, so it registers none, as the cloud's registry takes it, and connecting one never changes whose room it is
+const registered = (r: Pick<Room, "provider" | "repos">) => (r.provider === "cloud" ? [] : r.repos);
+const sameRepos = (a: Pick<Room, "provider" | "repos">, b: Pick<Room, "provider" | "repos">) => registered(a).join("\n") === registered(b).join("\n");
 // a room that may be registered again to see whether it is mine: it has a code, is not mine yet, came to me by no code
 // I typed (a joined room's repos are the word of whoever registered it: never claimed, renamed or not), and has no org
 // (an org room's people are the org's; nobody is let in by me)
@@ -125,7 +128,7 @@ export async function shareAgain(d: RoomsDeps): Promise<string[]> {
 
 /** a room registered on its hub (this engine's own registry when it meets here), and the code the hub answers */
 async function register(d: RoomsDeps, r: Room, me: string): Promise<{ code: string } | { error: string }> {
-  const body = { name: r.name, provider: r.provider, org: r.org, repos: r.repos };
+  const body = { name: r.name, provider: r.provider, org: r.org, repos: registered(r) };
   let code = "";
   if (!r.hub) {
     if (!d.local) return { error: "this Sol keeps no codes" };
@@ -163,8 +166,13 @@ function freeId(list: { id: string }[], name: string): string {
   return id;
 }
 
-/** the room a code names, added as the room in use; a code of a room I am in already only goes there */
-export async function joinRoom(d: RoomsDeps, typed: unknown): Promise<{ room: Room; already?: true } | { error: string }> {
+/** a group's name as a link's card shows it and a join compares it (#327): one plain line of at most 60 (pure) */
+export const nameLine = (v: unknown) => (typeof v === "string" ? v.replace(/[\p{Cc}\p{Cf}]/gu, "").replace(/\s+/g, " ").trim().slice(0, 60) : "");
+
+/** the room a code names, added as the room in use; a code of a room I am in already only goes there. `peeked` (#327):
+ *  a join link's card, which asked one hub for the name: only that hub is asked (the shared hub or one my rooms meet
+ *  on, never a place a face names), never this engine's own registry, and a room by another name is refused */
+export async function joinRoom(d: RoomsDeps, typed: unknown, peeked?: { hub: unknown; name?: unknown }): Promise<{ room: Room; already?: true } | { error: string }> {
   const code = normalCode(typed);
   if (!code) return { error: "a code is six letters and digits" };
   const s = d.team();
@@ -174,6 +182,11 @@ export async function joinRoom(d: RoomsDeps, typed: unknown): Promise<{ room: Ro
   // the hubs to ask, in order: every hub my rooms meet on, then the shared hub, each once; then this engine's own
   const hubs: string[] = [];
   for (const h of [...s.rooms.map((r) => r.hub), sharedHub()]) if (h && !hubs.includes(h)) hubs.push(h);
+  if (peeked) {
+    const only = typeof peeked.hub === "string" ? peeked.hub : "";
+    if (!only || !hubs.includes(only)) return { error: "Sol does not know where that link came from; type the code in join a group" };
+    hubs.splice(0, hubs.length, only);
+  }
   let found: { entry: Pick<Entry, "name" | "provider" | "org" | "repos">; hub: string } | null = null;
   let refused = "", missed = false, inClear = false;
   for (const hub of hubs) {
@@ -189,15 +202,19 @@ export async function joinRoom(d: RoomsDeps, typed: unknown): Promise<{ room: Ro
     const v = await res.json().catch(() => null) as { room?: Entry } | null;
     if (v?.room && typeof v.room === "object") { found = { entry: v.room, hub }; break; }
   }
-  if (!found && d.local) {
+  if (!found && d.local && !peeked) {
     const e = d.local.lookup(code);   // my own registry: a miss here says nothing about the hubs
     if (e) found = { entry: e, hub: "" };
   }
   // a hub that could not be asked is said first: the code may well be there
   if (!found) return { error: refused || (inClear ? CLEAR : missed ? "no room has that code" : "the hub did not answer") };
   const name = typeof found.entry.name === "string" && found.entry.name.trim() ? found.entry.name.trim().slice(0, 60) : "room";
+  // the card said a name: a room the hub now names otherwise is not the one the person pressed join on
+  if (peeked && typeof peeked.name === "string" && nameLine(found.entry.name) !== nameLine(peeked.name)) return { error: "that group is not the one the link named; open the link again" };
   // met as GitHub on the hub that answered; one found in my own registry meets here, by this engine's key
-  const room = cleanRoom({ id: freeId(s.rooms, name), name, provider: found.entry.provider, org: found.entry.org, repos: found.entry.repos, hub: found.hub, key: "", code, gate: found.hub ? "github" : "key", mine: false, joined: true });
+  const room = cleanRoom({ id: freeId(s.rooms, name), name, provider: found.entry.provider, org: found.entry.org,
+    // a cloud group's repos are the ones my own gh connected (#320), never a hub's word
+    repos: found.entry.provider === "cloud" ? [] : found.entry.repos, hub: found.hub, key: "", code, gate: found.hub ? "github" : "key", mine: false, joined: true });
   if (!room) return { error: "the hub's answer was not a room" };
   // the same record on the same hub as a room I am in already (its provider, org, repos and the hub that answered),
   // with no code yet: that room takes the code, and I go there. One with another code is another room on that hub
@@ -213,6 +230,29 @@ export async function joinRoom(d: RoomsDeps, typed: unknown): Promise<{ room: Ro
   const after = d.patch({ rooms: [...s.rooms, room], room: room.id });
   const kept = after.rooms.find((r) => r.id === room.id);
   return kept ? { room: kept } : { error: "Sol did not keep that room; try again" };
+}
+
+/** a group's name for its code, before anyone joins (#327, the join link): the shared hub's peek (hub join.ts), which is
+ *  read-only and takes no sign-in, so nothing is sent but the code. A room I am in already answers from here with
+ *  `already`, and no hub is asked. The name is one line of at most 60 characters (a hub's word is untrusted); `hub` is
+ *  the one asked, which the card's join names so only it is asked again (joinRoom's `peeked`). `signedIn` (#342): do I
+ *  have a Sol account on that hub (cloud.ts accountOn), which a cloud group's join needs, so the card can say "sign in
+ *  to Sol first" before the press rather than after it; a room I am in already needs none, and says nothing */
+export async function peekRoom(d: Pick<RoomsDeps, "team" | "fetch" | "cloudAt">, typed: unknown, hub = sharedHub()): Promise<{ code: string; name: string; hub?: string; signedIn?: boolean; already?: true } | { error: string }> {
+  const code = normalCode(typed);
+  if (!code) return { error: "a code is six letters and digits" };
+  const mine = d.team().rooms.find((r) => r.code === code);
+  if (mine) return { code, name: mine.name, already: true };
+  const base = hub ? hubHttp(hub) : "";
+  if (!base) return { error: "Sol has no cloud to ask; type the code in join a group" };
+  let res: Response;
+  try { res = await d.fetch(`${base}/peek/${code}`, { signal: AbortSignal.timeout(WAIT) }); } catch { return { error: "the cloud did not answer; try again" }; }
+  if (res.status === 404) return { error: "no group has this code" };
+  if (res.status === 429) return { error: "too many codes tried; wait ten minutes" };
+  const v = res.ok ? await res.json().catch(() => null) as { name?: unknown } | null : null;
+  const name = nameLine(v?.name);
+  // only a cloud group has a name to peek (round 59), and a cloud group knows me by my Sol account alone
+  return name ? { code, name, hub, signedIn: !!d.cloudAt?.(base) } : { error: "the cloud did not answer; try again" };
 }
 
 /** the rooms of mine with a code that a patch took away: each forgotten on its hub (the stack's review), so its code

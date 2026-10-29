@@ -71,9 +71,12 @@ test("the export check: a private address, a key, a person's address or a privat
   // the github.io address until js.org approves sol.js.org (js-org/js.org#12847); either is the line
   assert.match(betaReadme("stable-x"), /curl -fsSL https:\/\/(sol\.js\.org|marcocyl04-ux\.github\.io\/sol-beta)\/install \| sh/, "the README says the line");
   assert.ok(!/gh repo clone/.test(betaReadme("stable-x")), "and no longer asks for a GitHub account");
+  assert.match(betaReadme("stable-x"), /ChatGPT \(Plus or Pro, through Codex\) works too/, "ChatGPT is named as a way in (#362)");
+  assert.ok(!/no team features/.test(betaReadme("stable-x")), "and it no longer denies the rooms a beta Sol shares on the cloud");
+  assert.match(betaReadme("stable-x"), /\*\*Update\*\* button/, "a new version reaches a tester inside Sol, not only by git pull");
 });
 
-test("a tester's rebase: the beta repo has no stable, so their */mine goes onto its main, the latest export", () => {
+test("a tester's rebase: a beta repo with no stable (exports before 2026-10-29) still works, their */mine goes onto its main, the latest export", () => {
   const top = mkdtempSync(join(tmpdir(), "sol-beta-rebase-"));
   const beta = join(top, "sol-beta.git"), house = join(top, "house"), tester = join(top, "tester");
   git(top, "init", "-q", "--bare", "-b", "main", beta);

@@ -4,12 +4,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, copyFileSync, chmodSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, copyFileSync, chmodSync, rmSync, statSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer, type AddressInfo } from "node:net";
 
 const KEEP = join(import.meta.dirname, "..", "keep");
-const PORT = 7900 + Math.floor(Math.random() * 90);
+// a port the system says is free, not a random one of 90: two test runs at once picked the same one, and the second
+// stand-in died on it (EADDRINUSE) after the keeper had seen the first one's /health
+const PORT = await new Promise<number>((ok) => { const s = createServer().listen(0, "127.0.0.1", () => { const p = (s.address() as AddressInfo).port; s.close(() => ok(p)); }); });
 const FAKE = (dieMs: number) => `
 const http = require("node:http");
 http.createServer((q, r) => { r.end('{"ok":true}'); }).listen(${PORT}, "127.0.0.1");
@@ -61,8 +64,18 @@ test("keep: a build that stays up past the window is copied as the good one, and
 
 test("keep: a dist/ still being written is waited out before the engine starts (#39)", () => {
   const dir = setup(0, false);
-  // the stand-in says when it started; dist/ was written a moment ago, so the start comes 3 s after the last write
-  writeFileSync(join(dir, "dist", "index.js"), FAKE(0) + `require("node:fs").writeFileSync("started", String(Date.now())); setTimeout(() => process.exit(0), 2500);`);
+  // the stand-in says when it started, and ends a second after it has answered /health (not on a timer from its start,
+  // which a loaded machine can outrun before the keeper has asked)
+  writeFileSync(join(dir, "dist", "index.js"), `
+require("node:fs").writeFileSync("started", String(Date.now()));
+let ending = false;
+require("node:http").createServer((q, r) => { r.end('{"ok":true}'); if (!ending) { ending = true; setTimeout(() => process.exit(0), 1000); } }).listen(${PORT}, "127.0.0.1");
+`);
+  // dist/ was written on a whole second: the keeper's find -newermt counts whole seconds on macOS, so a write late in a
+  // second was quiet after only 2 s and the start could come under 2.5 s (more often under load). On a whole
+  // second the 3 s wait is 3 s on every machine
+  const second = Math.floor(Date.now() / 1000);
+  utimesSync(join(dir, "dist", "index.js"), second, second);
   const wrote = statSync(join(dir, "dist", "index.js")).mtimeMs;
   const r = run(dir);
   assert.equal(r.code, 0, r.out);

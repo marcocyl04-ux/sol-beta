@@ -2,7 +2,7 @@
 // (mutable mode, http://localhost:1420): Tauri refuses custom commands from a non-bundled origin unless a capability
 // with a `remote` URL allows them. Once a manifest exists the bundled pages need them listed too (capabilities/).
 const COMMANDS: &[&str] = &["engine_port", "notch_expand", "notch_geometry", "notch_regions", "face_log", "face_mode", "face_state", "type_text", "grab_sheet", "page_scroll", "permit_state", "permit_open", "permit_back", "eye_set", "eye_get", "clean_open", "clean_set", "clean_close", "clean_get", "call_mute", "vibe_start", "vibe_stop", "vibe_glow",
-    "thing_open", "thing_show", "thing_bounds", "thing_close", "thing_nav", "thing_outside", "sites_sign_out", "sites_clear"];
+    "thing_open", "thing_show", "thing_bounds", "thing_close", "thing_nav", "thing_outside", "sites_sign_out", "sites_clear", "sol_url_take"];
 
 // The vibe tap (vibe/tap.swift, src/vibe.rs): a Swift helper that hears what the Mac plays, compiled here with the
 // command line tools' swiftc into OUT_DIR, where vibe.rs includes it. Not a Mac: an empty file, and vibe_start says so.

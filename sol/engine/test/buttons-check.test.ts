@@ -4,8 +4,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
+import { devOnly } from "./dev-copy.ts";
 
-test("sol/buttons/check --test: each fixture as its first line says, and Sol's own all pass", () => {
+test("sol/buttons/check --test: each fixture as its first line says, and Sol's own all pass", { skip: devOnly("sol/buttons/check") }, () => {
   const r = spawnSync("bash", [join(import.meta.dirname, "..", "..", "buttons", "check"), "--test"], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /ok {3}my-stoplight-bypassed\.tsx: wanted "passes, bypassed colour"/);

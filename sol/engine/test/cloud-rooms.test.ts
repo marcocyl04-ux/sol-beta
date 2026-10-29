@@ -26,9 +26,9 @@ const { moveRoom, pathsOf } = await import("../src/team/move.ts");
 const HUB = "wss://cloud.example.net/relay";
 const sha = (b: Uint8Array | string) => createHash("sha256").update(b).digest("hex");
 
-test("a cloud room: no org, no repos, its code and hub needed, met by ticket; its record is cloud:<code>", () => {
+test("a cloud room: no org, its code and hub needed, met by ticket; its record is cloud:<code> (its repos are connected ones, #320)", () => {
   const r = S.cleanRoom({ id: "study", name: "Study", provider: "cloud", org: "kao-ai", repos: ["a/b"], hub: HUB, code: "bkq2cl", gate: "key", key: "secret", mine: true });
-  assert.deepEqual(r, { id: "study", name: "Study", provider: "cloud", org: "", repos: [], hub: HUB, key: "", code: "BKQ2CL", gate: "github", folder: "", mine: true, joined: false });
+  assert.deepEqual(r, { id: "study", name: "Study", provider: "cloud", org: "", repos: ["a/b"], hub: HUB, key: "", code: "BKQ2CL", gate: "github", folder: "", mine: true, joined: false });
   assert.equal(S.cleanRoom({ name: "x", provider: "cloud", hub: HUB }), null, "no code: it points at nothing");
   assert.equal(S.cleanRoom({ name: "x", provider: "cloud", code: "BKQ2CL" }), null, "no hub: nowhere");
   assert.equal(S.recordOf(r!), "cloud:BKQ2CL");
@@ -108,7 +108,7 @@ test("the cloud provider: GitHub's shapes, a missing file 404, a stranger 403 (n
   await assert.rejects(r.files.readSha("cloud:BKQ2CL", ".sol/things.json", "main"), (e: any) => /\(HTTP 404\)$/.test(e.full));
   const s1 = await r.files.putBody("cloud:BKQ2CL", ".sol/things.json", { message: "m", branch: "main", content: Buffer.from("one").toString("base64") });
   assert.equal(s1, sha("one"));
-  assert.deepEqual(JSON.parse(await r.files.readSha("cloud:BKQ2CL", ".sol/things.json", "main")), { sha: sha("one"), content: Buffer.from("one").toString("base64") });
+  assert.deepEqual(JSON.parse(await r.files.readSha("cloud:BKQ2CL", ".sol/things.json", "main")), { sha: sha("one"), content: Buffer.from("one").toString("base64"), by: "frank" });   // by: who wrote it (#316)
   await assert.rejects(r.files.putBody("cloud:BKQ2CL", ".sol/things.json", { message: "m", branch: "main", content: "eA==" }), (e: any) => T.putFailure(e) === "conflict");
   assert.equal(c.calls[0].url, "https://cloud.example.net/relay/rooms/BKQ2CL/files?path=.sol%2Fthings.json");
   assert.equal(c.calls[0].auth, "Bearer sol1.frank");

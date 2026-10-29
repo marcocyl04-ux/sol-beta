@@ -5,11 +5,16 @@
 // What ties a branch or PR to issue N: "#N" in the branch name, the PR's title or body ("Fixes #N", "Part of #N"), or a
 // branch whose last segment starts with "N-" (marco/31-see). An issue's column is the furthest any of its ties reached:
 // stable > main > pr > branch > waiting. Closed with nothing merged is "closed".
-import { getTeam } from "./settings.js";
+// Which repositories (#320): a GitHub room's own; a cloud group's every one its connectors.json lists, read with my own
+// gh only while GitHub is signed in here (control.ts), else the board is empty and says why, "connect GitHub to see the
+// board", never an error. The cache is the room's: its id and its repositories.
+import { getTeam, activeRoom, connectedRepos, recordOf, isRepo, type Room } from "./settings.js";
+import { connectors } from "./connectors.js";
+import { githubState, githubIn, noteGithub } from "./control.js";
 import { testNote, type Mark, type PrComment } from "./mark.js";
 import { areasOf, owners, type Owners } from "./claims.js";
 import { leadsOf, isOwner } from "./press.js";
-import { makeGithubRecord, runners } from "./record.js";
+import { makeGithubRecord, runners, record } from "./record.js";
 
 export type Column = "waiting" | "branch" | "pr" | "main" | "stable" | "closed";
 export const COLUMNS: Column[] = ["waiting", "branch", "pr", "main", "stable", "closed"];
@@ -22,6 +27,7 @@ export type PR = {
   repo: string; number: number; title: string; body: string; draft: boolean; state: "open" | "closed" | "merged";
   head: string; base: string; author: string; agent: boolean; mergedAt?: string; mergeCommit?: string;
   inStable?: boolean; review?: string; updated?: string; url: string;
+  created?: string;   // when it was opened (#328: a poll says "opened" from this, never from its last update)
   note?: string; mark?: Mark; flippedBy?: string;   // the test note (#100): what to try, felt or silent, who flipped it
   areas?: string[];   // the labels its files belong to, by the repo's .github/CODEOWNERS (#98): where this PR holds
 };
@@ -166,7 +172,7 @@ async function readRepo(repo: string): Promise<RepoRead> {
       agent: agentMark(author, last ? `${last.messageHeadline ?? ""}\n${last.messageBody ?? ""}` : ""),
       ...(p.mergedAt ? { mergedAt: String(p.mergedAt) } : {}), ...(merge ? { mergeCommit: merge } : {}),
       ...(state === "merged" ? { inStable: await inStable(repo, merge, stable) } : {}),
-      ...(p.reviewDecision ? { review: String(p.reviewDecision) } : {}), ...(p.updatedAt ? { updated: String(p.updatedAt) } : {}),
+      ...(p.reviewDecision ? { review: String(p.reviewDecision) } : {}), ...(p.updatedAt ? { updated: String(p.updatedAt) } : {}), ...(p.createdAt ? { created: String(p.createdAt) } : {}),
       url: String(p.url ?? ""), ...(areas.length ? { areas } : {}),
       ...(note ? { note: note.whatToTry, mark: note.mark, ...(note.flippedBy ? { flippedBy: note.flippedBy } : {}) } : {}),
     };
@@ -177,30 +183,69 @@ async function readRepo(repo: string): Promise<RepoRead> {
 export type Board = {
   repos: string[]; cards: Card[]; prs: PR[]; branches: Branch[];
   stable: Record<string, string>; main: Record<string, string>; at: number; error?: string;
+  reason?: string;                                   // why the board reads nothing (#320): a cloud group's, with no GitHub here
   leads: Record<string, Record<string, string[]>>;   // repo -> label -> its leads, from CODEOWNERS (#117)
   owner: Record<string, boolean>;                    // repo -> am I its owner, who may set the leads
 };
 
 const TTL = 60_000;
-let cache: Board | null = null;
-// the read under way, and the repos it reads: a room switch (#154) starts its own read rather than wait on the old room's
+let cache: Board | null = null, cacheKey = "";
+// the read under way, and the room and repos it reads: a room switch (#154) starts its own read rather than wait on the old room's
 let reading: { repos: string; p: Promise<Board> } | null = null;
 const subs = new Set<(b: Board) => void>();
-// only repositories: a Drive room's "repos" are its folders (#152), which no board reads
-const boardRepos = () => getTeam().repos.filter((r) => /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(r));
-const reposNow = () => boardRepos().join(",");
+
+/** what a cloud group's board says while GitHub is not signed in here (#320) */
+export const NO_GH_BOARD = "connect GitHub to see the board";
+/** the repositories a room's board reads, and why none when a cloud group's are not read (pure): a GitHub room's own, a
+ *  cloud group's every repository its connectors.json lists (`listed`; reading is harmless, and each viewer reads with
+ *  their own gh), only with GitHub signed in here; a Drive room's none (its "repos" are folders, #152) */
+export function boardPlan(room: Pick<Room, "provider" | "repos">, github: boolean, listed: string[] = []): { repos: string[]; reason?: string } {
+  const repos = (room.provider === "cloud" ? listed.filter(isRepo) : connectedRepos(room)).filter((r) => /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(r));
+  return room.provider === "cloud" && repos.length && !github ? { repos: [], reason: NO_GH_BOARD } : { repos };
+}
+// what the cloud group in use's connectors.json listed when last read (connectors.ts keeps the file 60 s)
+let listed = { rec: "", repos: [] as string[] };
+const listedOf = (room: Room) => (room.provider === "cloud" && listed.rec === recordOf(room) ? listed.repos : []);
+const planNow = () => {
+  const room = activeRoom(getTeam()), p = boardPlan(room, githubState()?.in === true, listedOf(room));
+  return { ...p, key: `${room.id}|${p.repos.join(",")}|${p.reason ?? ""}` };
+};
+/** before a cloud group's board: its connectors.json read (the store's cache), and GitHub here asked once if nobody has
+ *  yet. Never a loop (review P2-7): the answer githubIn gives is kept even when control.ts kept none (a test, offline) */
+async function readyCloud(): Promise<void> {
+  const room = activeRoom(getTeam()), rec = recordOf(room);
+  if (room.provider !== "cloud" || !rec) return;
+  const f = await connectors.get({ record }, rec).catch(() => null);
+  if (f) listed = { rec, repos: f.repos.map((r) => r.repo) };
+  if (listedOf(room).length && githubState() === null) {
+    const v = await githubIn().catch(() => false);
+    if (githubState() === null) noteGithub({ in: v });
+  }
+}
+/** why the room in use's board reads nothing, or undefined: "connect GitHub to see the board" for a cloud group whose
+ *  connectors.json lists repositories while GitHub is not signed in here (team.feed says it too) */
+export async function boardReason(): Promise<string | undefined> {
+  await readyCloud();
+  return planNow().reason;
+}
+/** does the room in use have a board at all, as last known (the feed asks before it peeks) */
+export const boardWanted = () => { const p = planNow(); return p.repos.length > 0 || !!p.reason; };
 
 /** the board: the cached one at once when there is one (a stale one starts a fresh read behind it, told to onBoard, so a
  * face paints now and is corrected after); refresh waits for the read. Every fresh read is told to onBoard */
 export function getBoard(refresh = false): Promise<Board> {
-  if (!refresh && cache && cache.repos.join(",") === reposNow()) {
+  if (activeRoom(getTeam()).provider === "cloud") return readyCloud().then(() => cachedOrRead(refresh));
+  return cachedOrRead(refresh);
+}
+function cachedOrRead(refresh: boolean): Promise<Board> {
+  if (!refresh && cache && cacheKey === planNow().key) {
     if (Date.now() - cache.at >= TTL) void read().catch(() => {});
     return Promise.resolve(cache);
   }
   return read();
 }
 function read(): Promise<Board> {
-  const repos = boardRepos(), key = repos.join(",");
+  const { repos, reason, key } = planNow();
   if (reading?.repos === key) return reading.p;
   const p: Promise<Board> = (async () => {
     const got = await Promise.allSettled(repos.map(readRepo));
@@ -211,9 +256,9 @@ function read(): Promise<Board> {
     const leads: Board["leads"] = {}, owner: Board["owner"] = {};
     ok.forEach((r, n) => { const repo = repos.filter((x) => !failed.includes(x))[n]; stable[repo] = r.stable; main[repo] = r.main; leads[repo] = r.leads; owner[repo] = r.owner; });
     const cards = repos.flatMap((repo) => columns(issues.filter((i) => i.repo === repo), prs, branches, stable[repo] ?? "", main[repo] ?? ""));
-    const b: Board = { repos, cards, prs, branches, stable, main, leads, owner, at: Date.now(), ...(failed.length ? { error: `could not read ${failed.join(", ")}` } : {}) };
-    if (reposNow() !== key) return b;   // the room changed while this read: its asker gets it, nobody else, never cached
-    if (ok.length || !cache || cache.repos.join(",") !== key) cache = b;
+    const b: Board = { repos, cards, prs, branches, stable, main, leads, owner, at: Date.now(), ...(failed.length ? { error: `could not read ${failed.join(", ")}` } : {}), ...(reason ? { reason } : {}) };
+    if (planNow().key !== key) return b;   // the room changed while this read: its asker gets it, nobody else, never cached
+    if (ok.length || !cache || cacheKey !== key) { cache = b; cacheKey = key; }
     for (const f of subs) f(cache);
     return cache;
   })().finally(() => { if (reading?.p === p) reading = null; });
@@ -222,7 +267,7 @@ function read(): Promise<Board> {
 }
 
 /** the board as last read, never a read of its own (the feed, #232): null until someone read it */
-export const peekBoard = (): Board | null => (cache && cache.repos.join(",") === reposNow() ? cache : null);
+export const peekBoard = (): Board | null => (cache && cacheKey === planNow().key ? cache : null);
 
 export function onBoard(fn: (b: Board) => void) { subs.add(fn); return () => { subs.delete(fn); }; }
 

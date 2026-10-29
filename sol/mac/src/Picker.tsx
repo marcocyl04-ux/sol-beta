@@ -84,13 +84,15 @@ const Mic = () => (
 );
 
 export function Picker({ seat, info, model, effort, efforts, up, health, context, win, parts, rec, notice, locked,
-  onSeat, onModel, onEffort, onMicDown, onMicUp, noSeat, children }: {
+  onSeat, onModel, onEffort, onMicDown, onMicUp, noSeat, children, call, lockedWhy }: {
+  lockedWhy?: string;       // the locked switch's own reason, where it is not "this conversation lives on …"
   noSeat?: boolean; children?: React.ReactNode; // the mode lives in the side now; Work puts its own controls in
+  call?: React.ReactNode;   // the call, beside dictate (buttons/call.tsx CallKey): every talk's bar has it (#24)
   seat: Seat; info?: SeatInfo; seats: SeatInfo[]; model?: string; effort: Effort; efforts: Effort[]; locked?: boolean;
   up: boolean; health?: Health | null; context: number; win: number; parts?: Part[]; rec: boolean; notice: string;
   onSeat: (s: Seat) => void; onModel: (m: string) => void; onEffort: (e: Effort) => void;
   onSeatModel?: (s: Seat, m: string) => void;   // kept for the callers; the list shows one seat's models now, the seat switch does the rest (sitting 5)
-  onMicDown: () => void; onMicUp: () => void;   // the call is a button on the rail (buttons/call.tsx)
+  onMicDown: () => void; onMicUp: () => void;
 }) {
   const fill = Math.min(1, context / (win || 1));
   const r = 5.5;
@@ -101,11 +103,12 @@ export function Picker({ seat, info, model, effort, efforts, up, health, context
     <>
       <div className="picker">
         {!noSeat && <SeatSwitch seat={seat} locked={locked} onPick={onSeat}
-          title={locked ? `this conversation lives on ${info ? label(info) : seat}${info?.via ? ` (via ${info.via})` : ""}; a new conversation (cmd+N) can be on the other seat` : `${info?.via ? `via ${info.via}. ` : ""}switching starts a new conversation`} />}
+          title={locked && lockedWhy ? lockedWhy : locked ? `this conversation lives on ${info ? label(info) : seat}${info?.via ? ` (via ${info.via})` : ""}; a new conversation (cmd+N) can be on the other seat` : `${info?.via ? `via ${info.via}. ` : ""}switching starts a new conversation`} />}
         <ModelPill options={models} value={model} onChange={onModel} label="model" seatName={info ? label(info) : seat} seat={seat} />
         <EffortPill options={efforts} value={effort} onChange={(v) => onEffort(v as Effort)} label="effort" />
         {children}
         <span className="grow" />
+        {call}
         <button className={`icon ${rec ? "rec" : ""}`} onPointerDown={onMicDown} onPointerUp={onMicUp} title="dictate (click, or hold)">
           {rec || forcedState === "listening" ? <VoiceRibbon size={20} /> : <Mic />}
         </button>

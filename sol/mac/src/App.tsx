@@ -13,6 +13,8 @@ import { onOpenAsk, wireSend } from "./renovation";
 import { migrate } from "./migrate";
 import { applyLook } from "./look";
 import { firstRunWanted } from "./firstrun/FirstRun";
+import { JoinAsk } from "./cowork/JoinAsk";
+import { CountsCard } from "./CountsCard";
 
 // the first run (#134, firstrun/FirstRun.tsx) lies over the app: a new person meets Sol inside the real window
 const FirstRun = lazy(() => import("./firstrun/FirstRun"));
@@ -79,6 +81,12 @@ export default function App() {
   return (
     <>
       {mode === "cowork" ? <CoworkApp e={e} onMode={pick} /> : <WorkApp e={e} onMode={pick} />}
+      {/* a group's link opened in the app (#327): it asks over either mode, and opens Cowork only once joined; signed out
+          (#342), its "sign in" opens Settings in Home on that drawer, once Home has mounted */}
+      <JoinAsk onJoined={() => { try { sessionStorage.setItem("sol.cowork.stage", JSON.stringify({ k: "dashboard" })); } catch { /* private */ } pick("cowork"); window.dispatchEvent(new Event("sol:cowork-group")); }}
+        onSignIn={(drawer) => { pick("home"); window.setTimeout(() => window.dispatchEvent(new CustomEvent("sol:settings", { detail: drawer })), 60); }} />
+      {/* the one card about counting (#356): once, on the first window after the first run; the press is the whole face of it */}
+      {!first && e.settings?.track && !e.settings.track.told && <CountsCard onOk={() => e.setSettings({ track: { told: true } })} />}
       {first && <Suspense fallback={null}><FirstRun e={e} onDone={() => setFirst(false)} /></Suspense>}
     </>
   );

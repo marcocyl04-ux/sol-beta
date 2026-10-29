@@ -8,7 +8,7 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::Mutex;
 use tauri::{AppHandle, Manager};
 
 /// a root is a folder that holds sol/engine
@@ -63,18 +63,23 @@ fn shell_node() -> Option<PathBuf> {
     if out.status.success() && line.starts_with('/') { Some(PathBuf::from(line)) } else { None }
 }
 
-/// The node this app runs the engine and Vite with, found once.
-pub fn node() -> &'static Path {
-    static NODE: OnceLock<PathBuf> = OnceLock::new();
-    NODE.get_or_init(|| node_path(std::env::var_os("HOME").map(PathBuf::from).as_deref(), shell_node))
+/// The node this app runs the engine and Vite with, found once and kept; `node_again` forgets it.
+static NODE: Mutex<Option<PathBuf>> = Mutex::new(None);
+pub fn node() -> PathBuf {
+    NODE.lock().unwrap().get_or_insert_with(|| node_path(std::env::var_os("HOME").map(PathBuf::from).as_deref(), shell_node)).clone()
 }
+
+/// Forget the node found before, so the next ask looks again: the first run asks for it at Set up, before the
+/// install has put one in ~/.sol/node, and Open Sol would otherwise start the engine with PATH's luck (#375).
+pub fn node_again() { *NODE.lock().unwrap() = None; }
 
 /// A PATH for the engine and Vite: node's own folder first, then the usual places (an app opened from Finder has
 /// only /usr/bin:/bin, and the engine starts git, claude and codex from PATH).
 pub fn path_env() -> String {
     let base = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin";
     let mut dirs: Vec<String> = Vec::new();
-    if let Some(d) = node().parent().filter(|d| d.is_absolute()) { dirs.push(d.to_string_lossy().into_owned()); }
+    let node = node();
+    if let Some(d) = node.parent().filter(|d| d.is_absolute()) { dirs.push(d.to_string_lossy().into_owned()); }
     if let Some(h) = std::env::var_os("HOME") { dirs.push(format!("{}/.local/bin", h.to_string_lossy())); }
     dirs.push(base.to_string());
     dirs.join(":")

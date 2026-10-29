@@ -7,9 +7,11 @@ type Tick = { y: number; at: number; text: string };
 export function Trail({ scroller, version, goTo }: { scroller: RefObject<HTMLDivElement | null>; version: number; goTo: (y: number) => void }) {
   const [ticks, setTicks] = useState<Tick[]>([]);
   // the window on the trail is written straight to its element: a state set on every scroll event rendered the trail
-  // (and laid it out) once per wheel tick, ~3 ms a frame on the main thread while the hand scrolled (2026-10-25, SMOOTH.md)
+  // (and laid it out) once per wheel tick, ~3 ms a frame on the main thread while the hand scrolled (2026-10-25, SMOOTH.md).
+  // It moves by transform (the line is the trail's full height, moved and scaled), so a scroll or a follow gliding
+  // every frame lays nothing out (its top and height did, each frame)
   const win = useRef<HTMLElement>(null);
-  const setWin = (w: { top: number; h: number }) => { const el = win.current; if (el) { el.style.top = `${w.top * 100}%`; el.style.height = `${Math.max(1, w.h * 100)}%`; } };
+  const setWin = (w: { top: number; h: number }) => { const el = win.current; if (el) el.style.transform = `translateY(${(w.top * 100).toFixed(3)}%) scaleY(${Math.max(0.01, w.h).toFixed(4)})`; };
   const [near, setNear] = useState<number | null>(null);
   const [down, setDown] = useState(false);
   const trail = useRef<HTMLDivElement>(null);
@@ -20,10 +22,12 @@ export function Trail({ scroller, version, goTo }: { scroller: RefObject<HTMLDiv
       const sh = el.scrollHeight || 1;
       const top = el.getBoundingClientRect().top;
       const rows = Array.from(el.querySelectorAll<HTMLElement>(".me-row"));
-      setTicks(rows.map((r) => {
+      const next = rows.map((r) => {
         const y = r.getBoundingClientRect().top - top + el.scrollTop;
         return { y, at: y / sh, text: (r.textContent ?? "").trim().slice(0, 70) };
-      }));
+      });
+      // the talk resizes every frame while an answer grows: the trail draws again only when a cell really moved
+      setTicks((was) => (was.length === next.length && was.every((t, i) => Math.abs(t.y - next[i].y) < 0.5 && Math.abs(t.at - next[i].at) < 0.001 && t.text === next[i].text) ? was : next));
       setWin({ top: el.scrollTop / sh, h: el.clientHeight / sh });
     };
     measure();

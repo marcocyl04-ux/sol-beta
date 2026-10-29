@@ -4,8 +4,15 @@
 // room page offers one click to join the new room by its code (team.room.join), so nobody has to pass a code around by
 // hand. The common space (the room from before rooms, id `team`, met by the relay key on an engine's own hub) moves
 // the same way. The file is room content: only its code, its hub's address and its name are taken, each checked.
+// The other way (#326, take.ts): a group on the cloud whose maker moved its files to a private repository of theirs
+// says `{ to: "github", repo, at }` in the cloud's `.sol/moved.json`. Only the maker may write that file, and the cloud
+// saves the move in the group's row when they do (the list carries it as `moved`); a member's Sol trusts that saved
+// move alone, as only the owner's commit counts on GitHub, never the file or who the maker is today; then its page shows one card, "the group moved to <repo> · join it · not now", and
+// only the press switches my copy of the group (followMove). Nothing switches on its own: a session started in a
+// repository's folder loads that repository's project settings and hooks.
 import type { RoomRecord } from "./record.js";
-import { CODE } from "./settings.js";
+import type { CloudUsage } from "./record/cloud.js";
+import { CODE, isRepo, recordOf, type TeamSettings, type Room } from "./settings.js";
 
 export const MOVED_PATH = ".sol/moved.json";
 export const MOVED_TTL = 10 * 60_000;
@@ -65,4 +72,68 @@ export function movedForFace(m: Moved | null, rooms: { id: string; code: string 
   if (!m) return undefined;
   const have = rooms.find((r) => r.code === m.code);
   return { ...m, ...(have ? { have: have.id } : {}) };
+}
+
+// ---- a cloud group that moved to GitHub (#326) ----
+
+/** a GitHub login: one to 39 letters, digits or hyphens, never empty (settings.ts LOGIN also takes "") */
+export const GH_LOGIN = /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/;
+/** a repository a group can move to (#326): settings.ts isRepo (#320's one check of an "owner/name", no part only
+ *  dots), and its owner a GitHub login, since the move makes it under the maker's own account */
+export const ownedRepo = (v: string) => isRepo(v) && GH_LOGIN.test(v.split("/")[0]);
+
+/** where a cloud group's files went, as its maker's Sol wrote it */
+export type MovedAway = { to: "github"; repo: string; at: string; by: string };
+
+/** the cloud's file as read (pure): `to: "github"` and an "owner/name"; anything else is no move */
+export function parseMovedAway(text: unknown): { repo: string; at: string } | null {
+  let v: unknown;
+  try { v = JSON.parse(String(text ?? "")); } catch { return null; }
+  if (!isObj(v) || v.to !== "github" || typeof v.repo !== "string" || !ownedRepo(v.repo.trim())) return null;
+  return { repo: v.repo.trim(), at: typeof v.at === "string" && !Number.isNaN(Date.parse(v.at)) ? v.at : "" };
+}
+
+export type AwayDeps = {
+  usage: (repo: string) => Promise<Pick<CloudUsage, "moved">>;   // the list, with the move the cloud saved when its maker said so
+};
+
+const away = new Map<string, { at: number; moved: MovedAway | null }>();
+/** for tests: forget what was read */
+export const forgetAway = () => away.clear();
+
+/** where a cloud group's files went, or null: the move the cloud saved in the group's row when its maker wrote
+ *  `.sol/moved.json` (never the file itself, nor who the maker is today). Read once in ten minutes; `refresh` reads anew.
+ *  None saved is no move at once; a read that fails keeps what was read before */
+export async function cloudMovedOf(d: AwayDeps, rec: string, now = Date.now(), refresh = false): Promise<MovedAway | null> {
+  if (!rec.startsWith("cloud:")) return null;
+  const had = away.get(rec);
+  if (!refresh && had && now - had.at < MOVED_TTL) return had.moved;
+  let moved: MovedAway | null = null;
+  try {
+    const m = (await d.usage(rec)).moved;
+    if (m && ownedRepo(m.repo) && GH_LOGIN.test(m.by)) moved = { to: "github", repo: m.repo, at: m.at ? new Date(m.at).toISOString() : "", by: m.by };
+  } catch { moved = had?.moved ?? null; }
+  away.set(rec, { at: now, moved });
+  return moved;
+}
+
+export type FollowDeps = AwayDeps & {
+  team: () => TeamSettings;
+  patch: (p: Record<string, unknown>) => TeamSettings;
+  github: () => Promise<string>;   // my GitHub login; "" or a throw when gh is not signed in
+};
+
+/** the press on "join it" (team.room.follow): my copy of the group switches the way the maker's did, a GitHub room on
+ *  the repository, its code and hub kept, joined (its repository is the maker's word, so never mine). Read anew first;
+ *  without GitHub signed in nothing changes and the card says so */
+export async function followMove(d: FollowDeps, id?: unknown): Promise<{ room: Room } | { error: string; need?: "github" }> {
+  const s = d.team(), r = s.rooms.find((x) => x.id === (typeof id === "string" && id ? id : s.room));
+  if (!r || r.provider !== "cloud") return { error: "which group?" };
+  const m = await cloudMovedOf(d, recordOf(r), Date.now(), true);
+  if (!m) return { error: "the group has not moved" };
+  const login = (await d.github().catch(() => "")).trim();
+  if (!GH_LOGIN.test(login)) return { error: "connect GitHub to see the files", need: "github" };
+  const after = d.patch({ rooms: d.team().rooms.map((x) => (x.id === r.id ? { ...x, provider: "github", org: "", repos: [m.repo], folder: "", mine: false, joined: true } : x)), room: r.id });
+  const room = after.rooms.find((x) => x.id === r.id);
+  return room && room.provider === "github" ? { room } : { error: "Sol did not keep that group; try again" };
 }

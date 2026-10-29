@@ -18,21 +18,36 @@
 // roster, a line or a ping reaches only the connections in the same room. No code is the hub's common space, where
 // every room from before codes meets as it did. The spool keeps a message's room and hands it back only on a hello in
 // that room. The open gate (relay.open on the beta's hub): any GitHub user, by their token, when there is no org.
-// The hub's registry (registry.ts) answers two http routes beside the socket, /relay/rooms, behind the same gate.
+// The hub's registry (registry.ts) answers two http routes beside the socket, /relay/rooms, behind the same gate; and
+// the join page (join.ts, #327), /relay/j/<code>, with no gate, on a host that serves it.
 // Let in (#162, round 37): `room` is a friend's Sol asking to be let into a room's repository ({ want: "in", repo }),
 // and the maker's Sol answering ({ to, repo, in, why? }). An answer has a `to`, so it reaches that person only, as a
-// ping does, and is kept in the spool for a friend who left. An ask is never kept: the friend's Sol asks again on every
-// connect and every ten minutes while it is up, so a kept one would only pile up for every person of the room.
+// ping does, and is kept in the spool for a friend who left. An ask to the whole room is never kept: the friend's Sol
+// asks again on every connect and every ten minutes while it is up, so a kept one would only pile up for every person
+// of the room. A cloud group's ask (#325, round 57) is a person's press, said once, to the maker only (`to`) with the
+// asker's GitHub login (`github`): it is kept for the maker like a ping. Each is rebuilt by roomOf (hub-types.ts).
 // The hub on its own (#206, S1 of #168): this file is the hub and its gate, and loads nothing of the engine (no team
 // settings, pings, record, identity or members) and starts nothing at load, so it can run on a box with no engine.
 // What it needs of GitHub is handed in: `verify` (who a token is) and `reads` (the proof gist and the org check); with
 // none, every token is refused. The engine's wiring (relay.ts) hands in its own, the client is relay-client.ts.
+// Talk kept (#315, round 54): a hub run with a talk store (the cloud's rooms.db; the engine's own hub has none and keeps
+// only the spool, as before) hands each talk line said in a coded room to the store, and on a hello in that room sends
+// `talk.history { thread, lines }` for each thread, its last lines, so a Sol that restarts or comes late has the talk.
+// A talk line is rebuilt field by field here (talkOf): its thread, text, part, to and `file` (an attachment the sender's
+// Sol wrote into the room's record, at a path named after the line), so a line carries a path, a name, a size and a
+// kind, never bytes. A hello may say `talkSince { [thread]: at }`, and then gets only newer lines.
+// Build updates (#328, round 60): `event` is what happened in a cloud group's connected repository. The cloud's route
+// hears it from the repository's workflow and hands it to `event()`; a connector's Sol that reads the board says it
+// itself (source `poll`), and only the room's poller for that repository may (`pollers`: the first Sol seated there with
+// GitHub signed in that said in its hello or presence it may read that repository, `polls`, for each repository with no
+// workflow key). Each is rebuilt by eventOf, kept by the host's hook (`events`, the cloud's table), and goes to the
+// room; a hello in the room gets the last 50 (`events.recent`) after the spool. Never spooled.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { timingSafeEqual, createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { WebSocketServer, WebSocket } from "ws";
-import { CODE, LOGIN, KINDS, SPOOLED, GONE, SLOWED, FULL, TOO_OLD, TOO_FAST, KICKED, PROTOCOL, HUB, isObj, presenceOf, thingOf, sessionsOf, showOf, type Kind, type RelayMsg, type RosterEntry } from "./hub-types.js";
+import { CODE, LOGIN, KINDS, SPOOLED, GONE, SLOWED, FULL, TOO_OLD, TOO_FAST, KICKED, PROTOCOL, HUB, TALK_HISTORY, isObj, presenceOf, thingOf, sessionsOf, showOf, talkOf, talkSinceOf, githubOf, roomOf, eventOf, pollsOf, type Kind, type RelayMsg, type RosterEntry, type EventWire } from "./hub-types.js";
 import { Bucket, rank, type Light, type Queue } from "./load.js";
 import type { Spool } from "./spool.js";
 import type { RoomRegistry, Guesses } from "./registry.js";
@@ -108,7 +123,22 @@ export type HubOpts = {
   minVersion?: number;          // C1: the oldest wire a hello may say (PROTOCOL - 1: this one and the one before); 0 any
   load?: () => Light;           // B3: the light now (load.ts Load); none: always green
   budget?: Budget;              // B5: each person's month of traffic; none: no budget
+  talk?: TalkKeeper;            // #315: each coded room's talk kept (the cloud's); none: the spool only, as before
+  events?: EventHook;           // #328: a room's build updates kept by the host (the cloud); none: none kept, none polled
+  joinPage?: boolean;           // #327: this hub's host serves the join page (join.ts), so a hello's answer says `join: true`
 };
+
+/** a hub's store of each coded room's talk (#315): `keep` a line as the hub carried it (its id, thread, from, at, text,
+ *  file), `last` each thread's last lines for a hello in the room, oldest first, only those newer than `since[thread]`
+ *  when the hello said it. The store checks and bounds what it keeps itself (the cloud's: members only, 2 MB a room) */
+export type TalkKeeper = { keep: (room: string, line: RelayMsg) => void; last: (room: string, since?: Record<string, number>) => { thread: string; lines: RelayMsg[] }[] };
+
+/** what the host keeps of a room's build updates (#328; the cloud's rooms.db, table `event`): `keep` is false when it
+ *  had that one already (a poller's line said again), so it goes out once; `recent` the last 50, oldest first; `keyed`
+ *  the repositories whose workflow key is live (it has had one post with its secret), which nobody polls; `connected` the repositories the room's record lists
+ *  (the cloud's `.sol/connectors.json`, read at most once a minute): a `polls` entry for any other is dropped. With no
+ *  `connected`, the registry's repos for the room */
+export type EventHook = { keep: (room: string, ev: EventWire) => boolean; recent: (room: string) => EventWire[]; keyed: (room: string) => string[]; connected?: (room: string) => string[] };
 
 /** B5: the bytes sent to each person, and how far past their month they are: 0 within, 1 past (streams slow), 2 far
  *  past (no streams). Chat never minds it */
@@ -170,8 +200,8 @@ export function ipBucket(ip: string): string {
 export { GONE, SLOWED, FULL, TOO_OLD, TOO_FAST, KICKED };   // the close codes a hello can get (hub-types.ts)
 
 // a connection's place on the hub: what the roster says of it, and the room it said hello in ("" the common space)
-type Seat = RosterEntry & { room: string; v: number };   // v: the wire its hello said (C1)
-const entryOf = ({ room: _r, v: _v, ...e }: Seat): RosterEntry => e;   // the room and version are the hub's to know, never sent
+type Seat = RosterEntry & { room: string; v: number; polls?: string[] };   // v: the wire its hello said (C1); polls: what it may read the board of (#328)
+const entryOf = ({ room: _r, v: _v, polls: _p, ...e }: Seat): RosterEntry => e;   // the room, version and polls are the hub's to know, never sent
 
 // Connections are kept by room as well (#208, A7): a line, a roster or a spool check touches the connections of one room,
 // never every socket on the hub, so a busy room costs only its own people.
@@ -200,6 +230,8 @@ export class RelayHub {
   private accounts = new Map<string, Bucket>();          // each person's messages, all their connections together (B2)
   /** what was sent, for the lights (load.ts): messages and bytes since the hub began */
   sent = { msgs: 0, bytes: 0 };
+  /** build updates sent (#328), counted apart: never in a person's month (the budget) nor the lights' traffic */
+  eventsSent = { msgs: 0, bytes: 0 };
   /** what the light held back (show lines on yellow, orange and red), so the lights read what is wanted (load.ts) */
   held = { msgs: 0, bytes: 0 };
   /** the largest message a connection may send; relayServer sets it from its own (MSG_MAX), the hello says it */
@@ -326,6 +358,13 @@ export class RelayHub {
     if (e) this.opts.budget?.add(e.who, bytes);
   }
 
+  /** a build update to one connection (#328): its own counter, never charged to the person's month (an update is the
+   *  group's, not anything they asked for) */
+  private putEvent(o: Conn, line: string, bytes = Buffer.byteLength(line)) {
+    o.send(line);
+    this.eventsSent.msgs++; this.eventsSent.bytes += bytes;
+  }
+
   /** the hub's own word to one connection (kind `hub`), to a Sol that reads it (v2) */
   private say(o: Conn, say: string, rest: Record<string, unknown> = {}) {
     this.put(o, JSON.stringify({ from: { login: "", agent: false }, at: Date.now(), say, ...rest, kind: HUB }));
@@ -424,7 +463,8 @@ export class RelayHub {
       if (!mine && this.online(room) >= max) { this.leave(c); c.close?.(FULL, `this room has ${max} people on; try again in a minute`); return; }
       if (max !== Infinity && mine >= MACHINES_MAX) { this.leave(c); c.close?.(FULL, `you have ${MACHINES_MAX} machines on in this room`); return; }
       // what I am in (#230): a thing and my room sessions, exactly their fields; a reconnect's hello says them again
-      this.conns.set(c, { who, agent: from.agent === true, machine, state: presenceOf(String(m.state ?? "here")), session: this.session(m.session), since: Date.now(), room, v, ...this.inside(m) });
+      const polls = room ? pollsOf(m.polls) : undefined;   // #328: as said (bounded); pollers() reads them against the room's list now
+      this.conns.set(c, { who, agent: from.agent === true, machine, state: presenceOf(String(m.state ?? "here")), session: this.session(m.session), since: Date.now(), room, v, ...this.inside(m), ...(polls ? { polls } : {}) });
       if (!this.rooms.has(room)) this.rooms.set(room, new Set());
       this.rooms.get(room)!.add(c);
       const low = who.toLowerCase();
@@ -432,7 +472,8 @@ export class RelayHub {
       this.people.get(low)!.add(c);
       if (room) this.opts.registry?.saw(room, who, Date.now());   // a code the registry does not know: nothing written
       // C1, A5: what this hub is, to a Sol that reads it: its version, the largest message, the light
-      if (v >= 2) this.say(c, "hello", { v: PROTOCOL, msgMax: this.msgMax, light: this.light(), watch: this.watchOnly, rooms: true });   // rooms (#238): a room show's lines go to its watchers only here
+      // rooms (#238): a room show's lines go to its watchers only here; join (#327): a group's link opens a page here
+      if (v >= 2) this.say(c, "hello", { v: PROTOCOL, msgMax: this.msgMax, light: this.light(), watch: this.watchOnly, rooms: true, ...(this.opts.joinPage ? { join: true } : {}) });
       // A6: the room's shows going on now, so a Sol that came late can watch them (their lines come only to watchers)
       // a room session's (#238) on every hub, so a Sol that came late knows it is going on
       for (const s of this.streams.get(room)?.values() ?? []) if (s.start && (this.watchOnly || s.room)) this.put(c, s.start);
@@ -441,6 +482,18 @@ export class RelayHub {
         if (!open) sp.saw(who);   // the spool's seen is the common space's people; a stranger is never one of them
         const kept = sp.take(who, room);   // this room's only; the rest wait for a hello in theirs
         if (kept.length) this.put(c, JSON.stringify({ kind: "spooled", from: { login: "", agent: false }, at: Date.now(), messages: kept }));
+      }
+      // #315: the room's talk as the store keeps it, a thread a message; the Sol merges each line by its id
+      if (room && this.opts.talk) {
+        let threads: { thread: string; lines: RelayMsg[] }[] = [];
+        try { threads = this.opts.talk.last(room, talkSinceOf(m.talkSince)); } catch (e) { this.errors++; console.log(`relay: the talk store could not be read (${String((e as Error)?.message ?? e).slice(0, 120)})`); }
+        for (const t of threads) if (t.lines.length) this.put(c, JSON.stringify({ kind: TALK_HISTORY, from: { login: "", agent: false }, at: Date.now(), thread: t.thread, lines: t.lines }));
+      }
+      // #328: the room's last build updates, after what was kept; a store that cannot be read sends none, and the hello stands
+      if (room && this.opts.events) {
+        let recent: EventWire[] = [];
+        try { recent = this.opts.events.recent(room); } catch (e) { console.log(`relay: a room's build updates could not be read (${String((e as Error)?.message ?? e).slice(0, 120)})`); }
+        if (recent.length) this.putEvent(c, JSON.stringify({ kind: "events.recent", from: { login: "", agent: false }, at: Date.now(), events: recent }));
       }
       this.rosterTo(room);
       return;
@@ -466,6 +519,7 @@ export class RelayHub {
       return;
     }
     if (m.kind === "watch") { this.watch(c, me, m); return; }
+    if (m.kind === "event") { this.polled(c, me, m); return; }
     if (m.kind === "presence") {
       const state = presenceOf(String(m.state ?? me.state));
       const session = this.session(m.session);
@@ -473,10 +527,13 @@ export class RelayHub {
       me.state = state; me.session = session;
       // a presence says the whole of what I am in (#230): a thing or sessions it leaves out are over
       const inside = this.inside(m);
-      me.thing = inside.thing; me.sessions = inside.sessions; me.quiet = inside.quiet;
+      me.thing = inside.thing; me.sessions = inside.sessions; me.quiet = inside.quiet; me.github = inside.github;
       if (!me.thing) delete me.thing;
       if (!me.sessions) delete me.sessions;
       if (!me.quiet) delete me.quiet;
+      if (me.github === undefined) delete me.github;
+      me.polls = me.room ? pollsOf(m.polls) : undefined;   // #328: a presence says them whole too
+      if (!me.polls) delete me.polls;
       this.rosterSoon(me.room);
       return;
     }
@@ -484,11 +541,20 @@ export class RelayHub {
     // a show is rebuilt by its own fields only (#238): a session's words go out as the sanitizer says them, nothing beside
     let shown = m.kind === "show" ? showOf(m) : null;
     if (m.kind === "show" && !shown) return;
+    // a room word too (#325): an ask or an answer, rebuilt by its own fields; a cloud group's ask carries a GitHub login
+    const word = m.kind === "room" ? roomOf(m) : null;
+    if (m.kind === "room" && !word) return;
     // a stream that started as a room's (#238) stays one, whatever a later message of it says: its lines go to its
     // watchers only and are said as the room's, never as an issue show's
     const room = !!shown && (shown.scope === "room" || this.streams.get(me.room)?.get(`${me.who.toLowerCase()}/${shown.session.id}`)?.room === true);
     if (shown && room && shown.scope !== "room") { const { thing: _t, ...rest } = shown; shown = { ...rest, issue: 0, repo: "", scope: "room" }; }
+    // a talk line (#315, the review) is rebuilt by its own fields only, as a show is: never bytes, never a path out of
+    // .sol/talk/, never another line's file; one whose file does not check is not carried
+    const talk = m.kind === "talk" ? talkOf(m, id) : null;
+    if (m.kind === "talk" && !talk) return;
     const out: RelayMsg = shown ? { ...shown, ...(id ? { id } : {}), kind: "show", from: { login: me.who, agent: from.agent === true }, at: Date.now() }
+      : talk ? { ...talk, ...(id ? { id } : {}), kind: "talk", from: { login: me.who, agent: from.agent === true }, at: Date.now() }
+      : word ? { ...word, ...(id ? { id } : {}), kind: "room", from: { login: me.who, agent: from.agent === true }, at: Date.now() }
       : { ...rest, kind: m.kind as Kind, from: { login: me.who, agent: from.agent === true }, at: Date.now() };
     const line = JSON.stringify(out), bytes = Buffer.byteLength(line);
     // a room session's show goes the watch-only way on every hub (#238): its lines to its watchers only
@@ -499,11 +565,16 @@ export class RelayHub {
     for (const o of this.rooms.get(me.room) ?? []) {
       const e = this.conns.get(o);
       if (o === c || !e) continue;   // one room's word stays in that room: only its own connections are looked at
-      if ((m.kind === "ping" || m.kind === "room") && typeof m.to === "string" && m.to && e.who !== m.to) continue;   // a ping, or a room answer (#162), goes to its person only
+      // a ping, or a room word with a `to` (#162, #325), goes to its person only, the login in any case as keep() reads it
+      if ((m.kind === "ping" || m.kind === "room") && typeof m.to === "string" && m.to && e.who.toLowerCase() !== m.to.toLowerCase()) continue;
       if (m.kind === "show" && o.behind?.()) continue;   // live words only: a slow reader misses them, nothing waits
       this.put(o, line, bytes);
     }
     if (SPOOLED.includes(out.kind)) { this.keep({ ...out, room: me.room }); if (me.v >= 2 && id) this.say(c, "ok", { id }); }
+    // #315: a coded room's talk to the hub's store; a store that fails never stops the line, which was carried already
+    if (out.kind === "talk" && me.room && this.opts.talk) {
+      try { this.opts.talk.keep(me.room, out); } catch (e) { this.errors++; console.log(`relay: a talk line was not kept (${String((e as Error)?.message ?? e).slice(0, 120)})`); }
+    }
   }
 
   /** a show (A6): its start and end to the whole room, as before, so everyone knows who is showing; its lines only to
@@ -655,8 +726,9 @@ export class RelayHub {
 
   /** a talk line, a ping or a room answer (#162), kept with its room for each person it is for who has no Sol in that
    *  room right now. A talk in a room with a code is for the people the registry has seen in it; in the common space, as
-   *  before. A ping or a room answer (a `room` with a `to`) is for that person. A room ask (no `to`) is never kept: its
-   *  Sol asks again on every connect and every ten minutes, and a kept one would fill every away person's spool */
+   *  before. A ping or a room word with a `to` (an answer, or a cloud group's ask to its maker, #325) is for that person.
+   *  A room ask with no `to` is never kept: its Sol asks again on every connect and every ten minutes, and a kept one
+   *  would fill every away person's spool */
   private keep(m: RelayMsg & { room: string }) {
     const sp = this.opts.spool;
     if (!sp) return;
@@ -672,6 +744,58 @@ export class RelayHub {
     for (const who of to) if (who.toLowerCase() !== sender && !on.has(who.toLowerCase())) sp.add(who, m);
   }
 
+  /** a build update to a room (#328): kept by the host's hook (false: it had that one, and nothing goes out), then to
+   *  every connection in the room but the one it came from. `from` is the poller's login for a polled one, "" for the
+   *  workflow's. true when it went out */
+  event(room: string, ev: EventWire, from = "", except?: Conn): boolean {
+    if (!room) return false;
+    if (this.opts.events && !this.opts.events.keep(room, ev)) return false;
+    const line = JSON.stringify({ ...ev, kind: "event", from: { login: from, agent: false }, at: ev.at }), bytes = Buffer.byteLength(line);
+    for (const o of this.rooms.get(room) ?? []) if (o !== except && this.conns.get(o)) this.putEvent(o, line, bytes);
+    return true;
+  }
+
+  /** a build update from a client socket (#328): always a poll (a workflow's comes through the cloud's http route,
+   *  never a socket), said only by the connection the hub chose as that repository's poller (pollers) and only for that
+   *  repository, rebuilt by eventOf, then as any other (event). Every other `event` from a client is dropped */
+  private polled(c: Conn, me: Seat, m: Record<string, unknown>) {
+    if (!me.room || !this.opts.events) return;
+    const ev = eventOf({ ...m, source: "poll" });
+    if (!ev || (this.pollers(me.room)[ev.repo.toLowerCase()] ?? "").toLowerCase() !== me.who.toLowerCase()) return;
+    this.event(me.room, ev, me.who, c);
+  }
+
+  /** the repositories the room's record lists (#328): the host's `connected` (the cloud's connectors.json), else the
+   *  registry's repos for the room; none when it cannot be read */
+  private connected(room: string): Set<string> {
+    let list: string[] = [];
+    try { list = this.opts.events?.connected ? this.opts.events.connected(room) : this.opts.registry?.lookup(room)?.repos ?? []; } catch { /* none */ }
+    return new Set(list.map((x) => x.toLowerCase()));
+  }
+
+  /** who reads the board of each repository of a room for everyone (#328), by repository in lower case: the first Sol
+   *  seated there, in the order they said hello, with GitHub signed in, that said it may (`polls`, kept as said, 20 at
+   *  most), for each repository the room's record lists now (a `polls` entry for any other is dropped here, and one
+   *  connected after the hello counts at once) and with no live workflow key (the host's `keyed`). One Sol a repository, so the members
+   *  without gh hear each line once. `github: true` is the Sol's own word, as everything in a hello is: a poller's lines
+   *  are the group's own member's word, as a talk line is, and a member who lies only hurts their own group's feed,
+   *  never another group's (the lines go to their room only) */
+  pollers(room: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    if (!room || !this.opts.events) return out;
+    let keyed: string[] = [];
+    try { keyed = this.opts.events.keyed(room).map((x) => x.toLowerCase()); } catch { /* none known: everyone's is polled */ }
+    const listed = this.connected(room);
+    for (const e of this.seats(room)) {
+      if (e.github !== true) continue;
+      for (const r of e.polls ?? []) { const k = r.toLowerCase(); if (listed.has(k) && !keyed.includes(k) && !(k in out)) out[k] = e.who; }
+    }
+    return out;
+  }
+
+  /** a workflow key went live (its first post) or was taken off for a room (#328): its roster again, with who polls what now */
+  keysChanged(room: string) { this.rosterTo(room); }
+
   /** every login the hub has heard say hello (its spool's), for the team when there is no org */
   seen(): string[] { return this.opts.spool?.seen() ?? []; }
 
@@ -680,11 +804,12 @@ export class RelayHub {
     return { title: v.title.slice(0, 120), ...(typeof v.repo === "string" && v.repo ? { repo: v.repo.slice(0, 100) } : {}) };
   }
 
-  /** a hello's or a presence's thing and room sessions (#230), sanitized; the keys only when there is something */
-  private inside(m: Record<string, unknown>): Pick<RosterEntry, "thing" | "sessions" | "quiet"> {
-    const thing = thingOf(m.thing), sessions = sessionsOf(m.sessions);
+  /** a hello's or a presence's thing and room sessions (#230), sanitized; the keys only when there is something. The
+   *  GitHub flag (#320) as a boolean only (githubOf) */
+  private inside(m: Record<string, unknown>): Pick<RosterEntry, "thing" | "sessions" | "quiet" | "github"> {
+    const thing = thingOf(m.thing), sessions = sessionsOf(m.sessions), github = githubOf(m.github);
     // quiet (#238): the room sees that I turned showing off, and no room session of mine by name
-    return { ...(thing ? { thing } : {}), ...(sessions && m.quiet !== true ? { sessions } : {}), ...(m.quiet === true ? { quiet: true as const } : {}) };
+    return { ...(thing ? { thing } : {}), ...(sessions && m.quiet !== true ? { sessions } : {}), ...(m.quiet === true ? { quiet: true as const } : {}), ...(github !== undefined ? { github } : {}) };
   }
 
   // a presence's roster goes at once, then at most one a second a room (#230's review): every presence sends the whole
@@ -704,7 +829,8 @@ export class RelayHub {
   private rosterTo(room: string) {
     const set = this.rooms.get(room);
     if (!set?.size) { const r = this.rosterAt.get(room); if (r?.timer) clearTimeout(r.timer); this.rosterAt.delete(room); return; }
-    const line = JSON.stringify({ kind: "roster", from: { login: "", agent: false }, at: Date.now(), roster: this.roster(room) });
+    const pollers = this.pollers(room);   // #328: who reads which repository's board for the room, when anyone does
+    const line = JSON.stringify({ kind: "roster", from: { login: "", agent: false }, at: Date.now(), roster: this.roster(room), ...(Object.keys(pollers).length ? { pollers } : {}) });
     const bytes = Buffer.byteLength(line);
     for (const o of set) this.put(o, line, bytes);
   }

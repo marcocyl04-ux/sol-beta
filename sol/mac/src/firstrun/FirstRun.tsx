@@ -131,20 +131,32 @@ export default function FirstRun({ e, onDone }: { e: Engine; onDone: () => void 
   const [scene, setScene] = useState(sceneAsked);
   const [name, setName] = useState(() => localStorage.getItem("sol.firstrun.name") ?? "");
   const [inst, setInst] = useState<Install | null>(null);
+  const [claudeSeen, setClaudeSeen] = useState(false);
   const life = useRef<HeroLife>(null);
   const stop = useRef<(() => void) | null>(null);
   const installing = installWanted();
-  // the install starts once the name is given (scene 1) and runs under every scene after
+  // what "open Sol" answered when it could not open (#375): said under the button, never dropped
+  const [word, setWord] = useState<string | null>(null);
+  // the install, started over any that ran: once the name is given (scene 1), it runs under every scene after
+  const run = useCallback((who: string) => {
+    stop.current?.();
+    setInst(null); setWord(null);
+    stop.current = startInstall(who, setInst);
+  }, []);
   const begin = useCallback((who: string) => {
     if (stop.current) return;
     localStorage.setItem("sol.firstrun.name", who);
-    if (installing || !inApp) stop.current = startInstall(who, setInst);
-  }, [installing]);
-  useEffect(() => () => stop.current?.(), []);
+    if (installing || !inApp) run(who);
+  }, [installing, run]);
+  // the app opened again before the install got far (#375): the name is kept, Hello skips the asking, so the
+  // install starts here, on the spot; otherwise the last button had nothing behind it
+  useEffect(() => { if (name && !stop.current && (installing || (!inApp && sceneAsked() === 1))) run(name); }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { stop.current?.(); stop.current = null; }, []);
   const next = () => setScene((s) => Math.min(7, s + 1));
   const finish = () => {
     try { localStorage.setItem(DONE, "done"); } catch { /* private mode */ }
-    if (installing) { void invoke("welcome_done").catch(() => {}); return; }   // the root read again, the engine started, the face at "/"
+    // the root read again, the engine started, the face at "/"; what could not be done is said under the button
+    if (installing) { setWord(null); invoke("welcome_done").catch((e) => setWord(String(e))); return; }
     history.replaceState(null, "", location.pathname);
     onDone();
   };
@@ -155,6 +167,22 @@ export default function FirstRun({ e, onDone }: { e: Engine; onDone: () => void 
     return () => window.removeEventListener("keydown", f);
   }, []);
   const together = scene === 6;
+  // the Claude card's own ask (#307): `claude auth status` (welcome.rs claude_status) every STATUS_MS while scene 3 shows
+  // and the card is not yet signed in; the install's own line misses a sign-in done in Terminal from the card, and the
+  // line's door, where no install runs in the app. Held here, not in the scene: the swap's leaving copy keeps it green.
+  const claudeIn = !!inst?.signedIn || claudeSeen;
+  useEffect(() => {
+    if (!inApp || scene !== 3 || claudeIn) return;
+    let alive = true, asking = false;
+    const look = () => {
+      if (asking) return;   // a slow answer is never asked over
+      asking = true;
+      void invoke<boolean>("claude_status").then((ok) => { if (alive && ok) setClaudeSeen(true); }).catch(() => {}).finally(() => { asking = false; });
+    };
+    look();
+    const t = window.setInterval(look, STATUS_MS);
+    return () => { alive = false; window.clearInterval(t); };
+  }, [scene, claudeIn]);
   // where the creature is: the centre while it hatches, lifted when it asks, its perch at the top for the scenes
   // after, the notch when scene 5 sends it, gone while the real window is in use (6)
   const [pose, setPose] = useState<Pose>(() => (sceneAsked() === 1 && !localStorage.getItem("sol.firstrun.name") ? "centre" : sceneAsked() === 6 ? "gone" : "perch"));
@@ -170,10 +198,10 @@ export default function FirstRun({ e, onDone }: { e: Engine; onDone: () => void 
       <Swap k={String(scene)} className="fr-stage" dir={1} dist={28}>
         {scene === 1 && <Hello name={name} setName={setName} life={life} onNamed={begin} onNext={next} onLift={() => setPose("lift")} />}
         {scene === 2 && <Senses name={name} life={life} onNext={next} />}
-        {scene === 3 && <Minds signedIn={!!inst?.signedIn} onNext={next} />}
+        {scene === 3 && <Minds signedIn={claudeIn} onNext={next} />}
         {scene === 4 && <Yours e={e} onNext={next} />}
         {scene === 5 && <TheNotch flown={flown} onFly={() => { setFlown(true); setPose("notch"); }} onNext={next} />}
-        {scene === 7 && <Keep e={e} name={name} inst={inst} onDone={finish} />}
+        {scene === 7 && <Keep e={e} name={name} inst={inst} word={word} onDone={finish} onRetry={() => run(name)} />}
       </Swap>
       {/* the creature and the light sit outside the swap: a thing inside its clipped layer would be cut or remounted */}
       <Hero life={life} pose={pose} hatch={pose === "centre"} onRest={(p) => { if (p === "notch") setPose("gone"); }} />
@@ -288,7 +316,7 @@ function Senses({ name, life, onNext }: { name: string; life: React.RefObject<He
   return (
     <Scene className="fr-senses">
       <Say text={cards.length ? `${name ? name + ", " : ""}give me some senses?` : known ? "this machine trusts me with everything already." : "one moment."} />
-      <p className="fr-hint">each one is a switch you can turn off any time, in Settings. nothing is recorded.</p>
+      <p className="fr-hint">each one is a switch you can turn off any time, in Settings. no audio is kept.</p>
       <GooBodies className="fr-cards">
         {cards.map((s) => {
           const st = state[s.k]!;
@@ -313,8 +341,11 @@ function Senses({ name, life, onNext }: { name: string; life: React.RefObject<He
 }
 
 // ---- 3 your AIs: each through its own door ----
+// signedIn is the install's line or the card's own ask (FirstRun above, #307): once in, the Terminal word goes
+const STATUS_MS = 3000;
 function Minds({ signedIn, onNext }: { signedIn: boolean; onNext: () => void }) {
   const [word, setWord] = useState("");
+  useEffect(() => { if (signedIn) setWord(""); }, [signedIn]);
   const claude = () => invoke("claude_login").then(() => setWord("Terminal is open on Claude's sign-in; come back here when it says you are in."))
     .catch((e) => setWord(String(e)));
   return (
@@ -422,17 +453,20 @@ function Together({ e, onNext }: { e: Engine; onNext: () => void }) {
     document.addEventListener("click", f, true);
     return () => document.removeEventListener("click", f, true);
   }, []);
-  // the light follows the real element, wherever the layout puts it
-  useEffect(() => {
+  // the light follows the real element, wherever the layout puts it: read every frame (a sidebar sliding, the box
+  // growing), drawn again only when it moved. A 120 ms timer left it trailing its target by up to seven frames.
+  useLayoutEffect(() => {
+    let raf = 0, at = "";
     const look = () => {
       let el: Element | null = null;
       for (const sel of step.find) { el = document.querySelector(sel); if (el) break; }
-      setBox(el ? el.getBoundingClientRect() : null);
+      const r = el ? el.getBoundingClientRect() : null;
+      const k = r ? `${r.left.toFixed(1)} ${r.top.toFixed(1)} ${r.width.toFixed(1)} ${r.height.toFixed(1)}` : "";
+      if (k !== at) { at = k; setBox(r); }
+      raf = requestAnimationFrame(look);
     };
     look();
-    const t = window.setInterval(look, 120);
-    window.addEventListener("resize", look);
-    return () => { window.clearInterval(t); window.removeEventListener("resize", look); };
+    return () => cancelAnimationFrame(raf);
   }, [step]);
   // done the moment the real thing happened
   useEffect(() => {
@@ -457,11 +491,14 @@ function Together({ e, onNext }: { e: Engine; onNext: () => void }) {
 }
 
 // ---- 7 a card to keep: a real desk card, in the house style ----
-function Keep({ e, name, inst, onDone }: { e: Engine; name: string; inst: Install | null; onDone: () => void }) {
+// the last button (#375): while the install runs it waits, and a line under says so; stopped, it is "try again" (the
+// install over, from here, no Terminal needed); done, it is "open Sol", and what that could not do is said under it
+function Keep({ e, name, inst, word, onDone, onRetry }: { e: Engine; name: string; inst: Install | null; word: string | null; onDone: () => void; onRetry: () => void }) {
   const text = `Call me from anywhere with ${KEY.join(" ")}. I answer here, or open a session if it's a big one. Make me yours in Settings › look.`;
   const [kept, setKept] = useState(false);
   // a real ask: the seat puts the note on the desk itself (its desk tool), the first card of many
   const keep = () => { if (e.say(`keep this on my desk as a note titled "Sol, for ${name || "you"}": ${text}`, [])) setKept(true); };
+  const running = !!inst && !inst.done && !inst.failed, stopped = !!inst?.failed || !!word;   // what Open Sol could not do is also tried again
   return (
     <Scene className="fr-keep">
       <Say text="that's us." />
@@ -477,9 +514,11 @@ function Keep({ e, name, inst, onDone }: { e: Engine; name: string; inst: Instal
       <div className="fr-row">
         {e.up && !kept && <button className="fr-btn stone" onClick={keep}><span>keep it on the desk</span></button>}
         {kept && <span className="fr-got"><CellCheck land /> on your desk</span>}
-        <button className="fr-go" onClick={onDone} disabled={!!inst && !inst.done && !inst.failed}><span>{inst && !inst.done && !inst.failed ? `${inst.phrase}…` : "open Sol"}</span></button>
+        <button className="fr-go" onClick={stopped ? onRetry : onDone} disabled={running}><span>{running ? `${inst?.phrase}…` : stopped ? "try again" : "open Sol"}</span></button>
       </div>
-      {inst?.failed && <p className="fr-hint">the install stopped: {inst.failed}. run it again from Terminal: curl -fsSL sol.js.org/install | sh</p>}
+      {running && <p className="fr-hint">I'm still setting up behind this. the button lights up when I'm done.</p>}
+      {stopped && <p className="fr-hint">the install stopped: {inst?.failed}. try again here, or from Terminal: curl -fsSL https://marcocyl04-ux.github.io/sol-beta/install | sh</p>}
+      {word && <p className="fr-hint">{word}</p>}
     </Scene>
   );
 }

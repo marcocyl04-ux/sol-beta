@@ -2,8 +2,8 @@
 // the side, in place of the brand line. Home is Sol alone, plainly. Cowork is Sol with two of the team's buds beside
 // him, and the switch is the visit: the buds bud out of his body (under a goo filter, so each one swells, stretches a
 // bridge and lets go), travel out on a spring with a little hop, land squashed and open their eyes, then bob. Back to
-// home they drift in, the bridge comes back, and he takes them in. Sol is the vibe switch here, as the old mark was
-// (Mark.tsx VibeMark): a click turns vibe on or off, a hold opens its settings.
+// home they drift in, the bridge comes back, and he takes them in. Sol is the vibe switch here (vibe.ts toggleVibe), as
+// the old sidebar mark was: a click turns vibe on or off, a hold opens its settings (WorkApp.tsx hears sol-vibe-edit).
 // Each side (Home, Cowork) mounts its own scene, so the mode it came from is kept here between mounts: a fresh scene in
 // Cowork after Home plays the arrival. Reduced motion: a hard switch, nothing travels, nobody bobs.
 import { useId, useLayoutEffect, useRef, useState } from "react";
@@ -137,7 +137,7 @@ export function SeatScene({ mode, size = 46 }: { mode: AppMode; size?: number })
     return () => cancelAnimationFrame(raf.current);
   }, [mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sol is the vibe switch (Mark.tsx VibeMark): a click toggles, a hold opens its settings
+  // Sol is the vibe switch (vibe.ts): a click toggles, a hold opens its settings
   const timer = useRef(0), held = useRef(false);
   const down = () => {
     held.current = false;

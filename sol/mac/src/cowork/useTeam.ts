@@ -1,11 +1,13 @@
 // Cowork's state (Together, See #31): the team (me, the settings without the key, the roster, the relay's link) and
 // the board, on the page's one link to the engine (socket.ts), like useWork. PROTOCOL.md round 17.
 // `?dev=team` (vite dev only) fakes all of it: me marco, a roster of marco / frank / isaac, eight cards across the
-// columns, frank's page, one room (`&rooms=2`: two, so the room switch shows; the second carries a share code). It only
-// replaces what the panes draw; nothing is sent.
+// columns, frank's page, one room (`&rooms=2`: two, so the room switch shows; the second carries a share code;
+// `&groups=0`: none, the first-time page, signed in to Sol's cloud, #314; `&signedin=0`: a link's card peeks a group
+// with no Sol account here, #342). It only replaces what the panes draw; nothing is sent.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { link } from "../socket";
 import { ENGINE } from "../useEngine";
+import type { WorkSession } from "../work/useWork";
 
 export type Presence = "here" | "elsewhere" | "away" | "working" | "yourcall";
 export type Member = { who: string; agent: boolean; machine: string; state: Presence; session?: { title: string; repo?: string }; since: number;
@@ -28,7 +30,8 @@ export type Mark = "felt" | "silent" | "";
 export type PingKind = "clash" | "contract" | "claim" | "decision" | "chat" | "alert";   // alert: the cloud's on-call, its admins only (#225)
 export const PING_WORD: Record<PingKind, string> = { clash: "a clash", contract: "a contract changed", claim: "a claim", decision: "a decision", chat: "named you", alert: "the cloud" };
 /** a friend who typed a room's code and waits for my one press to be let into its repository (the review of #162) */
-export type Waiting = { room: string; name: string; login: string; repos: string[]; at: number };
+/** github (#325): a cloud group's ask, the GitHub name the asker gave; login is then their name in the group */
+export type Waiting = { room: string; name: string; login: string; repos: string[]; at: number; github?: string };
 export type Pinged = { id: string; kind: PingKind; from: Sign; line: string; at: number; issue?: number; repo?: string; spooled?: boolean; count?: number };   // spooled, count: kept by the hub while I was away (#102)
 export type Board = {
   repos: string[]; cards: Card[]; prs: PR[]; stable: Record<string, string>; main: Record<string, string>; at: number; folders: Record<string, string>; error?: string;
@@ -81,7 +84,7 @@ export function useTeam() {
   const [waiting, setWaiting] = useState<Waiting[]>(DEV_TEAM ? FAKE.waiting : []);   // who waits for my press to come in
   const shownSubs = useRef(new Set<(m: ShownMsg) => void>());
   // the hub's word (#223): its light, my place in its queue, "please update"; and every word as it comes (retry, watch)
-  const [hub, setHub] = useState<HubNow>({ light: "green", old: false });
+  const [hub, setHub] = useState<HubNow>({ light: "green", old: false, ...(DEV_TEAM ? { join: true } : {}) });   // ?dev=team: the cloud's page, so S2's link shows
   const hubSubs = useRef(new Set<(m: HubWord) => void>());
   const asks = useRef(new Map<string, (m: any) => void>());
   // ?dev=team: frank's room session says a line every few seconds, as a watched one does
@@ -114,8 +117,10 @@ export function useTeam() {
       else if (m.type === "team.letin" && Array.isArray(m.asks)) setWaiting(m.asks);
       else if (m.type === "team.hub") {
         const w = m as HubWord;
-        setHub((h) => w.say === "state" ? { light: w.light ?? "green", old: !!w.old, ...(w.ahead !== undefined ? { queue: { ahead: w.ahead, wait: w.wait ?? 0 } } : {}) }
-          : w.say === "light" || w.say === "hello" ? { ...h, light: w.light ?? h.light, queue: undefined }
+        // join (#327): the hub said in its hello that it serves the join page; a hello from one that does not takes it away
+        setHub((h) => w.say === "state" ? { light: w.light ?? "green", old: !!w.old, ...(w.join === true ? { join: true } : {}), ...(w.ahead !== undefined ? { queue: { ahead: w.ahead, wait: w.wait ?? 0 } } : {}) }
+          : w.say === "hello" ? { ...h, light: w.light ?? h.light, queue: undefined, join: w.join === true }
+          : w.say === "light" ? { ...h, light: w.light ?? h.light, queue: undefined }
           : w.say === "queue" ? { ...h, queue: { ahead: w.ahead ?? 0, wait: w.wait ?? 0 } }
           : w.say === "update" ? { ...h, old: true } : h);
         for (const f of hubSubs.current) f(w);
@@ -142,16 +147,23 @@ export function useTeam() {
   // my press on a card: yes lets that person into the room's repository, no says not now; the card goes either way
   const letIn = useCallback(async (a: Waiting, yes: boolean) => {
     setWaiting((l) => l.filter((x) => !(x.room === a.room && x.login === a.login)));
-    return ask<{ said?: string[]; error?: string }>("team.letin.answer", { room: a.room, login: a.login, yes }, 60_000);
+    // the card as I saw it (#325): the engine refuses a press on an ask that changed under it
+    return ask<{ said?: string[]; error?: string }>("team.letin.answer", { room: a.room, login: a.login, github: a.github ?? "", repos: a.repos, yes }, 60_000);
   }, [ask]);
   return { state, board, up, ask, refresh, pings, closePing, me: state?.me.login ?? "", showing, onShown, waiting, letIn, hub, onHub };
 }
 export type Team = ReturnType<typeof useTeam>;
 /** the hub's word to this Sol (#223, PROTOCOL round 41): the light, a queue, a retry, a watch refused, "please update" */
-export type HubWord = { say: string; light?: string; old?: boolean; ahead?: number; wait?: number; after?: number; what?: string; ok?: boolean; why?: string; login?: string; session?: string; on?: boolean };
-export type HubNow = { light: string; old: boolean; queue?: { ahead: number; wait: number } };
+export type HubWord = { say: string; light?: string; old?: boolean; ahead?: number; wait?: number; after?: number; what?: string; ok?: boolean; why?: string; login?: string; session?: string; on?: boolean; join?: boolean };
+/** join (#327): the hub in use serves the join page, so a cloud group shows its link */
+export type HubNow = { light: string; old: boolean; queue?: { ahead: number; wait: number }; join?: boolean };
 
 // ---- the dev fakes (?dev=team) ----
+/** ?dev=team: my sessions in the fake group (#314), so the side's rows under it show */
+export const DEV_SESSIONS: WorkSession[] = DEV_TEAM ? [
+  { id: "dev-room-1", title: "PRD 改版", cwd: "/Users/marco/Sol/rooms/team", project: "/Users/marco/Sol/rooms/team", updatedAt: Date.now() - 2 * 3_600_000, mode: "cowork", roomId: "team" },
+  { id: "dev-room-2", title: "give-up points sheet", cwd: "/Users/marco/Sol/rooms/team", project: "/Users/marco/Sol/rooms/team", updatedAt: Date.now() - 26 * 3_600_000, mode: "cowork", roomId: "team" },
+] : [];
 const day = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
 const R = "marcocyl04-ux/sol-dev";
 const card = (number: number, title: string, column: Column, o: Partial<Card> = {}): Card => ({
@@ -162,7 +174,7 @@ const FAKE = {
   state: {
     me: { login: "marco", name: "Marco" },
     settings: { me: { login: "marco", name: "Marco" }, org: "", repos: [R], relay: { url: "", key: "set", host: true }, speak: {}, leaves: {}, seats: {}, machines: [],
-      rooms: [{ id: "team", name: "sol-dev", provider: "github", org: "", repos: [R], hub: "", gate: "key" as const },
+      rooms: DEV_TEAM && new URLSearchParams(location.search).get("groups") === "0" ? [] : [{ id: "team", name: "sol-dev", provider: "github", org: "", repos: [R], hub: "", code: "2QKTYA", mine: true, gate: "key" as const },
         ...(DEV_TEAM && new URLSearchParams(location.search).get("rooms") === "2" ? [{ id: "notes", name: "class notes", provider: "drive", org: "", repos: ["1AbCdEfG"], hub: "wss://nucbox.example.ts.net/relay", code: "K7QX2M", gate: "github" as const }] : [])],
       room: "team" },
     roster: [
@@ -174,6 +186,7 @@ const FAKE = {
     members: ["frank", "isaac", "marco"],
     relay: { url: "", up: true },
     hub: "wss://nucbox.example.ts.net/relay",
+    ...(DEV_TEAM && new URLSearchParams(location.search).get("groups") === "0" ? { cloud: { hub: "wss://cloud.matterfold.tech/relay", login: "marco", need: false } } : {}),
   } as TeamState,
   showing: [{ login: "frank", issue: 34, repo: R, session: { id: "dev-frank-34", title: "#34 hand a session" } },
     { login: "frank", issue: 0, repo: "", session: { id: "dev-frank-room", title: "the goal page" }, scope: "room", thing: "d1b2c3d4" }] as Showing[],
@@ -216,7 +229,8 @@ const FAKE = {
     ],
   } as MemberPage,
 };
-function fakeAnswer(type: string, body: any): any {
+/** ?dev=team: the engine's answer to one question, faked (the join card asks here too) */
+export function fakeAnswer(type: string, body: any): any {
   if (type === "team.member") return body.login === "frank" ? FAKE.frank : { log: [] };
   if (type === "team.board") return FAKE.board;
   if (type === "team.ping") return { ok: true };
@@ -224,8 +238,11 @@ function fakeAnswer(type: string, body: any): any {
   if (type === "team.session.start") return { error: "the dev view starts nothing" };
   if (type === "team.room.share") return { code: "H4PZ9R" };   // #157: the shape only; nothing is kept
   if (type === "team.room.make" && typeof body.drive === "string") return { room: { id: "dev-drive", name: body.name, provider: "drive", org: "", repos: ["1AbCdEfG"], hub: body.hub ?? "", code: "D7RVQ2", gate: "github" } };   // #152
+  if (type === "team.room.make" && !body.code) return { room: { id: "dev-cloud", name: body.name, provider: "cloud", org: "", repos: [], hub: "wss://cloud.matterfold.tech/relay", code: "2QKTYA", gate: "github" } };   // #314: a cloud group
   if (type === "team.room.make") return { room: { id: "dev-made", name: body.name, provider: "github", org: "", repos: [`marco/${String(body.name).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`], hub: body.hub ?? "", code: "M4DEQ2", gate: "github" } };   // #160
   if (type === "team.room.join") return { error: "the dev view joins nothing" };
+  // #342: a link's card; `&signedin=0` is a Sol with no account on the cloud
+  if (type === "team.room.peek") return { code: String(body.code ?? ""), name: "smoke group", hub: "wss://cloud.matterfold.tech/relay", signedIn: new URLSearchParams(location.search).get("signedin") !== "0" };
   if (type === "team.accounts") return { github: { in: new URLSearchParams(location.search).get("gh") !== "out" } };   // #252: ?gh=out, no GitHub here
   if (type === "team.github.connect") return { code: "ABCD-1234", url: "https://github.com/login/device" };   // the shape only
   if (type === "team.github.connect.cancel") return { ok: true };

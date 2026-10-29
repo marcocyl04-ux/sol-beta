@@ -1,5 +1,5 @@
 #!/bin/sh
-# Sol's install (#169): one line in Terminal,  curl -fsSL https://sol.js.org/install | sh,  or the same file run by
+# Sol's install (#169): one line in Terminal,  curl -fsSL https://marcocyl04-ux.github.io/sol-beta/install | sh  (sol.js.org once js.org approves it, #308),  or the same file run by
 # Sol.app's welcome page (bundled as a resource, with SOL_SKIP_APP=1). Plain sh, readable top to bottom; the whole
 # script is one function called on its last line, so a download cut short runs nothing.
 #
@@ -8,7 +8,7 @@
 #   2. the folder, ~/Sol (SOL_DIR)
 #   3. Mac: Apple's developer tools when missing (git needs them); Linux: git
 #   4. your name (what should we call you?) and, optional, a Gemini key: asked on the terminal, or taken from the
-#      environment (SOL_OWNER, GEMINI_API_KEY: the app's welcome page passes them so); no terminal, the login name
+#      environment (SOL_OWNER, GEMINI_API_KEY, ELEVENLABS_API_KEY: the app's welcome page passes them so); no terminal, the login name
 #   5. Node, one pinned version from nodejs.org into ~/.sol/node, its checksum checked before anything is unpacked
 #   6. the clone (SOL_REPO), on a branch of your own, <you>/mine, with sol/mine/setup
 #   7. Claude Code when missing, and its sign-in on the terminal (SOL_SKIP_CLAUDE=1 skips the step)
@@ -95,7 +95,12 @@ sol_install() {
     r=$(sed -n 's|^WorkingDirectory=\(.*\)/sol/engine[[:space:]]*$|\1|p' "$HOME/.config/systemd/user/sol-engine.service" | sed "s|^%h|$HOME|")
     here="${r:-(a folder this script cannot read from its unit)}"; how="its engine is installed as a user service"
   fi
-  [ -z "$here" ] && [ -f "$DIR/sol/setup" ] && { here=$DIR; how="the folder holds a checkout"; }
+  # on a Mac, a checkout at $DIR with no root file and no engine job is an install cut short after its clone (Sol.app
+  # quit while the install ran behind the first run, #375): the install goes on from there, the clone skipped
+  half=""
+  if [ -z "$here" ] && [ -f "$DIR/sol/setup" ]; then
+    if [ -n "$mac" ] && [ -d "$DIR/sol/engine" ]; then half=1; else here=$DIR; how="the folder holds a checkout"; fi
+  fi
   if [ -n "$here" ]; then
     ok "Sol is already here: $(tilde "$here") ($how). Nothing to install."
     echo "        to update it: cd $(tilde "$here") && bash sol/mine/rebase   (on a branch of your own; else git pull)"
@@ -105,7 +110,7 @@ sol_install() {
   [ -n "$check" ] && say "no Sol here yet; --check only says what it would do"
 
   # ---- 2. the folder ----
-  if [ -e "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null)" ]; then
+  if [ -z "$half" ] && [ -e "$DIR" ] && [ -n "$(ls -A "$DIR" 2>/dev/null)" ]; then
     miss "$(tilde "$DIR") is there and not empty, and is not a Sol; move it, or SOL_DIR=<another folder>"; return 1
   fi
   ok "Sol goes to $(tilde "$DIR")"
@@ -138,6 +143,13 @@ sol_install() {
     ask "  Gemini API key:" secret; gemini=$reply
   fi
   [ -n "$gemini" ] && ok "a Gemini key, for Sol's .env" || skip "no Gemini key yet"
+  eleven="${ELEVENLABS_API_KEY:-}"
+  if [ -z "$eleven" ] && [ -n "$tty" ] && [ -z "$check" ]; then
+    echo "  An ElevenLabs API key (https://elevenlabs.io/app/settings/api-keys) is the other way to calls: its voices, Sol"
+    echo "  answering. Optional, either key is enough for calls; return skips it. Kept only in sol/engine/.env."
+    ask "  ElevenLabs API key:" secret; eleven=$reply
+  fi
+  [ -n "$eleven" ] && ok "an ElevenLabs key, for Sol's .env" || skip "no ElevenLabs key yet"
 
   # ---- 5. Node, Sol's own ----
   if [ -x "$NODE_DIR/bin/node" ] && [ "$("$NODE_DIR/bin/node" -v 2>/dev/null)" = "v$NODE_V" ]; then ok "Node v$NODE_V in $(tilde "$NODE_DIR")"
@@ -165,7 +177,12 @@ sol_install() {
   PATH="$NODE_DIR/bin:$PATH"; export PATH
 
   # ---- 6. the clone, on your own branch ----
-  if [ -n "$check" ]; then miss "would clone $REPO into $(tilde "$DIR"), on $slug/mine"
+  # the root file: Sol.app finds its code here (sol/mac/src-tauri/src/root.rs), from either door
+  root_file() { if [ -n "$mac" ]; then mkdir -p "$CFG" && printf '%s\n' "$DIR" >"$CFG/root" && ok "Sol.app will run this folder (the root file)"; fi; }
+  if [ -n "$half" ]; then
+    ok "Sol is in $(tilde "$DIR") already (an install cut short; going on from here)"
+    [ -n "$check" ] || root_file
+  elif [ -n "$check" ]; then miss "would clone $REPO into $(tilde "$DIR"), on $slug/mine"
   else
     say "cloning Sol into $(tilde "$DIR")"
     git clone -q "$REPO" "$DIR" </dev/null || { miss "could not clone $REPO"; return 1; }
@@ -174,8 +191,7 @@ sol_install() {
     ( cd "$DIR" && git switch -q -c "$slug/mine" && bash sol/mine/setup >/dev/null ) \
       || { miss "could not make your branch $slug/mine in $(tilde "$DIR"); the clone is removed, run the line again"; rm -rf "$DIR"; return 1; }
     ok "Sol is in $(tilde "$DIR"), on $slug/mine (yours: commits there get \"mine: \" in front)"
-    # the root file: Sol.app finds its code here (sol/mac/src-tauri/src/root.rs), from either door
-    if [ -n "$mac" ]; then mkdir -p "$CFG" && printf '%s\n' "$DIR" >"$CFG/root" && ok "Sol.app will run this folder (the root file)"; fi
+    root_file
   fi
 
   # ---- 7. Claude Code ----
@@ -202,7 +218,7 @@ sol_install() {
     say "bash sol/setup (a few minutes: packages, the engine built and tested, its job)"
     noface=""; [ -n "$mac" ] && noface="--no-face"   # the Mac's face is the app; on Linux the face is Vite in the browser
     job="--launchd"; [ -n "${SOL_PORT:-}" ] && job=""    # a spare engine for a test: no job (setup's own rule)
-    SOL_OWNER="$name" GEMINI_API_KEY="$gemini" bash "$DIR/sol/setup" $noface $job </dev/null
+    SOL_OWNER="$name" GEMINI_API_KEY="$gemini" ELEVENLABS_API_KEY="$eleven" bash "$DIR/sol/setup" $noface $job </dev/null
     rc=$?
     if [ "$rc" -eq 0 ]; then ok "sol/setup done"
     else

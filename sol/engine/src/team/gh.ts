@@ -22,6 +22,9 @@
 // can prompt, on a terminal). So nothing is set to stop it; the face's "open github.com" is the only way the page opens.
 // gh 2.103 does copy the code to the clipboard itself ("One-time code (…) copied to clipboard"); the card's copy
 // button copies the same code again.
+// One more permission (#328): a workflow file is pushed only by a sign-in with the `workflow` scope, so the build
+// updates card's button runs `gh auth refresh --hostname github.com --scopes workflow` down this same path (`scope`):
+// gh prints a one-time code and the device page the same way, polls, and exits 0 once the person said yes there.
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -65,6 +68,9 @@ export function ghHelper(flag: "-c" | "--config" = "-c", gh = findGh(ghPlaces(),
   return [flag, `${key}=`, flag, `${key}=!'${gh.replace(/'/g, `'\\''`)}' auth git-credential`];
 }
 
+/** gh's words for one more scope on the sign-in there (#328): only `workflow`, which a workflow file's push needs */
+export const ghScopeArgs = (scope: "workflow") => ["auth", "refresh", "--hostname", "github.com", "--scopes", scope];
+
 // ---- the device flow, one in flight per engine ----
 
 export type Connect = { code: string; url: string; at: number };
@@ -75,6 +81,7 @@ type Heard = { login: string } | { error: string };
 export type Deps = {
   spawn?: typeof nodeSpawn; gh?: string[]; now?: () => number;
   wait?: number; cap?: number; fill?: () => Promise<unknown>;
+  scope?: "workflow";   // #328: the sign-in there is asked for one more scope (gh auth refresh), not made anew
 };
 
 const DEVICE_MS = 15 * 60_000;   // a device code lives 15 minutes
@@ -109,7 +116,8 @@ export function startConnect(d: Deps = {}): Promise<Result> {
   const bin = findGh(d.gh ?? ghPlaces(), env);
   if (!bin) return Promise.resolve({ error: NO_GH });
   const spawn = d.spawn ?? nodeSpawn;
-  const child = spawn(bin, ["auth", "login", "--hostname", "github.com", "--web", "--git-protocol", "https", "--skip-ssh-key"], { env, stdio: ["ignore", "pipe", "pipe"] });
+  const args = d.scope ? ghScopeArgs(d.scope) : ["auth", "login", "--hostname", "github.com", "--web", "--git-protocol", "https", "--skip-ssh-key"];
+  const child = spawn(bin, args, { env, stdio: ["ignore", "pipe", "pipe"] });
   let answer: (r: Result) => void = () => {};
   const me: Live = { child, at: now(), quiet: false, finishing: false, ready: new Promise<Result>((ok) => { answer = ok; }), settle: (r) => settle(r) };
   live = me;
