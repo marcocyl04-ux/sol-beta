@@ -47,7 +47,7 @@ import type { Duplex } from "node:stream";
 import { timingSafeEqual, createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { WebSocketServer, WebSocket } from "ws";
-import { CODE, LOGIN, KINDS, SPOOLED, GONE, SLOWED, FULL, TOO_OLD, TOO_FAST, KICKED, PROTOCOL, HUB, TALK_HISTORY, isObj, presenceOf, thingOf, sessionsOf, showOf, talkOf, talkSinceOf, githubOf, roomOf, eventOf, pollsOf, type Kind, type RelayMsg, type RosterEntry, type EventWire } from "./hub-types.js";
+import { CODE, LOGIN, KINDS, SPOOLED, GONE, SLOWED, FULL, TOO_OLD, TOO_FAST, KICKED, PROTOCOL, HUB, TALK_HISTORY, isObj, presenceOf, thingOf, sessionsOf, showOf, talkOf, talkSinceOf, githubOf, solVersionOf, roomOf, eventOf, pollsOf, type Kind, type RelayMsg, type RosterEntry, type EventWire } from "./hub-types.js";
 import { Bucket, rank, type Light, type Queue } from "./load.js";
 import type { Spool } from "./spool.js";
 import type { RoomRegistry, Guesses } from "./registry.js";
@@ -464,7 +464,8 @@ export class RelayHub {
       if (max !== Infinity && mine >= MACHINES_MAX) { this.leave(c); c.close?.(FULL, `you have ${MACHINES_MAX} machines on in this room`); return; }
       // what I am in (#230): a thing and my room sessions, exactly their fields; a reconnect's hello says them again
       const polls = room ? pollsOf(m.polls) : undefined;   // #328: as said (bounded); pollers() reads them against the room's list now
-      this.conns.set(c, { who, agent: from.agent === true, machine, state: presenceOf(String(m.state ?? "here")), session: this.session(m.session), since: Date.now(), room, v, ...this.inside(m), ...(polls ? { polls } : {}) });
+      const version = solVersionOf(m.version);   // #417: the release and own layer it said; an older Sol says none ("unknown")
+      this.conns.set(c, { who, agent: from.agent === true, machine, state: presenceOf(String(m.state ?? "here")), session: this.session(m.session), since: Date.now(), room, v, ...this.inside(m), ...(polls ? { polls } : {}), ...(version ? { version } : {}) });
       if (!this.rooms.has(room)) this.rooms.set(room, new Set());
       this.rooms.get(room)!.add(c);
       const low = who.toLowerCase();
@@ -532,6 +533,8 @@ export class RelayHub {
       if (!me.sessions) delete me.sessions;
       if (!me.quiet) delete me.quiet;
       if (me.github === undefined) delete me.github;
+      const version = solVersionOf(m.version);   // #417: a newer one replaces it (after an update); a presence without one keeps the hello's
+      if (version) me.version = version;
       me.polls = me.room ? pollsOf(m.polls) : undefined;   // #328: a presence says them whole too
       if (!me.polls) delete me.polls;
       this.rosterSoon(me.room);

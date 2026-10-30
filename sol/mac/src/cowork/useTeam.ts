@@ -8,11 +8,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { link } from "../socket";
 import { ENGINE } from "../useEngine";
 import type { WorkSession } from "../work/useWork";
+import type { SolVersion } from "./version";
 
 export type Presence = "here" | "elsewhere" | "away" | "working" | "yourcall";
 export type Member = { who: string; agent: boolean; machine: string; state: Presence; session?: { title: string; repo?: string }; since: number;
   thing?: { id: string; name: string; source: "face" | "agent"; at: number }; sessions?: { id: string; title: string; thing?: string }[];   // what they are in, in this room (round 44)
-  quiet?: true };   // they turned "show my room sessions" off in this room (#238): their sessions do not show here
+  quiet?: true;   // they turned "show my room sessions" off in this room (#238): their sessions do not show here
+  version?: SolVersion };   // what their Sol runs (#417): a release plus their own layer; none: an older Sol, "unknown"
 export type Column = "waiting" | "branch" | "pr" | "main" | "stable" | "closed";
 export type Sign = { login: string; agent: boolean };
 export type Card = {
@@ -54,7 +56,7 @@ export type TeamSettings = {
 };
 // members (#102): the team, derived: the GitHub org's members when an org is set, else who has been seen on the relay
 // hub (#157): the shared hub every beta room meets on, where a new room meets unless the person blanks it
-export type TeamState = { me: { login: string; name: string }; settings: TeamSettings; roster: Member[]; members: string[]; relay: { url: string; up: boolean }; hub?: string; cloud?: Cloud };
+export type TeamState = { me: { login: string; name: string }; settings: TeamSettings; roster: Member[]; members: string[]; relay: { url: string; up: boolean }; hub?: string; cloud?: Cloud; version?: SolVersion | null };   // version (#417): my own Sol's
 /** my Sol account on the shared hub (S6b): its name, "" when not signed in; need: the room in use meets there and I am not
  *  let in; gone: the cloud has no room with the room's code */
 export type Cloud = { hub: string; login: string; need: boolean; gone?: boolean };
@@ -102,7 +104,7 @@ export function useTeam() {
     const L = link(ENGINE);
     const offM = L.on((m) => {
       if (typeof m?.type !== "string" || !m.type.startsWith("team.")) return;
-      if (m.type === "team.state") setState({ me: m.me, settings: m.settings, roster: m.roster ?? [], members: Array.isArray(m.members) ? m.members : [], relay: m.relay ?? { url: "", up: false }, ...(typeof m.hub === "string" ? { hub: m.hub } : {}), ...(m.cloud && typeof m.cloud.login === "string" ? { cloud: m.cloud } : {}) });
+      if (m.type === "team.state") setState({ me: m.me, settings: m.settings, roster: m.roster ?? [], members: Array.isArray(m.members) ? m.members : [], relay: m.relay ?? { url: "", up: false }, ...(typeof m.hub === "string" ? { hub: m.hub } : {}), ...(m.cloud && typeof m.cloud.login === "string" ? { cloud: m.cloud } : {}), ...(m.version && typeof m.version.commit === "string" ? { version: m.version } : {}) });
       else if (m.type === "team.board" && Array.isArray(m.cards)) setBoard(m as Board);
       else if (m.type === "team.pinged") {
         const p: Pinged = { id: String(m.id ?? crypto.randomUUID()), kind: m.kind ?? "chat", from: m.from, line: m.line, at: m.at, ...(m.issue ? { issue: m.issue } : {}), ...(m.repo ? { repo: m.repo } : {}), ...(m.spooled ? { spooled: true } : {}), ...(m.count ? { count: Number(m.count) } : {}) };
@@ -179,9 +181,10 @@ const FAKE = {
       room: "team" },
     roster: [
       { who: "frank", agent: false, machine: "legion", state: "working", session: { title: "the goal page", repo: "ecosystem" }, since: Date.now() - 22 * 60_000,
-        thing: { id: "d1b2c3d4", name: "marcocyl04-ux/sol-dev", source: "agent", at: Date.now() - 60_000 }, sessions: [{ id: "dev-frank-room", title: "the goal page", thing: "d1b2c3d4" }] },
+        thing: { id: "d1b2c3d4", name: "marcocyl04-ux/sol-dev", source: "agent", at: Date.now() - 60_000 }, sessions: [{ id: "dev-frank-room", title: "the goal page", thing: "d1b2c3d4" }],
+        version: { release: "stable-20261030-0900", commit: "4f1a2b3c", mine: 3 } },
       { who: "isaac", agent: false, machine: "thinkpad", state: "here", since: Date.now() - 95 * 60_000, quiet: true },
-      { who: "marco", agent: false, machine: "macbook", state: "here", since: Date.now() - 4 * 60_000 },
+      { who: "marco", agent: false, machine: "macbook", state: "here", since: Date.now() - 4 * 60_000, version: { release: "stable-20261030-0900", commit: "4f1a2b3c", mine: 12 } },
     ],
     members: ["frank", "isaac", "marco"],
     relay: { url: "", up: true },

@@ -48,5 +48,8 @@ objc2-io-surface = { version = "0.3", features = ["objc2-core-foundation"] }   #
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+# unwind, never abort (crash 2026-10-27 23:30): a page that reloads while a command's answer is on its way makes
+# WebKit throw "this task has already been stopped"; wry catches that with objc2::exception::catch, which cannot catch
+# anything under panic = "abort" (the exception unwinding through Rust aborts the whole app instead).
+panic = "unwind"
 strip = true

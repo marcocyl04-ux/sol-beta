@@ -686,7 +686,16 @@ function onTurn(t: Talk, turn: Turn) {
   void volunteer(t, turn, s.why, s.name);
 }
 
-async function start(): Promise<{ talk: string } | { error: string }> {
+// Two presses a second apart (2026-10-26 14:59:26 and :27) started two talks: the second took `talk`, the first was
+// orphaned with its listener, its seats and its busy hold, so no renew could happen until the engine restarted. A press
+// while a talk is still opening now waits for that same opening.
+let starting: Promise<{ talk: string } | { error: string }> | null = null;
+function start(): Promise<{ talk: string } | { error: string }> {
+  if (talk) return Promise.resolve({ talk: talk.file });
+  return (starting ??= startOnce().finally(() => { starting = null; }));
+}
+
+async function startOnce(): Promise<{ talk: string } | { error: string }> {
   if (talk) return { talk: talk.file };
   const bin = helperPath();
   if (!existsSync(bin)) return { error: "the listener is not built: bash sol/mac/listen/build-listen.sh" };

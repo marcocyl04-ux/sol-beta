@@ -34,7 +34,8 @@ import { PersonMain, PersonSide, personOf } from "./Person";   // S3: a person (
 import { GoalPage } from "./Goal";   // S6: the goal (#238)
 import { ToolPage, TOOLS, toolLine, tileLine } from "./Tools";   // the room's own tools (#245)
 import { GithubJoin } from "./GithubJoin";   // the device-flow card (#252), re-homed
-import { DriveRow, useDrive } from "./DriveRoom";   // Google on this Mac; a Drive group's folder and its people (#152)
+import { DriveRow, useDrive } from "./DriveRoom";
+import { versionLine, versionShort, sameRelease } from "./version";   // everyone's version, side by side (#417)   // Google on this Mac; a Drive group's folder and its people (#152)
 import { RoomForm } from "./CoworkSidebar";
 import { HandedRows } from "./Hands";   // put-off hands, under the repository (#34)
 import { useHands } from "./handed";
@@ -76,6 +77,7 @@ export function Group({ team, room, flash, onPerson, onGoal, onThing, onRepo, on
   // the people: me first, then who is on, then every member of the room
   const people = useMemo(() => [...new Set([me, ...roster.map((m) => m.who), ...(s?.members ?? [])].filter(Boolean))], [me, roster, s?.members]);
   const entryOf = (who: string): Member | undefined => roster.find((m) => m.who === who);
+  const myVer = entryOf(me)?.version ?? s?.version ?? undefined;   // what my Sol runs (#417), for "the same release as you"
   const [tab, setTabS] = useState<Tab>(readTab);
   const sub = !!(open || person || goal || tool);   // a page opened from the group stands in for the tab
   const setTab = (t: Tab) => { setTabS(t); try { sessionStorage.setItem(TAB_KEY, t); } catch { /* private */ } if (sub) onBack(); };
@@ -117,13 +119,17 @@ export function Group({ team, room, flash, onPerson, onGoal, onThing, onRepo, on
           const state = m?.state ?? (mine ? "here" : undefined);
           // showing a session to the group (#101) says so first, as the side's team rows did
           const sh = team.showing.find((x) => x.login === who);
+          // what their Sol runs (#417), side by side: the release and their own layer; mine from my engine when the relay is down
+          const ver = m?.version ?? (mine ? s?.version ?? undefined : undefined);
+          const same = !mine && sameRelease(ver, myVer);
           const word = sh ? (sh.issue ? `showing #${sh.issue}` : "live in a session")
             : dark ? "not seen" : state === "here" || state === "away" || !m ? STATE_WORD[state ?? "here"] : `${STATE_WORD[state ?? "here"]} · ${since(m.since)}`;
           return (
             <button key={who} role="listitem" className={`gp-who ${dark || state === "away" ? "away" : ""} ${person === who ? "on" : ""}`} onClick={() => onPerson(who)}
-              title={`${who}${mine ? " (you)" : ""}: ${m?.session?.title ?? word}. Click for what they did here.`}>
+              title={`${who}${mine ? " (you)" : ""}: ${m?.session?.title ?? word}. Runs ${versionLine(ver)}${same ? ", the same release as you" : ""}. Click for what they did here.`}>
               <Body login={who} size={28} away={dark || state === "away"} />
-              <span className="tx"><span className="n">{who}</span><span className="l">{word}</span></span>
+              <span className="tx"><span className="n">{who}</span><span className="l">{word}</span>
+                <span className={`v ${ver ? "" : "unknown"} ${same ? "same" : ""}`} aria-label={`runs ${versionLine(ver)}`}>{versionShort(ver)}</span></span>
             </button>
           );
         })}

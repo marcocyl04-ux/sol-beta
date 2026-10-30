@@ -16,6 +16,7 @@ import { setSeen } from "./members.js";
 import { RelayClient, type Fn } from "./relay-client.js";
 import { STATE_DIR } from "../work/state.js";
 import { accountOn, accountsFile, accounts, cloudTicket, dropTicket } from "./cloud.js";
+import { versionNow, onVersion } from "../version.js";   // what this Sol runs (#417), on my hello and presence
 import { RelayHub, relayServer as hubServer, relayRoutes as hubRoutes, ticketFor, refusedBy, presenceOf, type Registry, type ServerOpts, type HubOpts,
   type Kind, type PresenceState, type RosterEntry } from "../hub/index.js";   // the hub (#208: src/hub, the package sol/hub)
 
@@ -157,9 +158,10 @@ setDriveRecord(makeDriveRecord({ token: () => driveToken(driveDeps()), stale: st
 let since: () => Record<string, number> = () => ({});
 /** wire.ts hands in talk's newest lines a thread, said on every hello (the cloud then sends only newer ones) */
 export const setTalkSince = (fn: () => Record<string, number>) => { since = fn; };
-const client = new RelayClient(() => relayUrl(), () => ({ login: hubLogin(), room: activeRoom(getTeam()).code, talkSince: since(), ...mine, ...inside, ...(github !== undefined ? { github } : {}), polls: pollsNow() }), undefined,
+const client = new RelayClient(() => relayUrl(), () => ({ login: hubLogin(), room: activeRoom(getTeam()).code, talkSince: since(), ...mine, ...inside, ...(github !== undefined ? { github } : {}), polls: pollsNow(), ...(versionNow() ? { version: versionNow()! } : {}) }), undefined,
   (misses) => { if (misses >= 3) { const h = hubHttp(activeRoom(getTeam()).hub || "ws://127.0.0.1/relay"); refusedBy(h); dropTicket(h); } return relayAuth(); });
 setSeen(() => client.seen());
+onVersion(() => client.presence());   // #417: a new version (after an update) is said on my presence
 let started = false;
 export function startRelayClient() { if (!started) { started = true; client.start(); } return client; }
 

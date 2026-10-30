@@ -97,6 +97,7 @@ import { polls, type Polls } from "./polls.js";
 // --- end File it
 // what a group is connected to, as one answer (#320): its repositories, things, tools, and Google and GitHub here
 import { connectors, connectRepo, repoFacts, connectorsMsg, toolLines, memberCount, forgetCounts, pruneMine, mineAfter, adminsAfter, liveOf, type ConnectDeps, type ConnectorsFile } from "./connectors.js";
+import { versionNow, refreshVersion, onVersion } from "../version.js";   // what this Sol runs (#417)
 
 type Wire = { send: (m: object) => void };
 const faces = new Map<Wire, { cowork: boolean }>();
@@ -110,7 +111,7 @@ const stateMsg = () => {
   const s = getTeam();
   // on a cloud I signed in to, "me" is my Sol name there, the name the roster and every line I send carry (#216): never my
   // GitHub login beside it, which showed one person twice
-  return { type: "team.state", me: onCloud(s) ? { ...s.me, login: hubLogin(s) } : s.me, settings: forFace(s), roster: relayRoster(), members: teamMembers(), relay: { url: s.relay.url, up: relayUp() }, hub: sharedHub(), cloud: cloudNow(s) };
+  return { type: "team.state", me: onCloud(s) ? { ...s.me, login: hubLogin(s) } : s.me, settings: forFace(s), roster: relayRoster(), members: teamMembers(), relay: { url: s.relay.url, up: relayUp() }, hub: sharedHub(), cloud: cloudNow(s), version: versionNow() };   // version (#417): mine, for the strip when the relay is down
 };
 /** my Sol account on the shared hub (S6b, #226): its name there, "" when this Sol is not signed in; `need` when the room
  *  in use meets on Sol's cloud, nobody is signed in and the hub is not letting me in, so the face asks me to sign in;
@@ -123,6 +124,7 @@ export function cloudNow(s = getTeam(), up = relayUp()): { hub: string; login: s
 }
 let pending: NodeJS.Timeout | undefined;
 const sendState = () => { clearTimeout(pending); pending = setTimeout(() => everyoneTeam(stateMsg()), 100); };
+onVersion(() => sendState());   // #417: my version changed: the faces hear it with the state
 
 const boardMsg = (b: Awaited<ReturnType<typeof getBoard>>, folders: Record<string, string>, rid?: unknown) =>
   ({ type: "team.board", ...(rid ? { rid } : {}), repos: b.repos, cards: b.cards, prs: b.prs, branches: b.branches, stable: b.stable, main: b.main, leads: b.leads, owner: b.owner, at: b.at, folders, ...(b.error ? { error: b.error } : {}), ...(b.reason ? { reason: b.reason } : {}) });
@@ -1057,7 +1059,7 @@ export async function handleTeam(w: Wire, m: any) {
       const d = shipNow();
       if (!d) return w.send({ type: "team.update", rid, error: "stable is not set up here" });
       const r = await update(d);
-      if (r.ok) answered(r.sha);
+      if (r.ok) { answered(r.sha); void refreshVersion(); }   // #417: the release I sit on moved; said on my presence and to the faces
       return w.send({ type: "team.update", rid, ...r });
     }
     case "team.stable.get":

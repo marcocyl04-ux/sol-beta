@@ -27,7 +27,12 @@ export type RosterThing = { id: string; name: string; source: "face" | "agent"; 
 export type RosterSession = { id: string; title: string; thing?: string };
 export type RosterEntry = { who: string; agent: boolean; machine: string; state: PresenceState; session?: { title: string; repo?: string }; since: number;
   thing?: RosterThing; sessions?: RosterSession[]; quiet?: true;   // quiet (#238): they turned "show my room sessions" off here
-  github?: boolean };   // github (#320): GitHub is signed in on their Sol; a boolean only, never a login or a token
+  github?: boolean;   // github (#320): GitHub is signed in on their Sol; a boolean only, never a login or a token
+  version?: SolVersion };   // version (#417): the release their Sol sits on and their own commits over it; none: an older Sol, "unknown"
+/** what a Sol runs (#417): the release it sits on (a release tag, or the branch `stable` / `main` when no tag marks that
+ *  commit), that commit (8 hex), how many newer commits that branch has (`behind`), and how many of its own sit on top
+ *  (`mine`, on a branch named like marco/mine). Said on the hello and each presence; never a path, a branch name or a subject */
+export type SolVersion = { release: string; commit: string; behind?: number; mine?: number };
 /** the room sessions one roster entry may carry */
 export const SESSIONS_MAX = 5;
 
@@ -84,6 +89,15 @@ export function sessionsOf(v: unknown): RosterSession[] | undefined {
 
 /** a hello's or a presence's GitHub flag as the hub passes it (#320): true or false, anything else none. A login, a
  *  token or any other word a sender puts there is never carried */
+const RELEASE = /^[A-Za-z0-9][\w.-]{0,59}$/, COMMIT = /^[0-9a-f]{7,12}$/;
+const count = (v: unknown) => (typeof v === "number" && Number.isInteger(v) && v > 0 && v <= 1_000_000 ? v : undefined);
+/** a hello's or a presence's version (#417) as the hub passes it: exactly release, commit, behind and mine, each checked;
+ *  a release or commit that is not their shape: none (the face then says "unknown") */
+export function solVersionOf(v: unknown): SolVersion | undefined {
+  if (!isObj(v) || typeof v.release !== "string" || !RELEASE.test(v.release) || typeof v.commit !== "string" || !COMMIT.test(v.commit)) return undefined;
+  const behind = count(v.behind), mine = count(v.mine);
+  return { release: v.release, commit: v.commit, ...(behind ? { behind } : {}), ...(mine ? { mine } : {}) };
+}
 export const githubOf = (v: unknown): boolean | undefined => (v === true || v === false ? v : undefined);
 
 /** a GitHub login as GitHub writes one (#325): what a cloud group's ask says its asker is on GitHub. LOGIN above also

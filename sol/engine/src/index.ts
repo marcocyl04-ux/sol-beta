@@ -120,6 +120,7 @@ import { setTrackHome, setTrackVersion, trackIn, trackOut, startTrackSender, tra
 import { startOthers } from "./track-files.js";
 import { addCreatureFace, removeCreatureFace, setRole, setPresence, setDictation, sent as creatureSent, lifeTurn, type Role } from "./creature.js";
 import { watchHealth, noteRevert, type Health } from "./health.js";
+import { watchVersion, versionNow, versionLine } from "./version.js";   // the release plus my own layer (#417)
 import { setShelfHome, startSweep } from "./shelf.js";
 import { handleGrab } from "./grab.js";
 import { setAnticipate, handleAnticipate } from "./anticipate.js";
@@ -188,6 +189,8 @@ const REVERTED = (() => { try { const at = readFileSync(resolve(HERE, ".reverted
 if (REVERTED) { console.log(`keep: this engine is the last good build, put back at ${REVERTED}; the broken one is in dist.bad/`); noteRevert("engine", REVERTED); }
 // kept, build, face, reverted: every five seconds, to every window when it changes (src/health.ts)
 const health = watchHealth(resolve(HERE, ".."), (h: Health) => everyone({ type: "health", health: h }));
+// what this Sol runs (#417): read from git after the start, never before it; /health, the relay and Cowork say it
+watchVersion(resolve(HERE, ".."));
 // Ship (#33): stamp stable from this checkout, and a new stable heard on the relay offered to every face (team/ship.ts)
 startShip(resolve(HERE, "..", ".."), (m) => everyone(m));
 
@@ -826,7 +829,7 @@ const http = createServer(async (req, res) => {
     // quiet before it goes back to the NucBox (One Sol, #62)
     const origin = req.headers.origin;
     res.writeHead(200, { "content-type": "application/json", ...(typeof origin === "string" ? { "access-control-allow-origin": origin, vary: "origin" } : {}) });
-    res.end(JSON.stringify({ ok: true, engine: "sol", pid: process.pid, port: PORT, since: STARTED, busy: busyList() }));
+    res.end(JSON.stringify({ ok: true, engine: "sol", pid: process.pid, port: PORT, since: STARTED, busy: busyList(), version: versionNow(), release: versionLine(versionNow()) }));
     return;
   }
   if (path === "/letgo" && req.method === "POST") {

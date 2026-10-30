@@ -283,5 +283,6 @@ export const gitWith: Git = (args, cwd, o = {}) => new Promise<string>((ok, no) 
   c.stderr.setEncoding("utf8"); c.stderr.on("data", (s: string) => { err += s; });
   c.on("error", (e) => { clearTimeout(t); no(e); });
   c.on("close", (code) => { clearTimeout(t); if (code === 0) ok(out); else no(Object.assign(new Error(err.trim().split("\n")[0] || `git ${args[0]} failed`), { full: err.trim() })); });
+  c.stdin.on("error", () => {});   // a git that never reads stdin may exit first (EPIPE, #444): its exit code still says how it went
   c.stdin.end(o.input ?? "");
 });
