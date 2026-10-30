@@ -11,7 +11,7 @@ permissions:
   contents: read
 jobs:
   app:
-    if: github.repository == 'marcocyl04-ux/sol-beta'
+    if: github.event.repository.name == 'sol-beta'   # by name, not owner: sol-beta moved to sol-mif on 2026-10-29 and the old guard skipped every run
     runs-on: macos-latest
     permissions:
       contents: write
