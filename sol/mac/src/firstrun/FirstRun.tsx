@@ -160,6 +160,14 @@ export default function FirstRun({ e, onDone }: { e: Engine; onDone: () => void 
     history.replaceState(null, "", location.pathname);
     onDone();
   };
+  // the install stopped and the person would rather go on (Frank, 29 Oct): never a wall; the face opens without it, and
+  // the one line in Terminal installs it any time
+  const skip = () => {
+    try { localStorage.setItem(DONE, "done"); } catch { /* private mode */ }
+    stop.current?.(); stop.current = null;
+    history.replaceState(null, "", location.pathname);
+    onDone();
+  };
   // → moves a scene on, for whoever looks at it in a browser
   useEffect(() => {
     const f = (ev: KeyboardEvent) => { if (ev.key === "ArrowRight" && ev.altKey) next(); };
@@ -201,7 +209,7 @@ export default function FirstRun({ e, onDone }: { e: Engine; onDone: () => void 
         {scene === 3 && <Minds signedIn={claudeIn} onNext={next} />}
         {scene === 4 && <Yours e={e} onNext={next} />}
         {scene === 5 && <TheNotch flown={flown} onFly={() => { setFlown(true); setPose("notch"); }} onNext={next} />}
-        {scene === 7 && <Keep e={e} name={name} inst={inst} word={word} onDone={finish} onRetry={() => run(name)} />}
+        {scene === 7 && <Keep e={e} name={name} inst={inst} word={word} onDone={finish} onRetry={() => run(name)} onSkip={skip} />}
       </Swap>
       {/* the creature and the light sit outside the swap: a thing inside its clipped layer would be cut or remounted */}
       <Hero life={life} pose={pose} hatch={pose === "centre"} onRest={(p) => { if (p === "notch") setPose("gone"); }} />
@@ -493,7 +501,7 @@ function Together({ e, onNext }: { e: Engine; onNext: () => void }) {
 // ---- 7 a card to keep: a real desk card, in the house style ----
 // the last button (#375): while the install runs it waits, and a line under says so; stopped, it is "try again" (the
 // install over, from here, no Terminal needed); done, it is "open Sol", and what that could not do is said under it
-function Keep({ e, name, inst, word, onDone, onRetry }: { e: Engine; name: string; inst: Install | null; word: string | null; onDone: () => void; onRetry: () => void }) {
+function Keep({ e, name, inst, word, onDone, onRetry, onSkip }: { e: Engine; name: string; inst: Install | null; word: string | null; onDone: () => void; onRetry: () => void; onSkip: () => void }) {
   const text = `Call me from anywhere with ${KEY.join(" ")}. I answer here, or open a session if it's a big one. Make me yours in Settings › look.`;
   const [kept, setKept] = useState(false);
   // a real ask: the seat puts the note on the desk itself (its desk tool), the first card of many
@@ -514,10 +522,11 @@ function Keep({ e, name, inst, word, onDone, onRetry }: { e: Engine; name: strin
       <div className="fr-row">
         {e.up && !kept && <button className="fr-btn stone" onClick={keep}><span>keep it on the desk</span></button>}
         {kept && <span className="fr-got"><CellCheck land /> on your desk</span>}
+        {stopped && <button className="fr-btn stone" onClick={onSkip}><span>skip for now</span></button>}
         <button className="fr-go" onClick={stopped ? onRetry : onDone} disabled={running}><span>{running ? `${inst?.phrase}…` : stopped ? "try again" : "open Sol"}</span></button>
       </div>
       {running && <p className="fr-hint">I'm still setting up behind this. the button lights up when I'm done.</p>}
-      {stopped && <p className="fr-hint">the install stopped: {inst?.failed}. try again here, or from Terminal: curl -fsSL https://sol.matterfold.tech/install | sh</p>}
+      {stopped && <p className="fr-hint">the install stopped: {inst?.failed}. try again here, skip it for now, or later from Terminal: curl -fsSL https://sol.matterfold.tech/install | sh</p>}
       {word && <p className="fr-hint">{word}</p>}
     </Scene>
   );

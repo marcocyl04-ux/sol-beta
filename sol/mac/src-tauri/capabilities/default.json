@@ -34,6 +34,13 @@
     "allow-sites-sign-out",
     "allow-sites-clear",
     "allow-sol-url-take",
+    "allow-install-run",
+    "allow-claude-login",
+    "allow-claude-status",
+    "allow-welcome-done",
+    "allow-engine-start",
+    "allow-engine-phase",
+    "allow-idle-seconds",
     {
       "identifier": "opener:allow-open-path",
       "allow": [

@@ -30,6 +30,9 @@
     "allow-clean-get",
     "allow-call-mute",
     "opener:default",
+    "allow-engine-start",
+    "allow-engine-phase",
+    "allow-idle-seconds",
     {
       "identifier": "opener:allow-open-url",
       "allow": [

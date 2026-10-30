@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-welcome-done"
+description = "Enables the welcome_done command without any pre-configured scope."
+commands.allow = ["welcome_done"]
+
+[[permission]]
+identifier = "deny-welcome-done"
+description = "Denies the welcome_done command without any pre-configured scope."
+commands.deny = ["welcome_done"]
