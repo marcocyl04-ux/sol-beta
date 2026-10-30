@@ -4,10 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sol · one window for all your AI</title>
-<meta name="description" content="Sol: one window for all your AI, on your own Mac. One download, or one line in Terminal.">
-<meta property="og:title" content="Sol">
-<meta property="og:description" content="One window for all your AI, on your own Mac.">
-<meta property="og:image" content="sol-window.jpg">
+<meta name="description" content="Sol: one window for all your AI, on your own Mac. One download, or one line in Terminal. Free while it's in beta.">
+<!-- the share card (#362): iMessage, WhatsApp and Discord want absolute addresses, and Discord wants the card kind said -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://sol.matterfold.tech/">
+<meta property="og:title" content="Sol · one window for all your AI">
+<meta property="og:description" content="Claude, ChatGPT's Codex, your browser, notes and your voice, in one app on your own Mac. Free while it's in beta.">
+<meta property="og:image" content="https://sol.matterfold.tech/sol-window.jpg">
+<meta property="og:image:width" content="1600">
+<meta property="og:image:height" content="1029">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="sol.svg" type="image/svg+xml">
 <!-- sol.matterfold.tech (#169, #295, #308): the page beta testers are sent to, written for a friend who is not a developer. What Sol
      is, a real shot, the download and the one line, what you need, the Open Anyway step drawn, privacy in one
@@ -15,6 +21,9 @@
      bodies of dark goo lit from the top left, a thing that acts is a lit capsule. Sol is sol.svg drawn inline so he
      breathes, blinks and watches the pointer like the face's (mac/src/Sol.tsx); under reduced motion he stands still.
      The shot is the face's atlas still with the sidebar's titles blurred (they are Marco's own).
+     Round one (#362): either paid AI plan does (chat defaults to Codex, engine/src/settings.ts; only Work's coding
+     sessions need Claude), free is said, the questions friends ask first are answered on the page, and Tell us is the
+     testers' Discord (the invite that never expires, the same one as feedback.rs).
      privacy.html, terms.html and support.html (with text.css) came from docs/cloud/pages as PR #297 has them; the
      privacy paragraph claims only what is true today (no crash reports, no usage data: the consent card brings them, #292). -->
 <style>
@@ -123,6 +132,12 @@
   .yours p { color: var(--dim); }
   .yours p b { color: var(--ink); font-weight: 600; }
 
+  /* questions: the ones friends ask first, one body each, the question in ink and the answer dim */
+  .asks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+  .asks > div { padding: 22px 24px 20px; display: flex; flex-direction: column; gap: 8px; border-radius: 24px; }
+  .asks b { font-size: 17px; font-weight: 600; line-height: 1.3; }
+  .asks p { font-size: 15px; color: var(--dim); line-height: 1.45; }
+
   footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding-top: 28px; border-top: 1px solid var(--line); font-size: 14px; color: var(--dim); }
   footer nav { display: flex; gap: 22px; }
   footer a { color: var(--dim); border: 0; }
@@ -138,7 +153,7 @@
     .steps ol { grid-template-columns: 1fr; }
     .mac .win { grid-template-columns: 1fr; } .mac .side { display: none; }
     .mac .pane { padding: 18px 16px 20px; } .mac .group > div { padding: 10px 14px 10px 10px; } .mac .pop { font-size: 11px; }
-    .get { padding: 26px 20px; } .yours { grid-template-columns: 1fr; }
+    .get { padding: 26px 20px; } .yours { grid-template-columns: 1fr; } .asks { grid-template-columns: 1fr; }
   }
   @media (prefers-reduced-motion: reduce) { .sol .body, .mac .anyway::after { animation: none; } .sol.squash .hop { animation: none; } }
 </style>
@@ -161,7 +176,7 @@
     <h1>Sol</h1>
     <p class="lead">One window for all your AI.</p>
     <p class="sub">Claude, ChatGPT's Codex, your browser, notes and your voice, together in one app on your own Mac. You talk; Sol does the clicking.</p>
-    <span class="beta">beta · round one</span>
+    <span class="beta">beta · round one · free</span>
   </section>
 
   <figure class="shot">
@@ -173,7 +188,7 @@
     <h2>Get Sol</h2>
     <div class="get goo">
       <div class="row">
-        <a class="cap brand" href="https://github.com/marcocyl04-ux/sol-beta/releases/latest/download/Sol-mac.zip">
+        <a class="cap brand" href="https://github.com/sol-mif/sol-beta/releases/latest/download/Sol-mac.zip">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
           Download Sol for Mac
         </a>
@@ -182,6 +197,7 @@
       <div class="or">or, one line</div>
       <div class="line"><code id="line">curl -fsSL https://sol.matterfold.tech/install | sh</code><button id="copy" class="cap stone" type="button">copy</button></div>
       <p class="hint">Open Terminal (press <kbd>⌘</kbd> <kbd>space</kbd>, type <i>Terminal</i>, press <kbd>return</kbd>), paste the line, press <kbd>return</kbd>. It asks your name, sets everything up and opens Sol. A few minutes, once. This way skips the macOS step below.</p>
+      <p class="hint">If it ends with <i>MISS some engine tests failed</i>, Sol still installed fine: those are checks meant for the people building Sol. Don't have Claude? Take the download instead: the line asks for Claude's sign-in on the way.</p>
     </div>
   </section>
 
@@ -195,8 +211,8 @@
       </div>
       <div class="goo">
         <svg class="glyph" viewBox="0 0 30 30" fill="none" stroke="#ebebe8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="15" r="5.5"/><path d="M15.5 15H27M23 15v4M27 15v3"/></svg>
-        <b>Your own Claude plan</b>
-        <p>Claude Pro or Max. You sign in to Claude yourself, so the thinking runs on your own plan.</p>
+        <b>Your own ChatGPT or Claude plan</b>
+        <p>ChatGPT Plus or Pro, or Claude Pro or Max. Either one works; both is best. You sign in yourself, so the thinking runs on your own plan, and Sol itself is free while it's in beta.</p>
       </div>
       <div class="goo opt">
         <svg class="glyph" viewBox="0 0 30 30" fill="none" stroke="#ebebe8" stroke-width="2" stroke-linecap="round"><rect x="11" y="3" width="8" height="15" rx="4"/><path d="M6 14a9 9 0 0 0 18 0M15 23v4"/></svg>
@@ -252,13 +268,43 @@
     <h2>Your things stay yours</h2>
     <div class="yours goo">
       <svg viewBox="0 0 56 56" fill="none" stroke="#ebebe8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="12" width="40" height="27" rx="3.5"/><path d="M21 46h14M28 39v7"/><rect x="22" y="22" width="12" height="9" rx="2"/><path d="M24.5 22v-3a3.5 3.5 0 0 1 7 0v3"/></svg>
-      <p><b>Sol runs on your computer.</b> Your chats and your files stay there; what you ask Claude goes straight from your Mac to Claude, under your own account. Sol sends us no crash reports and nothing about how you use it. The whole story is on the <a href="privacy.html">privacy page</a>.</p>
+      <p><b>Sol runs on your computer.</b> Your chats and your files stay there; what you ask goes straight from your Mac to ChatGPT or Claude, under your own account. Sol sends us no crash reports and nothing about how you use it. The whole story is on the <a href="privacy.html">privacy page</a>.</p>
+    </div>
+  </section>
+
+  <section id="questions">
+    <h2>Questions</h2>
+    <div class="asks">
+      <div class="goo">
+        <b>Does it cost anything?</b>
+        <p>No. Sol is free while it's in beta. What you do in it counts toward your own ChatGPT or Claude plan, the same as using them anywhere else.</p>
+      </div>
+      <div class="goo">
+        <b>I only have ChatGPT. Does it work?</b>
+        <p>Yes. Chats run on ChatGPT's Codex unless you switch. The one thing you'd miss is the coding sessions in Work, which run on Claude. When Sol shows its Claude card, press next; Codex signs you in the first time you talk to it.</p>
+      </div>
+      <div class="goo">
+        <b>Why does my Mac block it?</b>
+        <p>Apple registers apps for a yearly fee, and we haven't done that yet for the beta. So macOS asks you to allow Sol once, as drawn above. Nothing else is different.</p>
+      </div>
+      <div class="goo">
+        <b>Why does it ask for the microphone, the screen and accessibility?</b>
+        <p>So Sol can hear you when you talk to it, see what you're looking at when you ask, and click for you. Say no to any of them and turn them on later in System Settings.</p>
+      </div>
+      <div class="goo">
+        <b>A Terminal window opened when I signed in to Claude.</b>
+        <p>That's normal. Sol uses Claude's own sign-in, which runs there; Sol never sees your password. Sign in, then come back to Sol.</p>
+      </div>
+      <div class="goo">
+        <b>Windows, Linux, iPhone?</b>
+        <p>Mac first. Linux works from the one line, with the window in your browser. Windows and the phone come later.</p>
+      </div>
     </div>
   </section>
 
   <footer>
-    <span class="mini"><svg viewBox="0 0 100 100"><use href="#outline" fill="#ebebe8"/></svg><span>Sol is in beta. Something wrong, or a thought? <a href="support.html">Tell us</a>.</span></span>
-    <nav><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="support.html">Support</a></nav>
+    <span class="mini"><svg viewBox="0 0 100 100"><use href="#outline" fill="#ebebe8"/></svg><span>Sol is in beta. Something wrong, or a thought? <a href="https://discord.gg/f2CHmYDDZV">Tell us on Discord</a>.</span></span>
+    <nav><a href="https://discord.gg/f2CHmYDDZV">Discord</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="support.html">Support</a></nav>
   </footer>
 
 </main>

@@ -7,8 +7,9 @@ use std::process::{Command, Stdio};
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
-/// The invite to the beta testers' Discord (Frank made it on 2026-10-29).
-const DISCORD: &str = "https://discord.gg/R2uAcBqxT";
+/// The invite to the beta testers' Discord, the one that never expires (Isaac made it on 2026-10-29, #362); the first
+/// one, from #313, ran out on 28 Nov. The same link is on site/support.html and in the footer of site/index.html.
+const DISCORD: &str = "https://discord.gg/f2CHmYDDZV";
 
 fn out(cmd: &str, args: &[&str]) -> String {
     Command::new(cmd)
