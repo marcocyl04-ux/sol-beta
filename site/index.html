@@ -25,7 +25,7 @@
      sessions need Claude), free is said, the questions friends ask first are answered on the page, and Tell us is the
      testers' Discord (the invite that never expires, the same one as feedback.rs).
      privacy.html, terms.html and support.html (with text.css) came from docs/cloud/pages as PR #297 has them; the
-     privacy paragraph claims only what is true today (no crash reports, no usage data: the consent card brings them, #292). -->
+     privacy lines claim only what is true today: no crash reports; usage is counted and sent once a day, never what is typed (#356, privacy.html). -->
 <style>
   :root {
     color-scheme: dark;
@@ -85,6 +85,7 @@
   .line code { flex: 1; min-width: 0; font: 13px/1.4 var(--mono); color: var(--ink); user-select: all; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
   .line code::-webkit-scrollbar { display: none; }
   .hint { font-size: 15px; color: var(--dim); }
+  .hint.build { font-size: 13px; color: var(--mute); } .hint.build b { color: var(--dim); font-weight: 500; font-family: var(--mono); font-size: 12px; }
   kbd { display: inline-block; padding: 0 8px; border-radius: 7px; font: 600 13px/1.6 inherit; color: #fff; background: radial-gradient(120% 90% at 30% 0%, rgb(255 255 255 / .25), transparent 60%), linear-gradient(170deg, #5a524f, #3a3432); box-shadow: inset 0 1px 0 rgb(255 255 255 / .2), 0 2px 4px -2px rgb(0 0 0 / .6); }
 
   /* what you need: three bodies */
@@ -141,6 +142,9 @@
   footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; padding-top: 28px; border-top: 1px solid var(--line); font-size: 14px; color: var(--dim); }
   footer nav { display: flex; gap: 22px; }
   footer a { color: var(--dim); border: 0; }
+  /* the Discord links wear Discord's own blue, so "Tell us" reads as a place, not a line of text */
+  footer a.discord { color: #7289ff; border-bottom: 1px solid rgb(114 137 255 / .45); }
+  footer a.discord:hover { color: #9fb0ff; border-color: #9fb0ff; }
   footer a:hover { color: var(--ink); }
   .mini { display: inline-flex; align-items: center; gap: 8px; }
   .mini svg { width: 20px; height: 20px; }
@@ -198,6 +202,8 @@
       <div class="line"><code id="line">curl -fsSL https://sol.matterfold.tech/install | sh</code><button id="copy" class="cap stone" type="button">copy</button></div>
       <p class="hint">Open Terminal (press <kbd>⌘</kbd> <kbd>space</kbd>, type <i>Terminal</i>, press <kbd>return</kbd>), paste the line, press <kbd>return</kbd>. It asks your name, sets everything up and opens Sol. A few minutes, once. This way skips the macOS step below.</p>
       <p class="hint">If it ends with <i>MISS some engine tests failed</i>, Sol still installed fine: those are checks meant for the people building Sol. Don't have Claude? Take the download instead: the line asks for Claude's sign-in on the way.</p>
+      <p class="hint">Free while it's in beta. Sol counts how it's used (which buttons, how long answers take), never what you say; <a href="privacy.html">the privacy page</a> says exactly what.</p>
+      <p class="hint build" id="build" hidden>Latest build: <b id="build-tag"></b><span id="build-when"></span> · <a href="https://github.com/sol-mif/sol-beta/releases/latest">what changed</a></p>
     </div>
   </section>
 
@@ -207,7 +213,7 @@
       <div class="goo">
         <svg class="glyph" viewBox="0 0 30 30" fill="none" stroke="#ebebe8" stroke-width="2" stroke-linecap="round"><rect x="4" y="6" width="22" height="14" rx="2.5"/><path d="M11 25h8M15 20v5"/></svg>
         <b>A Mac</b>
-        <p>Any recent Mac. Windows and Linux come later.</p>
+        <p>Apple silicon or Intel, on macOS 14 or newer (we test on macOS 26). Windows and Linux come later.</p>
       </div>
       <div class="goo">
         <svg class="glyph" viewBox="0 0 30 30" fill="none" stroke="#ebebe8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="15" r="5.5"/><path d="M15.5 15H27M23 15v4M27 15v3"/></svg>
@@ -268,7 +274,7 @@
     <h2>Your things stay yours</h2>
     <div class="yours goo">
       <svg viewBox="0 0 56 56" fill="none" stroke="#ebebe8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="12" width="40" height="27" rx="3.5"/><path d="M21 46h14M28 39v7"/><rect x="22" y="22" width="12" height="9" rx="2"/><path d="M24.5 22v-3a3.5 3.5 0 0 1 7 0v3"/></svg>
-      <p><b>Sol runs on your computer.</b> Your chats and your files stay there; what you ask goes straight from your Mac to ChatGPT or Claude, under your own account. Sol sends us no crash reports and nothing about how you use it. The whole story is on the <a href="privacy.html">privacy page</a>.</p>
+      <p><b>Sol runs on your computer.</b> Your chats and your files stay there; what you ask goes straight from your Mac to ChatGPT or Claude, under your own account. During the beta, Sol sends us once a day how it was used (which buttons, how long an answer took, how much of your plan a day cost), never what you type, say or open. Say the word on Discord and it stops. The whole story is on the <a href="privacy.html">privacy page</a>.</p>
     </div>
   </section>
 
@@ -303,12 +309,23 @@
   </section>
 
   <footer>
-    <span class="mini"><svg viewBox="0 0 100 100"><use href="#outline" fill="#ebebe8"/></svg><span>Sol is in beta. Something wrong, or a thought? <a href="https://discord.gg/f2CHmYDDZV">Tell us on Discord</a>.</span></span>
-    <nav><a href="https://discord.gg/f2CHmYDDZV">Discord</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="support.html">Support</a></nav>
+    <span class="mini"><svg viewBox="0 0 100 100"><use href="#outline" fill="#ebebe8"/></svg><span>Made by Marco, Frank and Isaac, and their agents. Something wrong, or a thought? <a class="discord" href="https://discord.gg/f2CHmYDDZV">Tell us on Discord</a>.</span></span>
+    <nav><a class="discord" href="https://discord.gg/f2CHmYDDZV">Discord</a><a href="privacy.html">Privacy</a><a href="terms.html">Terms</a><a href="support.html">Support</a></nav>
   </footer>
 
 </main>
 <script>
+  // the build a tester gets (#362): the beta repo's README names it ("beta testers run: stable-YYYYMMDD-HHMM"), written
+  // by each export, so the page never goes stale by hand; when the fetch fails the line stays hidden
+  fetch("https://raw.githubusercontent.com/sol-mif/sol-beta/main/README.md").then((r) => r.ok ? r.text() : "").then((t) => {
+    const m = t.match(/beta testers run: (stable-(\d{4})(\d{2})(\d{2})-\d{4})/);
+    if (!m) return;
+    document.getElementById("build-tag").textContent = m[1];
+    const d = new Date(`${m[2]}-${m[3]}-${m[4]}T00:00:00`);
+    document.getElementById("build-when").textContent = ", " + d.toLocaleDateString(undefined, { day: "numeric", month: "long" });
+    document.getElementById("build").hidden = false;
+  }).catch(() => {});
+
   // copy the line
   const b = document.getElementById("copy");
   b.addEventListener("click", async () => {

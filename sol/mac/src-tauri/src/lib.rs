@@ -596,7 +596,7 @@ pub fn run() {
         .manage(thing::Tabs::default())
         .manage(link::Waiting::default())
         .invoke_handler(tauri::generate_handler![engine_port, engine_phase, engine_start, idle_seconds, notch_expand, notch_regions, notch_geometry, face_log, face_mode, face_state,
-            welcome::install_run, welcome::claude_login, welcome::claude_status, welcome::welcome_done, dictate::type_text, grab::grab_sheet, grab::page_scroll, eye::eye_set, eye::eye_get,
+            welcome::install_run, welcome::claude_login, welcome::claude_status, welcome::codex_login, welcome::codex_status, welcome::claude_install, welcome::welcome_done, dictate::type_text, grab::grab_sheet, grab::page_scroll, eye::eye_set, eye::eye_get,
             clean::clean_open, clean::clean_set, clean::clean_close, clean::clean_get,
             permit::permit_state, permit::permit_open, permit::permit_back, mute::call_mute,
             vibe::vibe_start, vibe::vibe_stop, vibe::vibe_glow,

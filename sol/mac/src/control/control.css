@@ -5,6 +5,7 @@
 .ctl-sub { margin: 14px 0 2px; font-size: 11px; letter-spacing: 0.08em; font-variant-caps: all-small-caps; color: var(--dim); }
 .ctl-sig { color: var(--amber); }
 .ctl-again { display: flex; justify-content: flex-end; margin-top: 2px; }
+.ctl-signin { display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
 /* an account: a dot, filled ink when signed in, yellow when it waits for its person */
 .ctl-dot { display: inline-block; width: 6px; height: 6px; margin: 0 8px 1px 0; border: 1px solid var(--dim); border-radius: 50%; vertical-align: middle; }

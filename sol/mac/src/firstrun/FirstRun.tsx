@@ -20,7 +20,7 @@ import { CFG, enter, reducedMotion, spring, stagger, type Spring } from "../moti
 import { Swap } from "../MotionKit";
 import { LookDrawer, FALLBACK } from "../Settings";
 import { applyLook, cleanLook, keptLook } from "../look";
-import type { useEngine } from "../useEngine";
+import { FIRST_SEAT, type useEngine } from "../useEngine";
 import { check, ask, settings as openSettings, sayScreen, readsScreen, warmMicrophone, POLL_MS, type Permission, type PermissionState } from "./permissions";
 import { startInstall, installWanted, type Install } from "./install";
 import { Hero as Body, GooBodies, GooSpot, GlyphBud, type HeroLife } from "./goo";
@@ -131,7 +131,8 @@ export default function FirstRun({ e, onDone }: { e: Engine; onDone: () => void 
   const [scene, setScene] = useState(sceneAsked);
   const [name, setName] = useState(() => localStorage.getItem("sol.firstrun.name") ?? "");
   const [inst, setInst] = useState<Install | null>(null);
-  const [claudeSeen, setClaudeSeen] = useState(false);
+  const [claudeSeen, setClaudeSeen] = useState<Seen>(null);
+  const [codexSeen, setCodexSeen] = useState<Seen>(null);
   const life = useRef<HeroLife>(null);
   const stop = useRef<(() => void) | null>(null);
   const installing = installWanted();
@@ -175,22 +176,35 @@ export default function FirstRun({ e, onDone }: { e: Engine; onDone: () => void 
     return () => window.removeEventListener("keydown", f);
   }, []);
   const together = scene === 6;
-  // the Claude card's own ask (#307): `claude auth status` (welcome.rs claude_status) every STATUS_MS while scene 3 shows
-  // and the card is not yet signed in; the install's own line misses a sign-in done in Terminal from the card, and the
-  // line's door, where no install runs in the app. Held here, not in the scene: the swap's leaving copy keeps it green.
-  const claudeIn = !!inst?.signedIn || claudeSeen;
+  // the cards' own ask (#307): `claude auth status` and `codex login status` (welcome.rs) every STATUS_MS while scene 3
+  // shows and one is not yet signed in; a sign-in done in the browser, from a card or anywhere, turns its card green.
+  // Held here, not in the scene: the swap's leaving copy keeps it green.
+  const claude: Seen = inst?.signedIn ? "in" : claudeSeen, codex = codexSeen;
+  const bothIn = claude === "in" && codex === "in";
   useEffect(() => {
-    if (!inApp || scene !== 3 || claudeIn) return;
+    if (!inApp || scene !== 3 || bothIn) return;
     let alive = true, asking = false;
     const look = () => {
       if (asking) return;   // a slow answer is never asked over
       asking = true;
-      void invoke<boolean>("claude_status").then((ok) => { if (alive && ok) setClaudeSeen(true); }).catch(() => {}).finally(() => { asking = false; });
+      void Promise.all([
+        invoke<Seen>("claude_status").then((v) => { if (alive) setClaudeSeen(v); }).catch(() => {}),
+        invoke<Seen>("codex_status").then((v) => { if (alive) setCodexSeen(v); }).catch(() => {}),
+      ]).finally(() => { asking = false; });
     };
     look();
     const t = window.setInterval(look, STATUS_MS);
     return () => { alive = false; window.clearInterval(t); };
-  }, [scene, claudeIn]);
+  }, [scene, bothIn]);
+  // signed in to only one of them: a new chat starts on that one, told to the engine's first settings (useEngine.ts)
+  useEffect(() => {
+    if (claude === null || codex === null) return;   // not asked yet: an earlier pick stands
+    try {
+      if (claude === "in" && codex !== "in") localStorage.setItem(FIRST_SEAT, "claude");
+      else if (codex === "in" && claude !== "in") localStorage.setItem(FIRST_SEAT, "codex");
+      else localStorage.removeItem(FIRST_SEAT);
+    } catch { /* private mode */ }
+  }, [claude, codex]);
   // where the creature is: the centre while it hatches, lifted when it asks, its perch at the top for the scenes
   // after, the notch when scene 5 sends it, gone while the real window is in use (6)
   const [pose, setPose] = useState<Pose>(() => (sceneAsked() === 1 && !localStorage.getItem("sol.firstrun.name") ? "centre" : sceneAsked() === 6 ? "gone" : "perch"));
@@ -206,7 +220,7 @@ export default function FirstRun({ e, onDone }: { e: Engine; onDone: () => void 
       <Swap k={String(scene)} className="fr-stage" dir={1} dist={28}>
         {scene === 1 && <Hello name={name} setName={setName} life={life} onNamed={begin} onNext={next} onLift={() => setPose("lift")} />}
         {scene === 2 && <Senses name={name} life={life} onNext={next} />}
-        {scene === 3 && <Minds signedIn={claudeIn} onNext={next} />}
+        {scene === 3 && <Minds claude={claude} codex={codex} installing={!!inst && !inst.done && !inst.failed} onSeen={(w, v) => (w === "claude" ? setClaudeSeen : setCodexSeen)(v)} onNext={next} />}
         {scene === 4 && <Yours e={e} onNext={next} />}
         {scene === 5 && <TheNotch flown={flown} onFly={() => { setFlown(true); setPose("notch"); }} onNext={next} />}
         {scene === 7 && <Keep e={e} name={name} inst={inst} word={word} onDone={finish} onRetry={() => run(name)} onSkip={skip} />}
@@ -349,29 +363,68 @@ function Senses({ name, life, onNext }: { name: string; life: React.RefObject<He
 }
 
 // ---- 3 your AIs: each through its own door ----
-// signedIn is the install's line or the card's own ask (FirstRun above, #307): once in, the Terminal word goes
+// Claude Code and Codex both come with the install (sol/install step 7, the engine's @openai/codex); only the sign-in
+// is the person's, and it is a web page: welcome.rs runs `claude auth login` / `codex login` with no terminal, each
+// opens its own page in the browser and lands here by itself (Frank, 29 Oct). Claude first; ChatGPT for whoever has no
+// Claude; neither, the two places to make an account. Either one is enough to go on, and none stops the next button.
+type Seen = "in" | "out" | "missing" | null;
 const STATUS_MS = 3000;
-function Minds({ signedIn, onNext }: { signedIn: boolean; onNext: () => void }) {
+const SIGN_UP: [string, string][] = [["Claude", "https://claude.ai/"], ["ChatGPT", "https://chatgpt.com/"]];
+const openPage = (url: string) => { import("@tauri-apps/plugin-opener").then((o) => o.openUrl(url)).catch(() => window.open(url, "_blank")); };
+function Minds({ claude, codex, installing, onSeen, onNext }: { claude: Seen; codex: Seen; installing: boolean; onSeen: (w: "claude" | "codex", v: Seen) => void; onNext: () => void }) {
   const [word, setWord] = useState("");
-  useEffect(() => { if (signedIn) setWord(""); }, [signedIn]);
-  const claude = () => invoke("claude_login").then(() => setWord("Terminal is open on Claude's sign-in; come back here when it says you are in."))
-    .catch((e) => setWord(String(e)));
+  const [busy, setBusy] = useState<"" | "claude" | "codex" | "install">("");
+  const anyIn = claude === "in" || codex === "in";
+  useEffect(() => { if (anyIn) { setWord(""); setBusy(""); } }, [anyIn]);
+  // the sign-in ended without taking (closed, ten minutes gone): the button comes back
+  useEffect(() => {
+    if (!inApp) return;
+    let off = () => {}, gone = false;
+    void import("@tauri-apps/api/event").then((ev) => ev.listen<{ which: string; ok: boolean }>("signin-done", (m) => {
+      setBusy((b) => (b === m.payload.which ? "" : b));
+      if (!m.payload.ok) setWord("the sign-in page closed before it finished. press the button to open it again.");
+    })).then((u) => { if (gone) u(); else off = u; });
+    return () => { gone = true; off(); };
+  }, []);
+  const signIn = (w: "claude" | "codex") => {
+    setWord(""); setBusy(w);
+    invoke(w === "claude" ? "claude_login" : "codex_login")
+      .then(() => setWord(`${w === "claude" ? "Claude" : "ChatGPT"}'s page is open in your browser. sign in there and come back; this card turns green by itself.`))
+      .catch((e) => { setBusy(""); setWord(String(e)); });
+  };
+  const install = () => {
+    setWord(""); setBusy("install");
+    invoke("claude_install").then(() => { setBusy(""); onSeen("claude", "out"); }).catch((e) => { setBusy(""); setWord(String(e)); });
+  };
+  const got = <span className="fr-got"><CellCheck land /> signed in</span>;
+  const foot = (w: "claude" | "codex", seen: Seen) => {
+    if (seen === "in") return got;
+    if (!inApp) return <span className="dim">inside Sol.app</span>;
+    // the install brings Claude Code at its step 7: while it runs, wait for it; a second installer beside it would race
+    if (w === "claude" && seen === "missing") return busy === "install" || installing
+      ? <span className="dim">installing Claude Code…</span>
+      : <button className="fr-btn stone" onClick={install}><span>install Claude Code</span></button>;
+    if (w === "codex" && seen === "missing") return <span className="dim">arrives with the install, a minute or two</span>;
+    const first = w === "claude" || claude !== "out";   // Claude's is the lit one; ChatGPT's lights when Claude has none to give
+    return <button className={`fr-btn ${first ? "sun" : "stone"}`} disabled={busy === w} onClick={() => signIn(w)}>
+      <span>{busy === w ? "waiting for the browser…" : w === "claude" ? "sign in with Claude" : "sign in with ChatGPT"}</span></button>;
+  };
   return (
     <Scene className="fr-minds">
       <Say text="bring your AIs." />
-      <p className="fr-hint">sign in with the accounts you already pay for, in each one's own window. Sol never sees a password.</p>
+      <p className="fr-hint">sign in with the one you already pay for, on its own page in your browser. one is enough. Sol never sees a password.</p>
       <GooBodies className="fr-cards">
         <div key="claude" className="fr-body fr-card">
           <GlyphBud seed="claude"><Glyph d="M8 2v12M2.8 5l10.4 6M2.8 11l10.4-6" /></GlyphBud>
           <h3 className="dtitle">Claude</h3>
-          <p>Claude Code runs inside Sol. Its sign-in opens in Terminal, the way Anthropic allows.</p>
-          <div className="fr-card-foot">{signedIn ? <span className="fr-got"><CellCheck land /> signed in</span> : inApp ? <button className="fr-btn sun" onClick={() => void claude()}><span>sign in to Claude</span></button> : <span className="dim">inside Sol.app</span>}</div>
+          <p>a Claude Pro or Max plan. Claude Code comes with Sol; you only sign in.</p>
+          <div className="fr-card-foot">{foot("claude", claude)}</div>
         </div>
         <div key="codex" className="fr-body fr-card">
           <GlyphBud seed="codex"><Glyph d="M3 4.5l3.5 3.5L3 11.5M8.5 12h4.5" /></GlyphBud>
-          <h3 className="dtitle">Codex</h3>
-          <p>ChatGPT's Codex comes inside Sol too. It signs you in itself the first time you talk to it.</p>
-          <div className="fr-card-foot"><span className="dim">nothing to do here</span></div>
+          <h3 className="dtitle">ChatGPT</h3>
+          <p>no Claude? a ChatGPT Plus or Pro plan. Codex comes with Sol; you only sign in.</p>
+          <div className="fr-card-foot">{foot("codex", codex)}</div>
         </div>
         <div key="gemini" className="fr-body fr-card">
           <GlyphBud seed="gemini"><Glyph d="M8 1.5C8.6 5.6 10.4 7.4 14.5 8 10.4 8.6 8.6 10.4 8 14.5 7.4 10.4 5.6 8.6 1.5 8 5.6 7.4 7.4 5.6 8 1.5z" /></GlyphBud>
@@ -381,7 +434,8 @@ function Minds({ signedIn, onNext }: { signedIn: boolean; onNext: () => void }) 
         </div>
       </GooBodies>
       {word && <p className="fr-hint">{word}</p>}
-      <button className="fr-go" onClick={onNext}><span>next</span></button>
+      {!anyIn && <p className="fr-hint">no account for either yet? make one at {SIGN_UP.map(([n, u], i) => <span key={n}>{i ? " or " : ""}<a href={u} onClick={(ev) => { ev.preventDefault(); openPage(u); }}>{n}</a></span>)}, then sign in here. or later, in Settings › my accounts.</p>}
+      <button className="fr-go" onClick={onNext}><span>{anyIn ? "next" : "later"}</span></button>
     </Scene>
   );
 }

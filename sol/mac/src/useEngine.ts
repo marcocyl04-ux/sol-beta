@@ -92,6 +92,8 @@ export function pinLine(c: Card, now: number): string {
 
 // Which engine (this Mac, the NucBox, a machine of the list, or the one that served the away page): engine.ts.
 export { LIVE, NEXT, FAR_NAME, ENGINE, WHICH, sameEngine, pickEngine, keptMachines, keepMachines, type Which, type Machine } from "./engine";
+/** the seat the first run picked, for the engine's first settings (FirstRun.tsx Minds) */
+export const FIRST_SEAT = "sol.firstrun.seat";
 export const fileUrl = (u?: string) => (!u ? u : /^(https?|data|blob):/.test(u) ? u : ENGINE_HTTP + (u.startsWith("/") ? "" : "/") + u);
 
 const EFFORTS: Effort[] = ["low", "medium", "high", "max"];
@@ -365,6 +367,13 @@ export function useEngine() {
         setEngineInfo({ haveVoiceKey: !!m.haveVoiceKey, dictationModel: String(m.dictationModel ?? ""), since: m.up?.since, port: m.up?.port });
         if (m.up?.health) setHealth(m.up.health as Health);
         seed(st);
+        // the first run's pick (FirstRun.tsx Minds): signed in to only one of Claude and ChatGPT, a new chat starts on
+        // that one; told once, to team.json's seats, which carries defaults.seat with it (team/settings.ts)
+        const seat = localStorage.getItem(FIRST_SEAT);
+        if (seat === "claude" || seat === "codex") {
+          localStorage.removeItem(FIRST_SEAT);
+          send({ type: "team.settings", rid: `first-seat-${Date.now()}`, patch: { seats: { life: seat } } });
+        }
       } else if (m.type === "arrange.changed") {
         setArrangement(m.arrangement as Arrangement);
         if (m.refused) setRefused({ line: String(m.refused), n: Date.now() });

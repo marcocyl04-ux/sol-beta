@@ -4,7 +4,7 @@
 const COMMANDS: &[&str] = &["engine_port", "notch_expand", "notch_geometry", "notch_regions", "face_log", "face_mode", "face_state", "type_text", "grab_sheet", "page_scroll", "permit_state", "permit_open", "permit_back", "eye_set", "eye_get", "clean_open", "clean_set", "clean_close", "clean_get", "call_mute", "vibe_start", "vibe_stop", "vibe_glow",
     "thing_open", "thing_show", "thing_bounds", "thing_close", "thing_nav", "thing_outside", "sites_sign_out", "sites_clear", "sol_url_take",
     // the first run (welcome.rs) and the engine's plug (lib.rs): missing here, the bundled app refused them all ("not allowed by ACL", the first run of 29 Oct)
-    "install_run", "claude_login", "claude_status", "welcome_done", "engine_start", "engine_phase", "idle_seconds"];
+    "install_run", "claude_login", "claude_status", "codex_login", "codex_status", "claude_install", "welcome_done", "engine_start", "engine_phase", "idle_seconds"];
 
 // The vibe tap (vibe/tap.swift, src/vibe.rs): a Swift helper that hears what the Mac plays, compiled here with the
 // command line tools' swiftc into OUT_DIR, where vibe.rs includes it. Not a Mac: an empty file, and vibe_start says so.

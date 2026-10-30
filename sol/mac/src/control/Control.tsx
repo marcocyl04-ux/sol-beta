@@ -18,6 +18,8 @@ const ALL = DEV && new URLSearchParams(location.search).get("open") === "all";  
 type What = "claude" | "codex" | "github";
 const NAMES: Record<What, string> = { claude: "Claude Code", codex: "Codex", github: "GitHub" };
 const base = (u: string) => u.replace(/^wss?:\/\//, "").replace(/\/+$/, "");
+const inApp = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const SIGN_UP: [string, string][] = [["Claude", "https://claude.ai/"], ["ChatGPT", "https://chatgpt.com/"]];
 const openUrl = (url: string) => { import("@tauri-apps/plugin-opener").then((o) => o.openUrl(url)).catch(() => window.open(url, "_blank")); };
 // the five pings (#100), in the person's words: what it is, and what "when it matters" does with it
 const PINGS: [PingKind, string, string][] = [
@@ -59,6 +61,31 @@ export function ControlDrawers({ open, toggle, onSet, flash }: {
     off = c.link?.on((m) => { if (m?.type === "work.term.out" && m.tid === tid) { window.clearTimeout(quiet); quiet = window.setTimeout(type, 500); } }) ?? off;
     window.setTimeout(type, 2500);
   };
+  // the sign-in on the web (Frank, 29 Oct): in Sol.app, the app runs `claude auth login` / `codex login` with no
+  // terminal (welcome.rs), each opens its own page in the browser and lands by itself; the terminal stays as the other way
+  const [web, setWeb] = useState<"" | "claude" | "codex" | "install">("");
+  const signInWeb = async (what: "claude" | "codex") => {
+    setNote(""); setWeb(what);
+    const { invoke } = await import("@tauri-apps/api/core");
+    invoke(what === "claude" ? "claude_login" : "codex_login")
+      .then(() => setNote(`${what === "claude" ? "Claude" : "ChatGPT"}'s page is open in your browser; sign in there and come back`))
+      .catch((e) => { setWeb(""); setNote(String(e)); });
+  };
+  const installClaude = async () => {
+    setNote(""); setWeb("install");
+    const { invoke } = await import("@tauri-apps/api/core");
+    invoke("claude_install").then(() => void c.loadAccounts(), (e) => setNote(String(e))).finally(() => setWeb(""));
+  };
+  useEffect(() => {
+    if (!inApp) return;
+    let off = () => {}, gone = false;
+    void import("@tauri-apps/api/event").then((ev) => ev.listen<{ which: string; ok: boolean }>("signin-done", (m) => {
+      setWeb((w) => (w === m.payload.which ? "" : w));
+      setNote(m.payload.ok ? "" : "the sign-in page closed before it finished; press sign in to open it again");
+      void c.loadAccounts();
+    })).then((u) => { if (gone) u(); else off = u; });
+    return () => { gone = true; off(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [signingSol, setSigningSol] = useState(false), [solNote, setSolNote] = useState("");
   const signInSol = async () => {
     setSigningSol(true); setSolNote("");
@@ -158,8 +185,10 @@ export function ControlDrawers({ open, toggle, onSet, flash }: {
 
     <Drawer name="my accounts" open={is("my accounts")} onToggle={() => toggle("my accounts")}>
       <p className="hint-line top">signed in on this machine, with your own subscription</p>
-      {(["claude", "codex"] as What[]).map((k) => <AccountRow key={k} what={k} a={c.accounts} onSignIn={() => void signIn(k)}>{termBox(k)}</AccountRow>)}
+      {(["claude", "codex"] as const).map((k) => <AccountRow key={k} what={k} a={c.accounts} web={inApp} busy={web}
+        onWeb={() => void signInWeb(k)} onSignIn={() => void signIn(k)} onInstall={() => void installClaude()}>{termBox(k)}</AccountRow>)}
       {note && <p className="hint-line stale">{note}</p>}
+      {c.accounts && !c.accounts.claude.in && !c.accounts.codex.in && <p className="hint-line">no account for either yet? make one at {SIGN_UP.map(([n, u], i) => <span key={n}>{i ? " or " : ""}<button className="wlink" onClick={() => openUrl(u)}>{n}</button></span>)}, then sign in here</p>}
       <div className="ctl-again"><button className="wlink" onClick={() => void c.loadAccounts()}>check again</button></div>
       <div className="ctl-sub">who answers</div>
       <div className="field-r">
@@ -261,13 +290,25 @@ function SiteLogins({ flash }: { flash?: (s: string) => void }) {
   </>);
 }
 
-function AccountRow({ what, a, onSignIn, children }: { what: What; a: Accounts | null; onSignIn: () => void; children: React.ReactNode }) {
+// a row of my accounts: Claude Code signs in with Claude, Codex with ChatGPT. In Sol.app the first button is the web
+// sign-in (the browser, no terminal); the terminal is the other way, kept for whoever wants it
+function AccountRow({ what, a, web, busy, onWeb, onSignIn, onInstall, children }: { what: "claude" | "codex"; a: Accounts | null; web: boolean; busy: string;
+  onWeb: () => void; onSignIn: () => void; onInstall: () => void; children: React.ReactNode }) {
   const x = a?.[what];
   const state = !a ? "reading…" : x?.missing ? `${NAMES[what]} is not on this machine` : x?.in ? `signed in${x.who ? `, ${x.who}` : ""}` : "not signed in";
+  const by = what === "claude" ? "Claude" : "ChatGPT";
+  const install = web && what === "claude" && x?.missing;
   return (<>
     <div className="field-r">
       <div className="lab"><span><i className={`ctl-dot ${!a ? "" : x?.in ? "in" : "out"}`} />{NAMES[what]}</span><small>{state}</small></div>
-      <button className={x?.in ? "wlink" : "wbtn"} disabled={!a || x?.missing} onClick={onSignIn}>{x?.in ? "sign in again" : "sign in"}</button>
+      <span className="ctl-signin">
+        {install
+          ? <button className="wbtn" disabled={busy === "install"} onClick={onInstall}>{busy === "install" ? "installing…" : "install Claude Code"}</button>
+          : web
+            ? <button className={x?.in ? "wlink" : "wbtn"} disabled={!a || x?.missing || busy === what} onClick={onWeb}>{busy === what ? "waiting for the browser…" : x?.in ? "sign in again" : `sign in with ${by}`}</button>
+            : null}
+        {!install && <button className={web || x?.in ? "wlink" : "wbtn"} disabled={!a || x?.missing} onClick={onSignIn}>{web ? "in a terminal" : x?.in ? "sign in again" : "sign in"}</button>}
+      </span>
     </div>
     {children}
   </>);

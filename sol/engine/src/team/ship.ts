@@ -245,7 +245,7 @@ question and sets itself up.
 **Linux**, and **Windows** inside Ubuntu under WSL (\`wsl --install\` once in PowerShell): the same line; there is
 no app, the face opens in your browser at http://localhost:1420.
 
-Both ask you to sign in to Claude (a Claude Pro or Max plan). ChatGPT (Plus or Pro, through Codex) works too: a
+Both offer a sign-in to Claude (a Claude Pro or Max plan). ChatGPT (Plus or Pro, through Codex) works too: a
 chat starts on Codex, which signs you in the first time you talk to it, and a coding session in Work runs on
 Claude unless you pick GPT. Rooms you share with others (Cowork) meet on Sol's cloud, signed in with your Google
 account; the team's own machinery (the Hand, the stamp) is not in a beta Sol.
@@ -267,7 +267,8 @@ A new version: Sol says so in its own window within the hour, with an **Update**
 fetches the new version and rebuilds its engine and face from it. The Mac app's own shell comes from the
 [latest release](https://github.com/marcocyl04-ux/sol-beta/releases/latest) when it changed; the release notes say so. On your own branch, \`bash sol/mine/rebase\` instead:
 it puts your changes on top of the new version, and if one does not fit it names the place and changes nothing. When something breaks, \`sol/HELP.md\`.
-Something wrong, or a thought: open an issue on this repository.
+Something wrong, or a thought: say it in the beta testers' Discord, https://discord.gg/f2CHmYDDZV (in Sol, **Tell us…**
+in the menu bar menu opens it), or open an issue on this repository.
 `;
 
 /** git with something on stdin (update-index --index-info, hash-object --stdin) */
